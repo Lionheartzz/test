@@ -47,6 +47,8 @@ def build_geometry(design: Design):
     lib = {d.id: d for d in design.library}
     cuts, nodes, circuits, envelopes, plugs, placements = {}, {}, {}, {}, {}, {}
     for f in design.features:
+        if f.suppressed:
+            continue
         origin, direction = placement(f, b)
         placements[f.id] = dict(origin=origin, direction=direction)
         if f.kind == 'cavity':
@@ -73,7 +75,7 @@ def build_geometry(design: Design):
             circuits[f.id] = f.circuit
             if f.plugged or f.kind == 'port':
                 envelopes[f.id] = cylinder(origin, direction, f.clearance_diameter, -f.clearance_height, 0)
-    production = block.cut(*cuts.values()).clean()
+    production = block.cut(*cuts.values()).clean() if cuts else block
     return Geometry(block, production, cuts, nodes, circuits, envelopes, plugs, placements)
 
 

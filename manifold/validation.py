@@ -23,7 +23,7 @@ def validate(design, g):
             overlaps[key] = g.nodes[a].intersect(g.nodes[b]).Volume()
         return overlaps[key]
 
-    expected = {tuple(sorted((f.id, t))) for f in design.features for t in f.connects_to}
+    expected = {tuple(sorted((f.id, t))) for f in design.features if not f.suppressed for t in f.connects_to}
     # Only installed hydraulic zones are nodes; never connect zones through an empty cartridge bore.
     for a, b in combinations(g.nodes, 2):
         if a.split(':')[0] == b.split(':')[0]:
@@ -41,6 +41,9 @@ def validate(design, g):
                 graph[a].add(b)
                 graph[b].add(a)
     for a, b in sorted(expected):
+        if a not in g.nodes or b not in g.nodes:
+            result('expected_connection', [a,b], 'missing interface', 'present', False, 'Declared endpoint is missing.')
+            continue
         volume = overlap(a, b)
         result('expected_connection', [a, b], volume, threshold,
                volume >= threshold and g.circuits[a] == g.circuits[b],
@@ -91,6 +94,8 @@ def validate(design, g):
 
     b = design.block
     for f in design.features:
+        if f.suppressed:
+            continue
         shape = g.cuts[f.id]
         bb = shape.BoundingBox()
         margins = dict(left=bb.xmin, right=b.length - bb.xmax, front=bb.ymin,
@@ -126,6 +131,18 @@ def validate(design, g):
                distance + EPS >= design.rules.minimum_access_gap,
                'Declared cartridge, fitting and plug tool envelopes need separation.', unit='mm')
 
+    for net in design.nets:
+        missing = sorted(set(net.members) - set(g.nodes))
+        result('net_intent', [net.id, *missing], len(missing), 0, not missing, 'Every required hydraulic terminal must exist, including suppressed component requirements.')
+    for component in design.components:
+        f = by_id.get(component.feature_id)
+        matches = (f is not None and not f.suppressed and f.kind == 'cavity' and f.circuits == component.ports
+                   and (not component.cavity_definition or component.cavity_definition == f.definition)
+                   and (not component.cartridge_model or component.cartridge_model == f.cartridge_model))
+        result('schematic_conformance', [component.id], matches, True, matches and component.status == 'confirmed', 'Confirmed schematic component must match a placed active cartridge and its port assignments.')
+    if design.constraints.envelope_max:
+        dims = (b.length,b.width,b.height)
+        result('block_envelope', ['block'], str(dims), str(design.constraints.envelope_max), all(a <= limit for a,limit in zip(dims,design.constraints.envelope_max)), 'Block must fit requested maximum envelope.')
     result('solid_validity', ['block'], g.production.isValid(), True, g.production.isValid(), 'OCCT BRep validity.')
     result('solid_count', ['block'], len(g.production.Solids()), 1, len(g.production.Solids()) == 1,
            'Machined block must remain one connected solid.')

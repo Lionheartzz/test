@@ -1,193 +1,43 @@
 import './style.css';
-import { createViewer } from './viewer.js';
-
-const $ = id => document.getElementById(id);
-const colors = { P: '#ef5959', T: '#459cff', A: '#41ca8b', B: '#f2d454', LS: '#f79b42', Drain: '#b08bea' };
-const faces = { top: '顶面 +Z', bottom: '底面 −Z', front: '前面 −Y', back: '后面 +Y', left: '左面 −X', right: '右面 +X' };
-const kindNames = { cavity: '插装孔', port: '外部油口', drilling: '内部钻孔' };
-let state, draft, report, model, selection = 'block', dirty = false, busy = false, externalChange = false;
-let viewer;
-try { viewer = createViewer($('viewport'), select); } catch (e) { notice('WebGL 初始化失败：' + e.message, true); }
-
-function element(tag, text, cls) { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; }
-function notice(message, error = false) { $('notice').textContent = message; $('notice').className = error ? 'error' : ''; }
-async function api(url, options = {}) {
-  const response = await fetch(url, options);
-  if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail || response.status)); }
-  return response.json();
+import {createViewer} from './viewer.js';
+import {clamp,syncNets} from './kinematics.js';
+import {workflows} from './workflows.js';
+const $=id=>document.getElementById(id),colors={P:'#ef5959',T:'#459cff',A:'#41ca8b',B:'#f2d454'},faces=Object.fromEntries(['top','bottom','front','back','left','right'].map(f=>[f,f]));
+let state,draft,report,model,resolved,selection='block',dirty=false,busy=false,externalChange=false,viewer,history=[],future=[],previewToken=0,previewTimer,dragStart;
+function element(tag,text,cls){const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;}
+function notice(message,error=false){$('notice').textContent=message;$('notice').className=error?'error':'';}
+async function api(url,options={}){const r=await fetch(url,options);if(!r.ok){const b=await r.json().catch(()=>({}));throw Error(typeof b.detail==='string'?b.detail:JSON.stringify(b.detail||r.status));}return r.json();}
+const post=(url,body)=>api(url,{method:'POST',headers:{'Content-Type':'application/json','X-PMC-Request':'local-console'},body:JSON.stringify(body)});
+function change(fn){if(busy)return;const before=structuredClone(draft);try{fn();syncNets(draft);history.push(before);if(history.length>40)history.shift();future=[];markDirty();renderTree();select(selection);}catch(e){draft=before;notice(e.message,true);select(selection);}}
+function refreshPreview(){const token=++previewToken;clearTimeout(previewTimer);viewer?.preview(draft);viewer?.setDesign(draft);$('model-info').textContent='PARAMETRIC PREVIEW · NOT VALIDATED';previewTimer=setTimeout(async()=>{try{const p=await post('/api/preview',draft);if(token!==previewToken||busy)return;resolved=p.design;viewer?.preview(resolved);viewer?.setDesign(draft);$('model-info').textContent='UNVALIDATED · '+p.routes.map(r=>`${r.net}: ${r.drillings} drills / ${r.plugs} plugs`).join(' · ');}catch(e){if(token===previewToken)notice('Preview: '+e.message,true);}},100);}
+function markDirty(){dirty=true;renderHeader();refreshPreview();notice('Draft preview updated. Save & Validate runs exact geometry checks and writes an immutable build.');}
+try{viewer=createViewer($('viewport'),select,(id,u,v,done)=>{if(busy)return;const f=draft.features.find(f=>f.id===id);if(!dragStart)dragStart=structuredClone(draft);f.u=u;f.v=v;dirty=true;renderHeader();refreshPreview();$('selection-label').textContent=`${id} · ${f.face} · U ${u.toFixed(1)} / V ${v.toFixed(1)} mm`;notice('Live position · envelope clamped to face · 1 mm snap · preview is not validated');if(done){history.push(dragStart);future=[];dragStart=null;select(id);}});}catch(e){notice('WebGL: '+e.message,true);}
+function renderHeader(){if(!draft)return;$('project-name').textContent=draft.name;const b=draft.block;$('dimensions').textContent=`${b.length} × ${b.width} × ${b.height} mm`;$('revision').textContent='SHA '+state.revision.slice(0,8);const status=dirty?'DRAFT':externalChange||state.stale?'STALE':state.build?.status||'UNBUILT';$('status').textContent=status;$('status').className='badge '+(status==='FAIL'?'fail':status==='PASS'?'':'warning');for(const [id,name]of [['step-download','production.step'],['data-download','design.json'],['report-download','validation.md'],['chart-download','drill-chart.csv'],['manufacturing-download','manufacturing.json']]){const ok=!!state.build&&!dirty&&!state.stale&&!externalChange&&!busy&&(id!=='step-download'||status==='PASS');$(id).classList.toggle('disabled',!ok);if(ok)$(id).href=`/api/artifacts/${state.build.build_id}/${name}`;else $(id).removeAttribute('href');}$('build').textContent=busy?'Computing exact solids…':'Save & Validate';$('undo').disabled=busy||!history.length;$('redo').disabled=busy||!future.length;if(dirty||state.stale)$('check-counts').textContent='Previous build results · draft not validated';}
+function renderTree(){const tree=$('feature-tree');tree.replaceChildren();$('feature-count').textContent=draft.features.length+' ITEMS';for(const kind of ['cavity','port','drilling']){const group=element('div',null,'tree-group'),list=draft.features.filter(f=>f.kind===kind);group.append(element('div',`${{cavity:'Cartridges',port:'External ports',drilling:'Manual drillings'}[kind]} / ${list.length}`,'tree-heading'));for(const f of list){const btn=element('button',null,'tree-feature');btn.dataset.feature=f.id;const dot=element('span',null,'swatch');dot.style.background=colors[f.circuit]||'#b4c7da';btn.append(dot,element('span',f.id),element('small',f.suppressed?'SUPPRESSED':f.kind==='cavity'?Object.values(f.circuits).join(' / '):f.face));btn.onclick=()=>select(f.id);group.append(btn);}tree.append(group);}if(draft.nets.some(n=>n.routing==='automatic'))tree.append(element('p','Generated drillings follow Hydraulic Nets.','inspector-note'));$('circuits').replaceChildren();for(const n of draft.nets){const btn=element('button',n.id,'circuit-toggle');btn.style.borderColor=n.color||colors[n.id]||'#b08bea';btn.onclick=()=>{btn.classList.toggle('off');viewer.circuit(n.id,!btn.classList.contains('off'));};$('circuits').append(btn);}}
+function field(parent,label,value,onChange,options=null,numeric=false){const wrap=element('label',label,'field'),input=document.createElement(options?'select':'input');input.setAttribute('aria-label',label);if(options)for(const [key,text]of Object.entries(options)){const o=element('option',text);o.value=key;input.append(o);}else{input.type=numeric?'number':'text';if(numeric)input.step='.1';}input.value=value??'';input.onchange=()=>{const v=numeric?input.valueAsNumber:input.value;if(numeric&&!Number.isFinite(v)){input.reportValidity();return;}onChange(v);};wrap.append(input);parent.append(wrap);return input;}
+const prop=(p,l,v,fn,o=null,n=false)=>field(p,l,v,x=>change(()=>fn(x)),o,n);
+function action(parent,label,fn){const b=element('button',label);b.type='button';b.onclick=fn;parent.append(b);return b;}
+function newId(prefix){let i=1;while(draft.features.some(f=>f.id===prefix+i))i++;return prefix+i;}
+function replaceCavity(f,id){
+  const def=draft.library.find(d=>d.id===id),mapping=Object.fromEntries(def.zones.map(z=>[z.id,f.circuits[z.id]||'']));
+  const apply=()=>change(()=>{if(Object.values(mapping).some(n=>!n))throw Error('Choose a net for every new interface');f.definition=id;f.circuits={...mapping};[f.u,f.v]=clamp(f,draft,f.u,f.v);const valid=new Set(def.zones.map(z=>`${f.id}:${z.id}`));for(const bore of draft.features)bore.connects_to=bore.connects_to.filter(t=>!t.startsWith(f.id+':')||valid.has(t));for(const c of draft.components)if(c.feature_id===f.id)c.status='unconfirmed';});
+  if(def.zones.length===Object.keys(f.circuits).length&&Object.values(mapping).every(Boolean)){apply();return;}
+  $('workflow-title').textContent='Replace cavity · confirm interface mapping';const box=$('workflow-content');box.replaceChildren(element('p','The new cavity has different hydraulic windows. Assign every new window explicitly. Removed windows will lose their physical contact declarations; schematic mapping must be reviewed.'));
+  for(const z of def.zones)field(box,`New interface ${z.id}`,mapping[z.id],v=>mapping[z.id]=v,{'':'Select hydraulic net',...Object.fromEntries(draft.nets.map(n=>[n.id,n.id]))});
+  action(box,'Apply replacement',()=>{if(Object.values(mapping).some(n=>!n)){$('workflow-error').textContent='Choose a net for every interface';return;}apply();$('workflow-dialog').close();});$('workflow-error').textContent='';$('workflow-dialog').showModal();select(f.id);
 }
-function artifact(name) { return `/api/artifacts/${state.build.build_id}/${name}`; }
-function markDirty() { dirty = true; renderHeader(); notice('草稿已修改。模型仍为上次构建；点击“重建与校验”保存并更新。'); }
-function renderHeader() {
-  $('project-name').textContent = draft.name;
-  const b = draft.block; $('dimensions').textContent = `${b.length} × ${b.width} × ${b.height} mm`;
-  $('revision').textContent = 'SHA ' + state.revision.slice(0, 8);
-  const status = dirty ? 'DRAFT' : externalChange || state.stale ? 'STALE' : state.build?.status || 'UNBUILT';
-  $('status').textContent = status; $('status').className = 'badge ' + (status === 'FAIL' ? 'fail' : status === 'PASS' ? '' : 'warning');
-  const allowed = status === 'PASS' && !busy;
-  $('step-download').classList.toggle('disabled', !allowed);
-  if (allowed) $('step-download').href = artifact('production.step'); else $('step-download').removeAttribute('href');
-  for (const [id, name] of [['data-download', 'design.json'], ['report-download', 'validation.md'], ['review-download', 'review.json']]) {
-    $(id).classList.toggle('disabled', !state.build || dirty || state.stale || externalChange);
-    if (state.build) $(id).href = artifact(name);
-  }
-  $('build').textContent = busy ? '正在计算实体…' : dirty ? '保存 · 重建与校验' : '重建与校验';
-}
-function renderTree() {
-  $('feature-count').textContent = draft.features.length + ' ITEMS'; $('feature-tree').replaceChildren();
-  for (const kind of ['cavity', 'port', 'drilling']) {
-    const group = element('div', null, 'tree-group'); const list = draft.features.filter(f => f.kind === kind);
-    group.append(element('div', `${kindNames[kind]} / ${list.length}`, 'tree-heading'));
-    for (const f of list) {
-      const button = element('button', null, 'tree-feature'); button.dataset.feature = f.id;
-      const swatch = element('span', null, 'swatch'); swatch.style.background = colors[f.circuit] || '#b4c7da';
-      button.append(swatch, element('span', f.id), element('small', f.plugged ? 'PLUG' : f.kind === 'cavity' ? Object.values(f.circuits).join(' / ') : faces[f.face].split(' ')[0]));
-      button.onclick = () => select(f.id); group.append(button);
-    }
-    $('feature-tree').append(group);
-  }
-}
-function field(parent, label, value, onChange, options = null, numeric = false) {
-  const wrap = element('label', label, 'field'); const input = document.createElement(options ? 'select' : 'input');
-  input.setAttribute('aria-label', label);
-  if (options) for (const [key, text] of Object.entries(options)) { const option = element('option', text); option.value = key; input.append(option); }
-  else { input.type = numeric ? 'number' : 'text'; if (numeric) { input.step = '.1'; input.min = '0'; input.max = '2000'; } }
-  input.value = value;
-  input.onchange = () => {
-    const next = numeric ? input.valueAsNumber : input.value;
-    if (numeric && (!Number.isFinite(next) || next < 0 || next > 2000)) { input.setCustomValidity('请输入 0–2000 的有效数值'); input.reportValidity(); return; }
-    input.setCustomValidity(''); onChange(next); markDirty();
-  };
-  wrap.append(input); parent.append(wrap); return input;
-}
-function select(id) {
-  if (!draft) return;
-  selection = draft.features.some(f => f.id === id) ? id : 'block';
-  viewer?.select(selection); $('selection-label').textContent = selection === 'block' ? '' : selection;
-  for (const btn of document.querySelectorAll('[data-feature]')) btn.classList.toggle('active', btn.dataset.feature === selection);
-  $('select-block').classList.toggle('active', selection === 'block');
-  const form = $('inspector'); form.replaceChildren(); form.onsubmit = e => e.preventDefault();
-  if (selection === 'block') {
-    $('selection-kind').textContent = 'STOCK'; form.append(element('div', 'MANIFOLD', 'inspector-title'));
-    field(form, '项目名称', draft.name, v => { draft.name = v; });
-    for (const [key, label] of [['length', '长度 X'], ['width', '宽度 Y'], ['height', '高度 Z']]) field(form, label + ' / mm', draft.block[key], v => { draft.block[key] = v; }, null, true);
-    field(form, '材料', draft.block.material, v => { draft.block.material = v; });
-    field(form, '最小壁厚 / mm', draft.rules.minimum_wall, v => { draft.rules.minimum_wall = v; }, null, true);
-    form.append(element('div', '原点：左 / 前 / 底角。X=长度，Y=宽度，Z=高度。所有钻孔从所选面沿法线向内加工。', 'inspector-note'));
-  } else {
-    const f = draft.features.find(f => f.id === selection);
-    $('selection-kind').textContent = f.kind.toUpperCase(); form.append(element('div', f.id, 'inspector-title'));
-    field(form, '安装 / 钻入面', f.face, v => { f.face = v; select(f.id); }, faces);
-    const axes = f.face === 'top' || f.face === 'bottom' ? ['X', 'Y'] : f.face === 'front' || f.face === 'back' ? ['X', 'Z'] : ['Y', 'Z'];
-    const row = element('div', null, 'field-row'); form.append(row);
-    field(row, `位置 U (${axes[0]})`, f.u, v => { f.u = v; }, null, true); field(row, `位置 V (${axes[1]})`, f.v, v => { f.v = v; }, null, true);
-    if (f.kind === 'cavity') {
-      field(form, '孔腔定义', f.definition, v => { f.definition = v; const d = draft.library.find(x => x.id === v); f.circuits = Object.fromEntries(d.zones.map(z => [z.id, f.circuits[z.id] || 'P'])); select(f.id); }, Object.fromEntries(draft.library.map(d => [d.id, d.label])));
-      for (const key of Object.keys(f.circuits)) field(form, `接口 ${key} / 油路`, f.circuits[key], v => { f.circuits[key] = v; renderTree(); }, Object.fromEntries(Object.keys(colors).map(c => [c, c])));
-      const def = draft.library.find(d => d.id === f.definition);
-      form.append(element('div', def.stages.map(s => `Ø${s.diameter} · 深度 ${s.start}–${s.end}`).join('\n'), 'property-note'));
-      form.append(element('div', def.source + '\n' + def.thread_note, 'inspector-note'));
-    } else {
-      field(form, '油路', f.circuit, v => { f.circuit = v; renderTree(); }, Object.fromEntries(Object.keys(colors).map(c => [c, c])));
-      const dims = element('div', null, 'field-row'); form.append(dims);
-      field(dims, '直径 / mm', f.diameter, v => { f.diameter = v; }, null, true); field(dims, '圆柱深度 / mm', f.depth, v => { f.depth = v; }, null, true);
-      field(form, '钻尖夹角 / ° (180 = 平底)', f.tip_angle, v => { f.tip_angle = v; }, null, true);
-      if (f.kind === 'port') { field(form, '油口类型（几何为直孔）', f.port_type, v => { f.port_type = v; }); field(form, '规格注记', f.size, v => { f.size = v; }); }
-      if (f.kind === 'drilling') {
-        field(form, '入口封闭', f.plugged ? 'plug' : 'port', v => { f.plugged = v === 'plug'; select(f.id); }, { port: '由同轴外部油口封闭', plug: '安装堵头' });
-        if (f.plugged) field(form, '堵头啮合长度 / mm', f.plug_length, v => { f.plug_length = v; }, null, true);
-      }
-      field(form, '预期直接连接（逗号分隔）', f.connects_to.join(', '), v => { f.connects_to = v.split(',').map(s => s.trim()).filter(Boolean); });
-      if (f.plugged || f.kind === 'port') {
-        const access = element('div', null, 'field-row'); form.append(access);
-        field(access, '工具空间直径', f.clearance_diameter, v => { f.clearance_diameter = v; }, null, true);
-        field(access, '工具空间高度', f.clearance_height, v => { f.clearance_height = v; }, null, true);
-      }
-    }
-    const pose = model?.placements[f.id];
-    if (pose) form.append(element('div', `已构建原点 [${pose.origin.join(', ')}]\n钻入方向 [${pose.direction.join(', ')}]`, 'property-note inspector-divider'));
-    const links = Object.entries(report?.graph || {}).filter(([n]) => n === f.id || n.startsWith(f.id + ':'));
-    for (const [n, targets] of links) form.append(element('div', `${n} → ${targets.join(', ') || '未连接'}`, 'property-note'));
-  }
-  $('feature-results').replaceChildren();
-  for (const c of (report?.checks || []).filter(c => c.status !== 'PASS' && c.items.some(i => i.split(':')[0] === selection))) $('feature-results').append(element('div', `${c.status} · ${c.rule}: ${c.actual} / ${c.required} ${c.unit}`, 'feature-check'));
-  if ($('report-filter').value === 'selected') renderReport();
-}
-function renderReport() {
-  if (!report) return;
-  $('check-counts').textContent = `${report.counts.PASS} PASS / ${report.counts.WARNING} WARNING / ${report.counts.FAIL} FAIL`;
-  $('build-time').textContent = new Date(report.generated_at).toLocaleTimeString();
-  $('limitations').replaceChildren(...report.limitations.map(s => element('li', s)));
-  const filter = $('report-filter').value;
-  const checks = report.checks.filter(c => filter === 'all' || (filter === 'issues' ? c.status !== 'PASS' : c.items.some(i => i.split(':')[0] === selection)));
-  const container = $('validation-results'); container.replaceChildren();
-  if (!checks.length) {
-    const message = element('div', null, 'pass-message'); const text = element('div', '✓ 当前构建未发现规则违规');
-    text.append(element('small', '几何与连接检查通过。演示孔腔、材料及加工参数仍需工程审核。')); message.append(text); container.append(message); return;
-  }
-  const table = element('table', null, 'check-table'); const head = element('thead'), hr = element('tr');
-  for (const title of ['状态', '检查规则', '相关项', '实际值', '要求值']) hr.append(element('th', title)); head.append(hr); table.append(head);
-  const body = element('tbody');
-  for (const c of checks) {
-    const row = element('tr'); row.title = c.message; row.tabIndex = 0;
-    row.append(element('td', c.status, c.status), element('td', c.rule), element('td', c.items.join(' ↔ ')), element('td', `${c.actual} ${c.unit}`), element('td', String(c.required)));
-    row.onclick = () => select(c.items[0].split(':')[0]); row.onkeydown = e => { if (e.key === 'Enter') row.click(); }; body.append(row);
-  }
-  table.append(body); container.append(table);
-}
-async function load() {
-  const next = await api('/api/state');
-  let nextReport, nextModel;
-  if (next.build) [nextReport, nextModel] = await Promise.all(['validation.json', 'review.json'].map(n => api(`/api/artifacts/${next.build.build_id}/${n}`)));
-  state = next; draft = structuredClone(state.design); report = nextReport; model = nextModel; dirty = false; externalChange = false;
-  if (model) { viewer?.load(model, state.design.features); $('model-info').textContent = `OCCT BREP · ${(model.volume_mm3 / 1000).toFixed(1)} cm³ · ${model.parts.length} review parts`; }
-  renderTree(); renderHeader(); select(selection); renderReport();
-  notice(state.stale ? '磁盘设计比模型更新。请点击“重建与校验”。' : '模型与设计数据一致。选择孔腔或钻孔查看尺寸、实际连接和校验结果。');
-}
-$('select-block').onclick = () => select('block');
-$('reload').onclick = async () => { if (dirty && !confirm('重新读取会丢弃未保存的网页草稿，继续？')) return; try { await load(); } catch (e) { notice(e.message, true); } };
-$('build').onclick = async () => {
-  if (busy || !state) return;
-  if (!$('inspector').reportValidity()) return;
-  busy = true; document.body.classList.add('busy');
-  // Freeze every editor during the snapshot build so late edits cannot be silently discarded.
-  for (const e of document.querySelectorAll('button, #inspector input, #inspector select')) e.disabled = true;
-  renderHeader(); notice('正在执行实体切削、连接校验和 STEP 往返检查…');
-  try {
-    await api('/api/build', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-PMC-Request': 'local-console' }, body: JSON.stringify({ expected_revision: state.revision, design: dirty ? draft : null }) });
-    await load();
-  } catch (e) { notice(e.message, true); }
-  finally { busy = false; document.body.classList.remove('busy'); for (const e of document.querySelectorAll('button, #inspector input, #inspector select')) e.disabled = false; renderHeader(); }
-};
-$('fit').onclick = () => viewer?.fit(); $('iso-view').onclick = () => viewer?.fit('iso'); $('top-view').onclick = () => viewer?.fit('top');
-for (const mode of ['review', 'solid']) $(mode + '-mode').onclick = () => { viewer?.mode(mode); $('review-mode').classList.toggle('active', mode === 'review'); $('solid-mode').classList.toggle('active', mode === 'solid'); };
-$('opacity').oninput = e => { viewer?.opacity(Number(e.target.value) / 100); $('opacity-value').textContent = e.target.value + '%'; };
-for (const key of ['cavities', 'drillings', 'labels']) $('show-' + key).onchange = e => viewer?.toggle(key, e.target.checked);
-for (const [circuit, color] of Object.entries(colors)) {
-  const btn = element('button', null, 'circuit-toggle'); btn.setAttribute('aria-label', `显示油路 ${circuit}`); btn.setAttribute('aria-pressed', 'true');
-  const dot = element('span', null, 'swatch'); dot.style.background = color; btn.append(dot, element('span', circuit));
-  btn.onclick = () => { const show = btn.classList.contains('off'); btn.classList.toggle('off', !show); btn.setAttribute('aria-pressed', String(show)); viewer?.circuit(circuit, show); }; $('circuits').append(btn);
-}
-$('report-filter').onchange = renderReport;
-$('json-open').onclick = () => { $('json-editor').value = JSON.stringify(draft, null, 2); $('json-error').textContent = ''; $('json-dialog').showModal(); };
-$('json-close').onclick = () => $('json-dialog').close();
-$('json-apply').onclick = async () => {
-  $('json-apply').disabled = true;
-  try { const raw = JSON.parse($('json-editor').value);
-    const data = await api('/api/check-design', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-PMC-Request': 'local-console' }, body: JSON.stringify(raw) });
-    draft = data; $('json-dialog').close(); renderTree(); select('block'); markDirty();
-  } catch (e) { $('json-error').textContent = e.message; }
-  finally { $('json-apply').disabled = false; }
-};
-window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
-setInterval(async () => {
-  if (!state || busy || document.hidden) return;
-  try {
-    const next = await api('/api/state');
-    if (next.revision !== state.revision || next.build?.build_id !== state.build?.build_id) {
-      if (!dirty) await load();
-      else { externalChange = true; renderHeader(); notice('磁盘设计或构建已更新；网页草稿已保留。重新读取后再编辑，避免覆盖。', true); }
-    }
-  } catch (e) { externalChange = true; renderHeader(); notice('本地服务或项目文件不可用：' + e.message, true); }
-}, 5000);
-load().catch(e => notice('无法加载：' + e.message, true));
+function remove(id){change(()=>{const ids=new Set([id]);let n;do{n=ids.size;for(const f of draft.features)if(ids.has(f.parent_id))ids.add(f.id);}while(ids.size!==n);draft.features=draft.features.filter(f=>!ids.has(f.id));for(const f of draft.features)f.connects_to=f.connects_to.filter(t=>!ids.has(t.split(':')[0]));for(const c of draft.components)if(ids.has(c.feature_id)){c.feature_id=null;c.status='unconfirmed';}selection='block';});}
+function select(id){if(!draft)return;selection=draft.features.some(f=>f.id===id)?id:'block';viewer?.select(selection);$('selection-label').textContent=selection==='block'?'':selection;for(const b of document.querySelectorAll('[data-feature]'))b.classList.toggle('active',b.dataset.feature===selection);$('select-block').classList.toggle('active',selection==='block');const form=$('inspector');form.replaceChildren();form.onsubmit=e=>e.preventDefault();
+if(selection==='block'){$('selection-kind').textContent='STOCK';form.append(element('div','MANIFOLD','inspector-title'));prop(form,'Project name',draft.name,v=>draft.name=v);for(const [key,label]of [['length','Length X / mm'],['width','Width Y / mm'],['height','Height Z / mm']])prop(form,label,draft.block[key],v=>draft.block[key]=v,null,true);prop(form,'Material',draft.block.material,v=>draft.block.material=v);prop(form,'Minimum wall / mm',draft.rules.minimum_wall,v=>draft.rules.minimum_wall=v,null,true);prop(form,'Design priority',draft.constraints.priority,v=>draft.constraints.priority=v,{compact:'Compact envelope',fewer_plugs:'Fewer plugs',simple_machining:'Simpler machining',short_drills:'Shorter drillings'});prop(form,'Envelope limit X,Y,Z / mm',(draft.constraints.envelope_max||[]).join(', '),v=>draft.constraints.envelope_max=v.trim()?v.split(',').map(Number):null);prop(form,'Engineering notes',draft.constraints.notes,v=>draft.constraints.notes=v);form.append(element('p','Origin: left / front / bottom. Exact wall and intersection checks run on Save & Validate.','inspector-note'));}
+else{const f=draft.features.find(f=>f.id===selection);$('selection-kind').textContent=f.kind.toUpperCase();form.append(element('div',f.id,'inspector-title'));const bar=element('div',null,'action-row');form.append(bar);action(bar,'Duplicate',()=>change(()=>{const copy=structuredClone(f);copy.id=newId(f.kind==='cavity'?'CV':'PORT');copy.parent_id=null;copy.schematic_id='';copy.connects_to=[];[copy.u,copy.v]=clamp(copy,draft,copy.u+25,copy.v+20);draft.features.push(copy);selection=copy.id;}));action(bar,f.suppressed?'Restore':'Suppress',()=>change(()=>f.suppressed=!f.suppressed));action(bar,'Delete',()=>remove(f.id));prop(form,'Face',f.face,v=>{f.face=v;[f.u,f.v]=clamp(f,draft,f.u,f.v);},faces);const row=element('div',null,'field-row');form.append(row);prop(row,'Position U / mm',f.u,v=>{[f.u,f.v]=clamp(f,draft,v,f.v);},null,true);prop(row,'Position V / mm',f.v,v=>{[f.u,f.v]=clamp(f,draft,f.u,v);},null,true);
+if(f.kind==='cavity'){field(form,'Replace cavity',f.definition,v=>replaceCavity(f,v),Object.fromEntries(draft.library.map(d=>[d.id,d.label+' · '+d.revision])));prop(form,'Cartridge model',f.cartridge_model,v=>f.cartridge_model=v);for(const key of Object.keys(f.circuits))prop(form,`Interface ${key} → Net`,f.circuits[key],v=>f.circuits[key]=v,Object.fromEntries(draft.nets.map(n=>[n.id,n.id])));const def=draft.library.find(d=>d.id===f.definition);form.append(element('p',`${def.manufacturer} · ${def.provenance}\n${def.source}\n${def.stages.map(s=>`Ø${s.diameter} / ${s.start}–${s.end} mm`).join('\n')}`,'property-note'));}
+else{prop(form,'Hydraulic net',f.circuit,v=>f.circuit=v,Object.fromEntries(draft.nets.map(n=>[n.id,n.id])));for(const key of ['diameter','depth'])prop(form,key==='diameter'?'Diameter / mm':'Cylinder depth / mm',f[key],v=>f[key]=v,null,true);if(f.kind==='port')prop(form,'Port specification',f.size,v=>f.size=v);else{prop(form,'Entry closure',String(f.plugged),v=>f.plugged=v==='true',{'true':'Plug','false':'Coaxial external port'});prop(form,'Plug engagement / mm',f.plug_length,v=>f.plug_length=v,null,true);prop(form,'Expected contacts',f.connects_to.join(', '),v=>f.connects_to=v.split(',').map(s=>s.trim()).filter(Boolean));}}
+const advanced=element('details');advanced.append(element('summary','Relationships & machining'));form.append(advanced);prop(advanced,'Rotation / degrees',f.rotation,v=>f.rotation=v,null,true);prop(advanced,'Parent feature',f.parent_id||'',v=>{f.parent_id=v||null;const p=draft.features.find(x=>x.id===v);if(p)f.local_offset=[f.u-p.u,f.v-p.v];},{'':'Independent',...Object.fromEntries(draft.features.filter(x=>x.id!==f.id).map(x=>[x.id,x.id]))});prop(advanced,'Machining ID',f.machining_id,v=>f.machining_id=v);advanced.append(element('p','Rotation moves attached offsets. Current cavity solids are axisymmetric.','inspector-note'));for(const [n,t]of Object.entries(report?.graph||{}).filter(([n])=>n===f.id||n.startsWith(f.id+':')))form.append(element('div',`${n} → ${t.join(', ')||'Disconnected'} (last build)`,'property-note'));}
+$('feature-results').replaceChildren();for(const c of (report?.checks||[]).filter(c=>c.status!=='PASS'&&c.items.some(i=>i.split(':')[0]===selection)))$('feature-results').append(element('div',`${c.status} · ${c.rule}: ${c.actual} / ${c.required} ${c.unit}`,'feature-check'));if($('report-filter').value==='selected')renderReport();}
+function renderReport(){if(!report)return;$('check-counts').textContent=`${report.counts.PASS} PASS / ${report.counts.WARNING} WARNING / ${report.counts.FAIL} FAIL`;$('build-time').textContent=new Date(report.generated_at).toLocaleTimeString();$('limitations').replaceChildren(...report.limitations.map(s=>element('li',s)));const filter=$('report-filter').value,checks=report.checks.filter(c=>filter==='all'||(filter==='issues'?c.status!=='PASS':c.items.some(i=>i.split(':')[0]===selection))),container=$('validation-results');container.replaceChildren();if(!checks.length){container.append(element('div','No issues in this build’s selected checks. Geometry results are not a pressure or manufacturing certification.','pass-message'));return;}const table=element('table',null,'check-table'),head=element('tr');for(const t of ['Status','Rule','Items','Actual','Required'])head.append(element('th',t));table.append(head);for(const c of checks){const row=element('tr');row.title=c.message;row.append(element('td',c.status,c.status),element('td',c.rule),element('td',c.items.join(' ↔ ')),element('td',`${c.actual} ${c.unit}`),element('td',String(c.required)));row.onclick=()=>select(c.items[0].split(':')[0]);table.append(row);}container.append(table);}
+async function load(){const next=await api('/api/state');let nr,nm,nd;if(next.build)[nr,nm,nd]=await Promise.all(['validation.json','review.json','resolved_design.json'].map(n=>api(`/api/artifacts/${next.build.build_id}/${n}`).catch(()=>null)));state=next;draft=structuredClone(next.design);report=nr;model=nm;resolved=nd||draft;dirty=false;externalChange=false;++previewToken;clearTimeout(previewTimer);if(model){viewer?.load(model,resolved.features);$('model-info').textContent=`EXACT OCCT BREP · ${(model.volume_mm3/1000).toFixed(1)} cm³`;}viewer?.setDesign(draft);renderTree();select(selection);renderReport();renderHeader();notice(state.stale?'Project is newer than this build. Save & Validate to update.':'Select a component or drag its green ring. Start with a schematic or the cavity library.');}
+async function build(){if(busy||!state)return;busy=true;++previewToken;clearTimeout(previewTimer);document.body.classList.add('busy');viewer?.editing(false);for(const e of document.querySelectorAll('button,input,select'))e.disabled=true;renderHeader();notice('Running exact cuts, connectivity, wall checks and STEP round trip…');try{await post('/api/build',{expected_revision:state.revision,design:dirty?draft:null});await load();history=[];future=[];}catch(e){notice(e.message,true);}finally{busy=false;viewer?.editing(true);document.body.classList.remove('busy');for(const e of document.querySelectorAll('button,input,select'))e.disabled=false;renderHeader();}}
+$('build').onclick=build;$('select-block').onclick=()=>select('block');$('reload').onclick=async()=>{if(dirty&&!confirm('Discard unsaved draft and reload?'))return;try{await load();history=[];future=[];renderHeader();}catch(e){notice(e.message,true);}};$('undo').onclick=()=>{if(history.length){future.push(structuredClone(draft));draft=history.pop();markDirty();renderTree();select(selection);}};$('redo').onclick=()=>{if(future.length){history.push(structuredClone(draft));draft=future.pop();markDirty();renderTree();select(selection);}};
+$('fit').onclick=()=>viewer?.fit($('face-view').value);$('face-view').onchange=e=>viewer?.fit(e.target.value);for(const mode of ['review','solid'])$(mode+'-mode').onclick=()=>{viewer?.mode(mode);$('review-mode').classList.toggle('active',mode==='review');$('solid-mode').classList.toggle('active',mode==='solid');};$('opacity').oninput=e=>{viewer?.opacity(Number(e.target.value)/100);$('opacity-value').textContent=e.target.value+'%';};for(const key of ['cavities','drillings','labels'])$('show-'+key).onchange=e=>viewer?.toggle(key,e.target.checked);$('report-filter').onchange=()=>{renderReport();renderHeader();};$('json-open').onclick=()=>{$('json-editor').value=JSON.stringify(draft,null,2);$('json-error').textContent='';$('json-dialog').showModal();};$('json-close').onclick=()=>$('json-dialog').close();$('json-apply').onclick=async()=>{try{const value=await post('/api/check-design',JSON.parse($('json-editor').value));change(()=>draft=value);$('json-dialog').close();}catch(e){$('json-error').textContent=e.message;}};
+workflows({$,element,field,action,api,post,get:()=>draft,state:()=>state,change,set:value=>{draft=value;},newId,select,notice,resolved:()=>resolved});
+window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});setInterval(async()=>{if(!state||busy||document.hidden)return;try{const next=await api('/api/state');if(next.revision!==state.revision||next.build?.build_id!==state.build?.build_id||next.stale!==state.stale){if(!dirty)await load();else{externalChange=true;renderHeader();notice('Project changed on disk. Draft preserved; reload before saving.',true);}}}catch(e){externalChange=true;renderHeader();notice('Local service unavailable: '+e.message,true);}},5000);load().catch(e=>notice(e.message,true));

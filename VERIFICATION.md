@@ -1,3 +1,52 @@
+# Workflow version 2 verification — 2026-09-08
+
+Current authoritative design is `projects/demo.json`. The previous MVP evidence below is historical.
+
+- Final build: `output/builds/7331690b8ccd45e9a84dfb4bb1869ddb/`.
+- Design SHA-256: `582d8e287a34d31df45410d0bdf79778c142c146cb9307cf8624740a10bac366`.
+- Engine SHA-256: `d5b486fa4a12bdda19964a3e1d1524f4d9de537d18827e445232692b88878e45`.
+- Final exact report: **238 PASS, 0 WARNING, 0 FAIL**. STEP independently reimported: valid single solid, 2,090,859.865 mm³, 367,423 bytes.
+- `.venv/Scripts/python.exe -m pytest -q`: **46 passed**, exit **0**. Includes 34 existing engineering/store/API tests plus 12 workflow cases (six parameterized face cases). Four upstream deprecation warnings remain.
+- `python -m manifold prove`: exit **0**, evidence `output/proof/20260908-121501/`; deliberate cross-circuit case **6 FAIL**, corrected case **238 PASS**, no warnings/failures.
+- `npm run build`: exit **0**. Bundle-size advisory remains (Three.js bundle approximately 546 kB / 140 kB gzip).
+- Final refreshed Chrome console: **0 errors, 0 warnings**. Desktop 1440 × 1050, no horizontal overflow.
+
+## Actual browser interaction
+
+- Six faces: used actual pointer down/move/up on a cavity ring, from face center toward both outside corners. Whole service-envelope radius was 16 mm. Recorded global U/V bounds:
+
+| Face | First corner U,V | Opposite corner U,V |
+|---|---|---|
+| top | 16,16 | 164,104 |
+| bottom | 164,16 | 16,104 |
+| front | 16,16 | 164,84 |
+| back | 164,16 | 16,84 |
+| left | 104,16 | 16,84 |
+| right | 16,16 | 104,84 |
+
+- Duplicated CV1 to CV3; replaced with DEMO-COMPACT; suppressed/restored; deleted; Undo restored it and Redo removed it.
+- Searched the reusable library for `compact` and inserted DEMO-COMPACT through the normal UI.
+- Replaced a two-window cavity with DEMO-1Z: new mapping dialog required an explicit service-interface net; selected P and verified the result, then undid the change.
+- Froze automatic P drilling geometry through the net panel, then used Save & Validate in the browser: **238 PASS**. Returned the final demo to automatic routes after this test.
+- Inspected final solid and internal-review images. Green rings, cavities, four circuits and the relationship-derived construction plug are visible. STEP link targets the final build.
+
+## Real local Codex handoff
+
+- Uploaded synthetic PNG and PDF files through the browser's file input; content-addressed assets were stored under `projects/assets/`.
+- Prepared `projects/handoffs/dd7988b0eee94f6c9d4dc202b040421f/request.md` from the web UI.
+- Codex read the request/manifest, visually inspected the explicit synthetic net labels, verified every uploaded file hash, and wrote a structured proposal with CV1, RV1 and CV2 interface mappings.
+- Saved through `store.rebuild(proposal, expected_revision=base_revision)`. Result: build `7d5934d90f8c45fe98e6c60bcf9d6a1e`, **241 PASS**, no warnings/failures. The open browser discovered the new revision and displayed the schematic and mapped components.
+- This verifies the local handoff mechanism with an explicit synthetic fixture, not recognition accuracy on arbitrary real hydraulic symbols or vendor models. The web application does not run AI; the user pastes its request into Codex.
+- Test assets, handoff proposal/result, failed and successful CAD builds remain local. The final everyday demo no longer references the synthetic uploaded assets.
+
+Evidence: `output/playwright/v2-final.png`, `v2-solid-final.png`, `v2-handoff-completed.png`, `face-*-boundary.png`, browser snapshots/logs under `.playwright-cli/`, and the immutable build/report directories above.
+
+## Remaining scope
+
+See `docs/DEVELOPMENT.md`. Orthogonal routes are proposals ranked by length and plug count, not a general obstacle-avoiding optimization solver. Group dragging/alignment, angle drilling, detailed vendor cavities, full machining drawings and pressure-loss/strength analyses remain later work. PASS still means only the documented geometric and declared-interface rules.
+
+---
+
 # MVP verification — 2026-09-07
 
 This records checks actually run on this Windows machine. Final project: `projects/demo.json`.

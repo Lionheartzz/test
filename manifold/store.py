@@ -9,6 +9,7 @@ from .cad import cq
 from .schema import Design, COLORS
 from .geometry import build_geometry, mesh
 from .validation import validate
+from .routing import resolve_design, authorize_generated_contacts
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / 'projects' / 'demo.json'
@@ -21,6 +22,11 @@ def canonical(design):
 
 def revision(design):
     return hashlib.sha256(canonical(design).encode()).hexdigest()
+
+
+def engine_revision():
+    files = ['cad.py','schema.py','kinematics.py','routing.py','geometry.py','validation.py','manufacturing.py','store.py']
+    return hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in files)).hexdigest()
 
 
 def read_design(path=PROJECT):
@@ -66,11 +72,15 @@ def project_lock():
 
 def build_outputs(design, folder):
     folder.mkdir(parents=True, exist_ok=False)
+    authored = design
+    design, routes = resolve_design(authored)
     g = build_geometry(design)
+    authorize_generated_contacts(design, g)
     report = validate(design, g)
-    rev = revision(design)
+    rev = revision(authored)
+    report['route_proposals'] = routes
     report.update(design_revision=rev, generated_at=datetime.now(timezone.utc).isoformat(),
-                  cadquery_version=cq.__version__, rules_version='pmc-mvp-1')
+                  cadquery_version=cq.__version__, rules_version='pmc-intent-2', engine_revision=engine_revision())
     cq.exporters.export(g.production, str(folder / 'production.step'))
     # Round trip tests actual serialized CAD, not merely in-memory validity.
     imported = cq.importers.importStep(str(folder / 'production.step')).val()
@@ -92,13 +102,16 @@ def build_outputs(design, folder):
         owner = key.split(':')[0]
         f = features[owner]
         parts.append(dict(id=key, owner=owner, kind='zone' if ':' in key else f.kind,
-                          circuit=g.circuits[key], color=COLORS[g.circuits[key]], **mesh(shape)))
+                          circuit=g.circuits[key], color=next((n.color for n in design.nets if n.id == g.circuits[key] and n.color), COLORS.get(g.circuits[key], '#b08bea')), **mesh(shape)))
     for key, shape in g.plugs.items():
         parts.append(dict(id=key + ':plug', owner=key, kind='plug', color='#d5dee9', **mesh(shape)))
     review = dict(design_revision=rev, block=design.block.model_dump(), parts=parts, placements=g.placements,
                   volume_mm3=round(g.production.Volume(), 3), colors=COLORS)
     atomic_json(folder / 'review.json', review)
-    atomic_json(folder / 'design.json', design.model_dump())
+    atomic_json(folder / 'design.json', authored.model_dump())
+    atomic_json(folder / 'resolved_design.json', design.model_dump())
+    from .manufacturing import manufacturing_outputs
+    manufacturing_outputs(design, g, folder)
     atomic_json(folder / 'validation.json', report)
     lines = [f"# {design.name}", '', f"Status: {report['status']}", f"Design SHA-256: {rev}", '', report['scope'], '',
              '| Status | Rule | Items | Actual | Required | Unit |', '|---|---|---|---|---|---|']
@@ -129,6 +142,6 @@ def rebuild(design=None, expected_revision=None):
         if design is not None:
             atomic_json(PROJECT.parent / '.history' / f'{uuid.uuid4().hex}.json', previous.model_dump())
             atomic_json(PROJECT, target.model_dump())
-        pointer = dict(build_id=build_id, design_revision=revision(target), status=report['status'], counts=report['counts'])
+        pointer = dict(build_id=build_id, design_revision=revision(target), engine_revision=engine_revision(), status=report['status'], counts=report['counts'])
         atomic_json(OUTPUT / 'current.json', pointer)
         return pointer

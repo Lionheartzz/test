@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { axes, pose, clamp } from './kinematics.js';
 
-export function createViewer(container, onSelect) {
+export function createViewer(container, onSelect, onDrag = ()=>{}) {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(38, 1, .1, 10000);
   camera.up.set(0, 0, 1);
@@ -23,6 +24,7 @@ export function createViewer(container, onSelect) {
   let group = new THREE.Group(), labelGroup = new THREE.Group(), grid;
   scene.add(group, labelGroup);
   let block, mode = 'review', opacity = .22, selected = 'block';
+  let design, editing = true, handles = new THREE.Group(); scene.add(handles);
   const visible = { cavities: true, drillings: true, labels: true, circuits: new Set(['P', 'T', 'A', 'B', 'LS', 'Drain']) };
   function disposeGroup(target) {
     target.traverse(o => { o.geometry?.dispose(); if (o.material) o.material.dispose(); if (o.element) o.element.remove(); });
@@ -34,7 +36,8 @@ export function createViewer(container, onSelect) {
     const radius = Math.hypot(block.length, block.width, block.height) / 2;
     const halfFov = Math.min(THREE.MathUtils.degToRad(camera.fov / 2), Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect));
     const distance = radius / Math.sin(halfFov) * 1.12;
-    const dir = view === 'top' ? new THREE.Vector3(0, -.001, 1) : new THREE.Vector3(1.1, -1.6, 1.1).normalize();
+    const directions={top:[0,-.001,1],bottom:[0,.001,-1],front:[0,-1,.001],back:[0,1,.001],left:[-1,0,.001],right:[1,0,.001]};
+    const dir = directions[view] ? new THREE.Vector3(...directions[view]) : new THREE.Vector3(1.1, -1.6, 1.1).normalize();
     camera.position.copy(center).addScaledVector(dir, distance);
     controls.target.copy(center); camera.near = .1; camera.far = Math.max(10000, distance * 5);
     camera.updateProjectionMatrix(); controls.update();
@@ -67,6 +70,7 @@ export function createViewer(container, onSelect) {
     grid = new THREE.GridHelper(Math.max(block.length, block.width) * 2.8, 28, 0x3d5266, 0x2a394b);
     grid.rotation.x = Math.PI / 2; grid.position.set(block.length / 2, block.width / 2, -.5); scene.add(grid);
     for (const p of model.parts) {
+      if (p.circuit && !knownCircuits.has(p.circuit)) { knownCircuits.add(p.circuit); visible.circuits.add(p.circuit); }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(p.vertices, 3)); geo.setIndex(p.triangles); geo.computeVertexNormals();
       const transparent = p.kind === 'body' || p.kind === 'cavity';
@@ -92,9 +96,38 @@ export function createViewer(container, onSelect) {
     updateVisibility(); select(selected); if (first) fit();
   }
   const ray = new THREE.Raycaster(), pointer = new THREE.Vector2();
-  let down;
-  renderer.domElement.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
+  const knownCircuits = new Set(visible.circuits);
+  function aim(e) {const rect=renderer.domElement.getBoundingClientRect();pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);ray.setFromCamera(pointer,camera);}
+  function setDesign(value) {
+    design=value;disposeGroup(handles);
+    for(const f of design.features.filter(f=>!f.suppressed&&f.kind!=='drilling')) {
+      const p=pose(f,design.block),d=new THREE.Vector3(...p.direction);
+      const h=new THREE.Mesh(new THREE.RingGeometry(4,6,32),new THREE.MeshBasicMaterial({color:f.id===selected?0xffffff:0x65e4b1,side:THREE.DoubleSide,depthTest:false}));
+      h.position.set(...p.origin).addScaledVector(d,-.3);h.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),d);h.userData={owner:f.id};h.renderOrder=10;handles.add(h);
+    }
+  }
+  function preview(value) {
+    const parts=[], placements={};
+    const add=(geo,p,color,kind,id,owner,circuit)=>{geo.applyQuaternion(p.q);geo.translate(...p.center);parts.push({vertices:Array.from(geo.attributes.position.array),triangles:geo.index?Array.from(geo.index.array):Array.from({length:geo.attributes.position.count},(_,i)=>i),color,kind,id,owner,circuit});geo.dispose();};
+    const b=value.block;add(new THREE.BoxGeometry(b.length,b.width,b.height),{q:new THREE.Quaternion(),center:[b.length/2,b.width/2,b.height/2]},'#9ba9b9','body','block');
+    const cylinder=(f,diam,start,end,color,kind,id)=>{const p=pose(f,b),d=new THREE.Vector3(...p.direction);add(new THREE.CylinderGeometry(diam/2,diam/2,end-start,32),{q:new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),d),center:p.origin.map((a,i)=>a+p.direction[i]*(start+end)/2)},color,kind,id,f.id,f.circuit);};
+    for(const f of value.features.filter(f=>!f.suppressed)) {placements[f.id]=pose(f,b);if(f.kind==='cavity'){const d=value.library.find(d=>d.id===f.definition);for(const [i,s] of d.stages.entries())cylinder(f,s.diameter,s.start,s.end,'#b4c7da','cavity',f.id+'-'+i);for(const z of d.zones){const net=value.nets.find(n=>n.id===f.circuits[z.id]);cylinder(f,z.diameter,z.start,z.end,net?.color||({P:'#ef5959',T:'#459cff',A:'#41ca8b',B:'#f2d454'}[f.circuits[z.id]])||'#b08bea','zone',f.id+':'+z.id);}}else{cylinder(f,f.diameter,0,f.depth,({P:'#ef5959',T:'#459cff',A:'#41ca8b',B:'#f2d454'}[f.circuit])||'#b08bea',f.kind,f.id);}}
+    load({block:b,parts,placements},value.features);
+  }
+  let down, drag;
+  renderer.domElement.addEventListener('pointerdown', e => {
+    down=[e.clientX,e.clientY];if(e.button!==0||!design||!editing)return;aim(e);
+    const hit=ray.intersectObjects(handles.children)[0];if(!hit)return;
+    const f=design.features.find(f=>f.id===hit.object.userData.owner);if(f.parent_id)return;
+    const p=pose(f,design.block),normal=new THREE.Vector3(...p.direction),plane=new THREE.Plane().setFromNormalAndCoplanarPoint(normal,new THREE.Vector3(...p.origin));
+    const point=ray.ray.intersectPlane(plane,new THREE.Vector3());if(!point)return;
+    drag={f,plane,start:point,u:f.u,v:f.v,moved:false};controls.enabled=false;renderer.domElement.setPointerCapture(e.pointerId);onSelect(f.id);e.stopImmediatePropagation();
+  },true);
+  renderer.domElement.addEventListener('pointermove',e=>{if(!drag)return;aim(e);const point=ray.ray.intersectPlane(drag.plane,new THREE.Vector3());if(!point)return;const [u,v]=axes[drag.f.face];const delta=point.clone().sub(drag.start).toArray();try{const [nu,nv]=clamp(drag.f,design,drag.u+delta[u],drag.v+delta[v],e.altKey?0:1);drag.moved=true;onDrag(drag.f.id,nu,nv,false);}catch{};});
+  function finish(e,cancel=false){if(!drag)return false;const old=drag;drag=null;controls.enabled=true;if(renderer.domElement.hasPointerCapture(e.pointerId))renderer.domElement.releasePointerCapture(e.pointerId);if(old.moved)onDrag(old.f.id,cancel?old.u:design.features.find(f=>f.id===old.f.id).u,cancel?old.v:design.features.find(f=>f.id===old.f.id).v,true);return true;}
+  renderer.domElement.addEventListener('pointercancel',e=>finish(e,true));
   renderer.domElement.addEventListener('pointerup', e => {
+    if(finish(e))return;
     if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4 || e.button !== 0) return;
     const rect = renderer.domElement.getBoundingClientRect();
     pointer.set((e.clientX - rect.left) / rect.width * 2 - 1, -(e.clientY - rect.top) / rect.height * 2 + 1);
@@ -109,6 +142,6 @@ export function createViewer(container, onSelect) {
   });
   resize.observe(container);
   renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); labels.render(scene, camera); });
-  return { load, fit, select, mode(value) { mode = value; updateVisibility(); }, opacity(value) { opacity = value; updateVisibility(); },
+  return { load, fit, select, setDesign, preview, editing(value){editing=value;handles.visible=value;},mode(value) { mode = value; updateVisibility(); }, opacity(value) { opacity = value; updateVisibility(); },
     toggle(key, value) { visible[key] = value; updateVisibility(); }, circuit(id, show) { show ? visible.circuits.add(id) : visible.circuits.delete(id); updateVisibility(); } };
 }

@@ -1,7 +1,7 @@
 from typing import Literal, Annotated
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-Circuit = Literal['P', 'T', 'A', 'B', 'LS', 'Drain']
+Circuit = Annotated[str, Field(pattern=r'^[A-Za-z][A-Za-z0-9_-]{0,39}$')]
 Face = Literal['left', 'right', 'front', 'back', 'bottom', 'top']
 Positive = Annotated[float, Field(gt=0, le=2000, allow_inf_nan=False)]
 Coordinate = Annotated[float, Field(ge=0, le=2000, allow_inf_nan=False)]
@@ -46,6 +46,14 @@ class CavityDefinition(Strict):
     zones: list[Zone] = Field(min_length=1, max_length=8)
     clearance_diameter: Positive
     clearance_height: Positive
+    manufacturer: str = Field(default='PMC Demo', max_length=120)
+    cartridge_models: list[str] = Field(default_factory=list, max_length=40)
+    valve_function: str = Field(default='Unspecified', max_length=160)
+    revision: str = Field(default='1', min_length=1, max_length=80)
+    provenance: Literal['demo', 'candidate', 'drawing-verified'] = 'demo'
+    drawing_asset: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+    machining_notes: str = Field(default='', max_length=2000)
+    tooling: list[str] = Field(default_factory=list, max_length=30)
 
     @model_validator(mode='after')
     def consistent(self):
@@ -88,6 +96,14 @@ class Feature(Strict):
     clearance_diameter: Positive = 20
     clearance_height: Positive = 20
     connects_to: list[str] = Field(default_factory=list, max_length=40)
+    suppressed: bool = False
+    rotation: float = Field(default=0, ge=-360, le=360)
+    cartridge_model: str = Field(default='', max_length=120)
+    schematic_id: str = Field(default='', max_length=80)
+    route_net: Circuit | None = None
+    machining_id: str = Field(default='', max_length=60)
+    parent_id: Identifier | None = None
+    local_offset: tuple[float, float] = (0, 0)
 
     @model_validator(mode='after')
     def fields_for_kind(self):
@@ -101,6 +117,54 @@ class Feature(Strict):
         if self.kind == 'port' and self.clearance_diameter < self.diameter:
             raise ValueError('Port clearance diameter cannot be smaller than bore')
         return self
+
+
+class ConstructionAccess(Strict):
+    id: Identifier
+    face: Face
+    fraction: float = Field(default=0.72, ge=0.1, le=0.9)
+
+
+class HydraulicNet(Strict):
+    id: Circuit
+    label: str = Field(default='', max_length=120)
+    members: list[str] = Field(default_factory=list, max_length=60)
+    routing: Literal['manual', 'automatic'] = 'manual'
+    diameter: Positive = 8
+    preferred_axis: Literal['auto', 'x', 'y', 'z'] = 'auto'
+    entry_preference: Literal['nearest', 'positive', 'negative'] = 'nearest'
+    construction_access: list[ConstructionAccess] = Field(default_factory=list, max_length=8)
+    color: str | None = Field(default=None, pattern=r'^#[0-9a-fA-F]{6}$')
+    flow_lpm: float | None = Field(default=None, gt=0, le=10000)
+    pressure_bar: float | None = Field(default=None, gt=0, le=2000)
+    velocity_limit: float = Field(default=6, gt=0, le=100)
+
+
+class SchematicComponent(Strict):
+    id: Identifier
+    label: str = Field(default='', max_length=160)
+    function: str = Field(default='', max_length=200)
+    cartridge_model: str = Field(default='', max_length=120)
+    cavity_definition: Identifier | None = None
+    ports: dict[str, Circuit] = Field(default_factory=dict)
+    feature_id: Identifier | None = None
+    status: Literal['unconfirmed', 'confirmed'] = 'unconfirmed'
+
+
+class DesignConstraints(Strict):
+    envelope_max: tuple[Positive, Positive, Positive] | None = None
+    preferred_component_faces: list[Face] = Field(default_factory=lambda: ['top'])
+    preferred_port_faces: dict[Circuit, Face] = Field(default_factory=dict)
+    priority: Literal['compact', 'fewer_plugs', 'simple_machining', 'short_drills'] = 'fewer_plugs'
+    standard_drills: list[Positive] = Field(default_factory=lambda: [4, 5, 6, 8, 10, 12, 16, 20])
+    notes: str = Field(default='', max_length=4000)
+
+
+class SchematicAsset(Strict):
+    sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    name: str = Field(min_length=1, max_length=180)
+    media_type: Literal['application/pdf', 'image/png', 'image/jpeg']
+    size: int = Field(gt=0, le=20_000_000)
 
 
 class Rules(Strict):
@@ -117,7 +181,11 @@ class Design(Strict):
     block: Block
     rules: Rules = Field(default_factory=Rules)
     library: list[CavityDefinition] = Field(min_length=1, max_length=30)
-    features: list[Feature] = Field(min_length=1, max_length=60)
+    features: list[Feature] = Field(default_factory=list, max_length=120)
+    nets: list[HydraulicNet] = Field(default_factory=list, max_length=40)
+    components: list[SchematicComponent] = Field(default_factory=list, max_length=60)
+    schematics: list[SchematicAsset] = Field(default_factory=list, max_length=20)
+    constraints: DesignConstraints = Field(default_factory=DesignConstraints)
 
     @model_validator(mode='after')
     def references(self):
@@ -139,8 +207,52 @@ class Design(Strict):
             if len(set(f.connects_to)) != len(f.connects_to):
                 raise ValueError(f'{f.id}: duplicate connection')
             for target in f.connects_to:
-                if target not in nodes or target.split(':')[0] == f.id:
+                generated = target.startswith('R-') and any(n.routing == 'automatic' for n in self.nets)
+                if (target not in nodes and not generated) or target.split(':')[0] == f.id:
                     raise ValueError(f'{f.id}: invalid connection target {target}')
             if f.kind == 'cavity' and f.connects_to:
                 raise ValueError('Declare cavity connections on incoming bores using cavity:zone IDs')
+            if f.parent_id:
+                parents = {item.id: item for item in self.features}
+                seen = {f.id}
+                p = f.parent_id
+                while p:
+                    if p not in parents or p in seen:
+                        raise ValueError('Parent links must exist and form an acyclic hierarchy')
+                    seen.add(p)
+                    p = parents[p].parent_id
+        if len({n.id for n in self.nets}) != len(self.nets):
+            raise ValueError('Duplicate hydraulic net ID')
+        accesses = [a.id for n in self.nets for a in n.construction_access]
+        if len(set(accesses)) != len(accesses) or any(a in ids for a in accesses):
+            # Resolved snapshots may contain the generated implementation of an access.
+            for access in accesses:
+                matches = [f for f in self.features if f.id == access]
+                if len(set(accesses)) != len(accesses) or (matches and not all(f.route_net for f in matches)):
+                    raise ValueError('Construction access IDs must be unique and not collide with authored features')
+        for f in self.features:
+            if f.route_net and (f.kind != 'drilling' or not any(n.id == f.route_net and n.routing == 'automatic' for n in self.nets)):
+                raise ValueError('Generated drilling requires an automatic owner net')
+        terminals = {f'{f.id}:{z}': net for f in self.features if f.kind == 'cavity' for z, net in f.circuits.items()}
+        terminals.update({f.id: f.circuit for f in self.features if f.kind == 'port'})
+        if not self.nets:
+            self.nets = [HydraulicNet(id=n, members=sorted(k for k, v in terminals.items() if v == n))
+                         for n in sorted(set(terminals.values()))]
+        declared = {}
+        for net in self.nets:
+            if len(set(net.members)) != len(net.members):
+                raise ValueError(f'{net.id}: duplicate interface')
+            for member in net.members:
+                if member not in terminals or terminals[member] != net.id or member in declared:
+                    raise ValueError(f'{net.id}: invalid or conflicting interface {member}')
+                declared[member] = net.id
+        if set(declared) != set(terminals):
+            raise ValueError('Every cavity interface and external port must belong to exactly one net')
+        if len({c.id for c in self.components}) != len(self.components):
+            raise ValueError('Duplicate schematic component ID')
+        for component in self.components:
+            if component.feature_id and component.feature_id not in ids:
+                raise ValueError(f'{component.id}: missing placed feature')
+            if component.cavity_definition and component.cavity_definition not in lib:
+                raise ValueError(f'{component.id}: missing cavity definition')
         return self

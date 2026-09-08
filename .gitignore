@@ -8,3 +8,5 @@ output/
 projects/.history/
 *.log
 .playwright-cli/
+projects/assets/
+projects/handoffs/
