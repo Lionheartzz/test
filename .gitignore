@@ -1,0 +1,10 @@
+.venv/
+node_modules/
+.npm-cache/
+__pycache__/
+.pytest_cache/
+dist/
+output/
+projects/.history/
+*.log
+.playwright-cli/
