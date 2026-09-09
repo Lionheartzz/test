@@ -25,7 +25,7 @@ def revision(design):
 
 
 def engine_revision():
-    files = ['cad.py','schema.py','kinematics.py','routing.py','geometry.py','validation.py','manufacturing.py','store.py']
+    files = ['cad.py','catalog.py','schema.py','kinematics.py','routing.py','optimization.py','geometry.py','validation.py','manufacturing.py','store.py']
     return hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in files)).hexdigest()
 
 

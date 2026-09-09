@@ -1,3 +1,39 @@
+# Editable project / native library verification — 2026-09-08
+
+This is the current delivery. Earlier sections below are historical evidence and their build IDs are not the current pointer.
+
+- Final build: `output/builds/016f2940926b4b1783b1ac4cd357d574/`; UI Save & Validate returned **238 PASS, 0 WARNING, 0 FAIL**.
+- Design SHA-256: `9df9bf0477e21cc7feff88c4102c659034061023f48004e7e525c5ad62c4ce6b`.
+- Engine SHA-256: `eef830e1235ef01eadde8be93f60450d8331c42a0f1bf0d00717e58fbfe81a1b`; independently checked against current files. The hash now includes the native catalog geometry mapper.
+- Independent STEP reimport: valid single solid, 2,090,859.865425 mm³, 367,423 bytes; `output/v3-final-step-check.json`.
+- Full suite: **51 passed**, exit 0, 94.78 s. After the final engine-hash/body-limit updates, store/API tests **8 passed**; the extended native-mapping test also passed. Four upstream deprecation warnings remain.
+- Mandatory proof: `output/proof/20260908-222840/`, exit 0. Deliberate fault: **264 PASS / 6 FAIL**; corrected: **238 PASS / 0 WARNING / 0 FAIL**. Failing evidence is retained.
+- Production frontend build passed. Bundle: 565.56 kB / 146.26 kB gzip; Vite size advisory remains.
+- Final Chrome console: **0 errors / 0 warnings**. Actual 1440 × 1050 screenshot checked visually, no horizontal overflow. Service confirmed listening at **127.0.0.1:8765**.
+
+## Full native catalog audit
+
+`output/native-catalog-audit.json`: **3318 / 3318 cavity records** successfully mapped and their serialized native records compared exactly with the source. **3077 imported-dimensional**, **241 draft-projection**, **0 mapping exceptions**. This is complete serialization/mapping coverage, not 3318 individual CAD builds or vendor certification.
+
+Native-unit tests cover Inch-to-mm conversion, Step 0 relative depths, a zero-depth conical lead-in, full source fields and unchanged legacy `$STEP12` operands. Native footprint tests cut actual mounting holes, rotate their local offsets and verify hydraulic terminal transformations. Metric HydraForce, Inch Sun and metric ISO footprint samples were also built as valid single solids during development. Isolated sample interfaces are not claimed as connected engineering PASS designs.
+
+Geometry and machining status are separate. The regression test proves that changing a native datum and relabeling it as imported produces a mapping warning. Imported unresolved machining remains in `manufacturing.json` and makes manufacturing readiness false. Sun locating-shoulder / special-cut mappings remain explicitly provisional.
+
+## Actual browser interactions
+
+- Searched real Sun Inch cavity, inspected source data, copied/saved a PMC revision, inserted it as a normal feature and exported/imported `.pmc.json`. Exported native source record matched exactly; pin and review item survived roundtrip.
+- Edited the inserted project pin, renamed a hydraulic interface, was required to select its network, applied it and saw the new normal Properties field. Global revision remained unchanged. Engineering Review showed geometry and machining flags plus an edit action.
+- Resolved a review with a decision and reopened it. The UI requires a decision to close an item.
+- Native feature: face and coordinate changes, duplicate, suppress, restore, delete, Undo / Redo. Library test revision: delete, restore and delete again; original records and old pins remain available.
+- Verified new custom cavity form starts with PMC Custom / provisional provenance.
+- Six faces: actual pointer hover at cavity center and 18 px away, followed by down/move/up; all selected CV1 with `grab` then `grabbing` and changed U. Cancellation restored the starting coordinate. Existing automated boundary tests remain in the suite.
+- Clicked exact optimization: six candidates, FAIL 0 → 0 and WARNING 0 → 0; evidence `output/optimizations/d46b5797adab427d931e239a50a1bb66/`. Dedicated crossing fixture test improves **6 FAIL → 0 FAIL** and confirms optimizer does not save the authoritative project.
+- Restored saved seven-feature demo and built it through the UI. QA definitions/drafts were not adopted as the authoritative design.
+
+Screenshots: [final workspace](output/playwright/v3-final.png), [pinned definition review](output/playwright/v3-pinned-review.png), [optimization](output/playwright/v3-optimization.png), [six-face drag](output/playwright/v3-six-face-drag.png). All output/builds remain immutable. No cloud, AI API or external publication was used.
+
+---
+
 # Workflow version 2 verification — 2026-09-08
 
 Current authoritative design is `projects/demo.json`. The previous MVP evidence below is historical.

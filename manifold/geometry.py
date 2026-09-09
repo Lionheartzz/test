@@ -53,11 +53,31 @@ def build_geometry(design: Design):
         placements[f.id] = dict(origin=origin, direction=direction)
         if f.kind == 'cavity':
             d = lib[f.definition]
-            pieces = [cylinder(origin, direction, s.diameter, s.start, s.end) for s in d.stages]
+            from .kinematics import FACE_AXES
+            def offset_origin(u, v):
+                angle = math.radians(f.rotation)
+                du, dv = u*math.cos(angle)-v*math.sin(angle), u*math.sin(angle)+v*math.cos(angle)
+                p = list(origin); axes = FACE_AXES[f.face]
+                p[axes[0]] += du; p[axes[1]] += dv
+                return tuple(p)
+            pieces = []
+            for s in d.cutting_primitives:
+                p = offset_origin(s.offset_u,s.offset_v)
+                if s.kind == 'cone':
+                    shape = cq.Solid.makeCone(s.diameter/2,s.end_diameter/2,s.end-s.start,cq.Vector(*at(p,direction,s.start)),cq.Vector(*direction))
+                else:
+                    shape = cylinder(p,direction,s.diameter,s.start,s.end)
+                    if s.kind == 'annulus' and s.inner_diameter:
+                        shape = shape.cut(cylinder(p,direction,s.inner_diameter,s.start,s.end))
+                pieces.append(shape)
+            if not pieces:
+                pieces = [cylinder(origin, direction, s.diameter, s.start, s.end) for s in d.stages]
             cuts[f.id] = pieces[0].fuse(*pieces[1:]).clean() if len(pieces) > 1 else pieces[0]
             for z in d.zones:
                 key = f'{f.id}:{z.id}'
-                nodes[key] = cylinder(origin, direction, z.diameter, z.start, z.end)
+                nodes[key] = cylinder(offset_origin(z.offset_u,z.offset_v), direction, z.diameter, z.start, z.end)
+                if z.clip_to_cut:
+                    nodes[key] = nodes[key].intersect(cuts[f.id]).clean()
                 circuits[key] = f.circuits[z.id]
             envelopes[f.id] = cylinder(origin, direction, d.clearance_diameter, -d.clearance_height, 0)
         else:

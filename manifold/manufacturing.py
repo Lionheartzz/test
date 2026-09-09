@@ -31,4 +31,14 @@ def manufacturing_outputs(design, g, folder):
             flows.append(dict(net=n.id,flow_lpm=n.flow_lpm,minimum_drill_mm=diameter,velocity_m_s=round(n.flow_lpm/60000/(math.pi*(diameter/2000)**2),3),
                               suggested_standard_mm=next((d for d in sorted(design.constraints.standard_drills) if d>=required),None),
                               assumption='Full stated net flow through smallest bore; no branch distribution, valve loss or pressure rating calculation.'))
-    (folder/'manufacturing.json').write_text(json.dumps(dict(status='ENGINEERING_REVIEW_REQUIRED',drill_chart=rows,meet_list=meets,velocity_screen=flows),indent=2),encoding='utf-8')
+    native_recipes=[]
+    for definition in design.library:
+        if definition.native and any(f.definition==definition.id and not f.suppressed for f in design.features):
+            native=definition.native
+            native_recipes.append(dict(definition=definition.id,geometry_status=native.geometry_status,
+                                      machining_status=native.machining_status,decision=native.machining_decision,
+                                      native_units=native.record.unit_system,operations=native.record.machining,
+                                      related_records=native.related_records,
+                                      note='Legacy operands and tool codes are preserved, not executed or silently certified.'))
+    (folder/'manufacturing.json').write_text(json.dumps(dict(status='ENGINEERING_REVIEW_REQUIRED',drill_chart=rows,meet_list=meets,velocity_screen=flows,
+                                                           native_recipes=native_recipes,pinned_resources=[r.model_dump() for r in design.library_resources]),indent=2),encoding='utf-8')

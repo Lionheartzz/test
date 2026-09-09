@@ -143,13 +143,50 @@ def validate(design, g):
     if design.constraints.envelope_max:
         dims = (b.length,b.width,b.height)
         result('block_envelope', ['block'], str(dims), str(design.constraints.envelope_max), all(a <= limit for a,limit in zip(dims,design.constraints.envelope_max)), 'Block must fit requested maximum envelope.')
+    for item in design.review_items:
+        result('engineering_review', [item.id, item.subject or 'project'], item.status, 'accepted or resolved',
+               item.status != 'open', item.description,
+               severity='FAIL' if item.severity == 'blocking' else 'WARNING')
+    active_definitions = {f.definition for f in design.features if f.kind == 'cavity' and not f.suppressed}
+    for f in design.features:
+        if f.kind == 'cavity' and not f.suppressed:
+            definition = next(d for d in design.library if d.id == f.definition)
+            if definition.cutting_primitives:
+                for a,z in combinations(definition.zones,2):
+                    keys=[f'{f.id}:{a.id}',f'{f.id}:{z.id}']
+                    volume=g.nodes[keys[0]].intersect(g.nodes[keys[1]]).Volume()
+                    result('mapped_interface_separation',keys,volume,0,volume<=EPS,
+                           'Separate installed hydraulic windows must not overlap. Native draft mappings retain conflicts for correction.',unit='mm³')
+            for z in definition.zones:
+                key = f'{f.id}:{z.id}'
+                if z.offset_u or z.offset_v or next(d for d in design.library if d.id == f.definition).cutting_primitives:
+                    outside = max(0.0,g.nodes[key].Volume()-g.nodes[key].intersect(g.cuts[f.id]).Volume())
+                    result('mapped_interface_containment',[key],outside,0,outside<=EPS,'Mapped hydraulic windows must be contained in the exact cavity cutting volume.',unit='mm³')
+                    result('mapped_interface_volume',[key],g.nodes[key].Volume(),'> 0',g.nodes[key].Volume()>EPS,'A mapped working-area window must contain fluid volume.',unit='mm³')
+    for definition in design.library:
+        if definition.id in active_definitions and definition.native:
+            mapping_valid=definition.native.geometry_status == 'engineer-mapped'
+            if definition.native.geometry_status == 'imported-dimensional':
+                from .catalog import map_record
+                try:
+                    mapped=map_record(definition.native.record.model_dump(),definition.native.related_records,definition.native.datum_mode)
+                    mapping_valid=(mapped.native.geometry_status=='imported-dimensional' and
+                                   mapped.cutting_primitives==definition.cutting_primitives and mapped.zones==definition.zones)
+                except ValueError:
+                    mapping_valid=False
+            result('native_geometry_mapping', [definition.id], definition.native.geometry_status,
+                   'consistent imported dimensions or engineer-mapped', mapping_valid,
+                   'Native record is retained in full. Draft projection needs explicit geometry and interface mapping.', severity='WARNING')
     result('solid_validity', ['block'], g.production.isValid(), True, g.production.isValid(), 'OCCT BRep validity.')
     result('solid_count', ['block'], len(g.production.Solids()), 1, len(g.production.Solids()) == 1,
            'Machined block must remain one connected solid.')
     result('removed_volume', ['block'], g.block.Volume() - g.production.Volume(), '> 0',
            EPS < g.production.Volume() < g.block.Volume(), 'Production solid must contain actual subtractive geometry.', unit='mm³')
     counts = {s: sum(c['status'] == s for c in checks) for s in ['PASS', 'WARNING', 'FAIL']}
+    unresolved_machining = [d.id for d in design.library if d.id in active_definitions and d.native and d.native.machining_status != 'engineer-reviewed']
     return dict(status='FAIL' if counts['FAIL'] else 'WARNING' if counts['WARNING'] else 'PASS', counts=counts,
+                manufacturing_ready=not unresolved_machining and not counts['FAIL'] and not counts['WARNING'],
+                unresolved_machining=unresolved_machining,
                 checks=checks, graph={n: sorted(v) for n, v in graph.items()},
                 scope='Geometric and declared installed-interface checks only; no pressure, fatigue, flow or vendor certification.',
                 limitations=['Library demo cavities and straight-bore ports are illustrative and not manufacturer machining specifications.',

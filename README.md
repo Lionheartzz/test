@@ -26,15 +26,17 @@ Windows CAD 依赖已固定版本；`manifold/cad.py` 会先加载 CasADi 再加
 
 ## 日常设计（新版默认英文界面）
 
-1. **Schematic / Codex** 上传 PDF、PNG 或 JPEG。文件存入本地 `projects/assets/`，以 SHA-256 标识；点击 **Design with Codex** 生成请求，将显示的提示粘贴到当前 Codex 任务。网页不会自行调用 AI，也不需要 API key。
-2. **Cavity Library** 搜索制造商、型号、孔腔或功能；通过表单维护阶梯、液压窗口、来源、版本和工具包络。共享目录为 `projects/library/`，项目仍内嵌固定版本的完整定义，构建不会自动换成库的新版本。
-3. 从库插入孔腔，或在右侧 **Duplicate / Replace cavity / Suppress / Delete** 操作。接口不一致的替换会要求确认网络映射。可新增外部油口、选择安装面、指定接口网络。
-4. 在 3D 中拖动绿色圆环：按完整安装包络限制六个面的边界，默认 1 mm 网格，Alt 暂停吸附。背景拖动旋转，右键平移，滚轮缩放。位置在右下角实时显示；支持 Undo / Redo。
-5. **Hydraulic Nets** 将连接意图与加工钻孔分开。演示项目已采用自动布孔；移动元件会更新派生钻孔及工艺孔。旧项目可用 **Adopt automatic routing** 显式替换手动钻孔。每条网络可设置钻孔直径、优先轴、入口偏好；可冻结为可编辑的手动几何。
-6. 编辑后显示 **DRAFT / UNVALIDATED** 参数预览。点击 **Save & Validate** 才保存项目、生成精确 OCCT 实体、校验并建立不可变构建。预览不是精确布尔切削或工程 PASS；自动候选也可能校验失败，需调整布局。
-7. 当前 PASS 构建允许下载 STEP。**Drill chart** 为 CSV 加工清单，**Meet list / Flow** 包括精确相交体积/位置及流速筛查。流速假设整条网络流量通过最小钻孔，不是压损或分支流量求解。
+1. **Import Project / Export Project** 是 AI 和人工设计的共同入口。导入 `.pmc.json` 后查看摘要、使用可撤销草稿；导出保留完整孔型版本、连接意图和复核决定，即使草稿还没有 PASS。项目 JSON 上限 8 MB，图纸二进制仍单独存放在本地 assets。
+2. **Schematic** 上传 PDF、PNG 或 JPEG。AI 提供者与模型信息属于可携带的项目来源字段；当前版本不调用 AI 服务。可选 Codex handoff 收在展开项中，通用 AI 交付格式见 [AI_PROJECT_CONTRACT.md](docs/AI_PROJECT_CONTRACT.md)。
+3. **Engineering Review** 管理假设、尺寸、选型和连接疑问。接受或解决事项必须填写决定；元件确认检查实际孔腔接口网络。对当前项目使用的孔型，可点 **Edit pinned definition** 修改并重新映射接口。
+4. **Cavity Library** 按单位、制造商、类型、螺纹和关键词分页查询完整 MDTools 转换库。原生记录和独立 footprint 关系保持结构化；可插入、编辑、复制、删除及恢复目录项。PMC 修订保存在 `projects/library/`，项目内固定定义不随目录更新。材料、加工规则及其他工程资源可查看并固定到项目。
+5. 元件支持 Duplicate、Replace、Suppress、Delete、换面、位置与网络编辑。六面孔口中心及附近均可开始拖动，悬停高亮、grab / grabbing 光标显示状态；完整安装包络限制边界，默认 1 mm 吸附、Alt 暂停。Undo / Redo 可撤销草稿操作。
+6. **Hydraulic Nets** 区分连接意图和派生钻孔；优化比较正交轴顺序、入口和偏移路径，最多六个精确候选。以实际 FAIL、WARNING 和加工代价选择不退步方案，失败候选也保存到 `output/optimizations/`。优化期间草稿变化会阻止覆盖。该有限搜索不保证任意布局都找到可行路线。
+7. **Save & Validate** 保存并生成精确 OCCT 实体、校验和不可变构建。DRAFT 预览不代表精确布尔切削或 PASS。当前 PASS 才开放 STEP；加工清单保留原生配方与未解析表达式，`manufacturing_ready` 独立于几何结果。
 
-原始 JSON 仅在 **Advanced · Project JSON** 中提供。未保存草稿受到离开提醒；Reload 会提示丢弃草稿。父子关系以局部偏移描述，父级旋转影响子级偏移；当前轴对称孔腔的旋转不会生成新的切削形状。多选组拖动、自动避障搜索、斜孔、密封槽、厂家完整刀具和尺寸工程图仍属后续功能，见 [开发边界](docs/DEVELOPMENT.md)。
+运行时仅读取 `PMC_MDTools_Library/PMC_Library_Converted_v05` 的转换工程目录；不读取 MDB、raw 归档或 QC 报告。Metric / Inch 原始值与单位身份保留，精确 CAD 使用 mm。库含 2477 / 841 个公制 / 英制孔腔及 3915 / 1649 个独立 footprint。全量载入审计：3318 个孔腔无损，3077 个尺寸映射、241 个待几何映射复核。尺寸映射不等于厂家批准。
+
+原生切削支持圆柱、锥面、显式环槽及旋转后的 footprint 偏移。Sun locating-shoulder 基准和不能自动应用的特殊槽等保留待复核状态；线程、容差、刀具和 `$STEP*` 配方保留完整数据，不伪装成已执行加工。演示孔腔仍是演示尺寸。多选、斜孔、完整刀具执行和尺寸工程图边界见 [DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 ## 和 Codex 协作
 
@@ -116,6 +118,6 @@ PASS 仅代表当前规则范围通过，**不是制造放行或承压认证**�
 
 每次构建输出 `production.step`、`review.json`（含真实实体离散网格、油路 ID 和位置）、`design.json`、`validation.json` 和 `validation.md`。所有输出共享设计 SHA-256；审查模型可由本控制台显示。未部署任何服务到云端。钻孔表、堵头清单、制造图以及原理图驱动的布局/路由可以在现有数据结构上后续扩展。
 
-本地 API 仅允许固定文件与构建目录，不接受路径或可执行 CAD 代码；拒绝外部 Host/Origin、缺失本地请求标头、超过 1 MB 的输入。没有跨域开放。CSP 脚本仅限本源，样式内联仅用于 Three.js DOM 标注的位置和数据颜色。
+本地 API 仅允许固定文件与构建目录，不接受路径或可执行 CAD 代码；拒绝外部 Host/Origin、缺失本地请求标头、超过 8 MB 的 JSON 输入（图纸上传为 20 MB）。没有跨域开放。CSP 脚本仅限本源，样式内联仅用于 Three.js DOM 标注的位置和数据颜色。
 
 技术参考：[CadQuery 安装](https://cadquery.readthedocs.io/en/stable/installation.html)、[CAD API](https://cadquery.readthedocs.io/en/stable/classreference.html)。

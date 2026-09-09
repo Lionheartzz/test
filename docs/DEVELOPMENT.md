@@ -20,4 +20,16 @@ Preserve the existing BRep builder, exact rule engine, STEP roundtrip and immuta
 
 ## Later capabilities
 
-Multiple selection/group dragging and alignment, automatic exact candidate search around obstacles, angle/compound-angle drilling, detailed pressure loss and branch-flow simulation, pressure certification, vendor-specific threads/form tools, orifices, full O-ring/slot/undercut libraries, assembly STEP imports and dimensioned production drawings need dedicated engineering slices. This release ranks orthogonal proposals by length and plug count; it does not promise to find a valid layout for every arbitrary move. Do not label unsupported calculations as passing. The additive metadata and parent links support these extensions without replacing the physical core.
+Multiple selection/group dragging and alignment, angle/compound-angle drilling, detailed pressure loss and branch-flow simulation, pressure certification, vendor-specific threads/form tools, orifices, automatic application of every source O-ring/slot/undercut recipe, assembly STEP imports and dimensioned production drawings need dedicated engineering slices. This release screens orthogonal detours and compares a bounded set with exact CAD validation; it does not promise to find a valid layout for every arbitrary move. Do not label unsupported calculations as passing. The additive metadata and parent links support these extensions without replacing the physical core.
+
+
+## Editable project and native catalog extension
+
+- Import/export uses additive schema version 1, complete pinned cavity definitions, origin metadata and structured review decisions. JSON admission is limited to 8 MB; schematic assets remain separate SHA-addressed files.
+- Catalog data comes only from converted v0.5 engineering directories. Metric and Inch source records remain lossless. Footprints remain separately identifiable related records; their explicit cuts and interface offsets rotate with the parent cavity. Tools, grooves, envelopes and materials can be pinned as engineering resources.
+- Source cylinders and conical seats map to CAD primitives. Standard Steps 1–11 use Step 0 depth as datum. Sun locating-shoulder records remain provisional; special features requiring additional interpretation remain draft projections. Threads and machining recipes are retained independently of geometric validation.
+- `imported-dimensional` is checked against reproducible mapping from pinned native records, without a live catalog dependency. `engineer-mapped` and reviewed machining each require a recorded decision. A schema-valid record alone does not prove a physically correct cavity.
+- Shared edits create content-addressed PMC revisions. Catalog deletion is reversible and does not delete old project/build pins. Editing a project pin changes the current draft only, requires new interface mappings, and marks affected schematic components unconfirmed.
+- Exact route optimization retains each candidate, including CAD failures, under `output/optimizations/`. It does not commit the project or relax validation. The current search is bounded and incomplete.
+
+Depth convention references: [VEST cavity modeling](https://www.vestusa.com/Help/MDTools-775/Modeling_Cavities.htm) and [VEST Library Manager manual](https://www.vestusa.com/Download/MDTools-Library-Manager-2018-User-Manual.pdf). These explain source conventions; they do not certify this implementation or any imported dimensions.

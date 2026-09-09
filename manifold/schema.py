@@ -1,5 +1,5 @@
 from typing import Literal, Annotated
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator, model_serializer
 
 Circuit = Annotated[str, Field(pattern=r'^[A-Za-z][A-Za-z0-9_-]{0,39}$')]
 Face = Literal['left', 'right', 'front', 'back', 'bottom', 'top']
@@ -34,6 +34,73 @@ class Stage(Strict):
 
 class Zone(Stage):
     id: Identifier
+    offset_u: float = Field(default=0,ge=-2000,le=2000)
+    offset_v: float = Field(default=0,ge=-2000,le=2000)
+    clip_to_cut: bool = False
+
+
+class CuttingPrimitive(Strict):
+    """Explicit mm CAD mapping, independent of native dimensions and recipe operands."""
+    source_ref: str = ''
+    start: Coordinate
+    end: Positive
+    diameter: Positive
+    end_diameter: float = Field(default=0,ge=0,le=2000)
+    kind: Literal['cylinder', 'cone', 'annulus'] = 'cylinder'
+    inner_diameter: Coordinate = 0
+    offset_u: float = Field(default=0,ge=-2000,le=2000)
+    offset_v: float = Field(default=0,ge=-2000,le=2000)
+
+    @model_validator(mode='after')
+    def ordered(self):
+        if self.end <= self.start or self.kind == 'annulus' and self.inner_diameter >= self.diameter:
+            raise ValueError('Invalid cutting primitive extent or annular diameter')
+        return self
+
+
+class LibraryRecord(BaseModel):
+    """Lossless native record. Extensions from newer converters survive project round trips."""
+    model_config = ConfigDict(extra='allow', allow_inf_nan=False)
+    source_schema: str = Field(alias='schema')
+    kind: str
+    id: str
+    unit_system: Literal['metric', 'inch']
+    name: str
+    geometry: dict = Field(default_factory=dict)
+    hydraulic: dict = Field(default_factory=dict)
+    threads: list[dict] = Field(default_factory=list)
+    machining: list[dict] = Field(default_factory=list)
+    engineering: dict = Field(default_factory=dict)
+    provenance: dict = Field(default_factory=dict)
+
+    @model_serializer(mode='wrap')
+    def lossless(self, handler):
+        data = handler(self)
+        data = {k:v for k,v in data.items() if k in self.model_fields_set or k in (self.model_extra or {})}
+        data['schema'] = data.pop('source_schema')
+        return data
+
+
+class NativeLibrarySnapshot(Strict):
+    record: LibraryRecord
+    related_records: list[dict] = Field(default_factory=list, max_length=200)
+    source_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    origin: str = 'VEST MDTools 930'
+    geometry_status: Literal['draft-projection', 'imported-dimensional', 'engineer-mapped'] = 'draft-projection'
+    geometry_notes: list[str] = Field(default_factory=list)
+    mapping_decision: str = Field(default='', max_length=2000)
+    machining_status: Literal['unresolved', 'engineer-reviewed'] = 'unresolved'
+    machining_decision: str = Field(default='', max_length=2000)
+    derived_from: str = ''
+    datum_mode: Literal['step0-relative', 'surface-relative'] = 'step0-relative'
+
+    @model_validator(mode='after')
+    def decisions(self):
+        if self.geometry_status == 'engineer-mapped' and not self.mapping_decision.strip():
+            raise ValueError('Geometry mapping requires an engineering decision')
+        if self.machining_status == 'engineer-reviewed' and not self.machining_decision.strip():
+            raise ValueError('Machining review requires an engineering decision')
+        return self
 
 
 class CavityDefinition(Strict):
@@ -42,8 +109,8 @@ class CavityDefinition(Strict):
     source: str = Field(min_length=1, max_length=500)
     demo_only: bool = True
     thread_note: str = Field(max_length=300)
-    stages: list[Stage] = Field(min_length=1, max_length=12)
-    zones: list[Zone] = Field(min_length=1, max_length=8)
+    stages: list[Stage] = Field(min_length=1, max_length=40)
+    zones: list[Zone] = Field(default_factory=list, max_length=64)
     clearance_diameter: Positive
     clearance_height: Positive
     manufacturer: str = Field(default='PMC Demo', max_length=120)
@@ -54,6 +121,9 @@ class CavityDefinition(Strict):
     drawing_asset: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     machining_notes: str = Field(default='', max_length=2000)
     tooling: list[str] = Field(default_factory=list, max_length=30)
+    native: NativeLibrarySnapshot | None = None
+    cutting_primitives: list[CuttingPrimitive] = Field(default_factory=list, max_length=180)
+    catalog_id: str = Field(default='',max_length=120)
 
     @model_validator(mode='after')
     def consistent(self):
@@ -66,14 +136,17 @@ class CavityDefinition(Strict):
         if len({z.id for z in self.zones}) != len(self.zones):
             raise ValueError('Duplicate cavity zone')
         for z in self.zones:
-            if not any(s.start <= z.start < z.end <= s.end and z.diameter <= s.diameter for s in self.stages):
+            if not any(s.start <= z.start < z.end <= s.end and z.diameter <= s.diameter for s in self.stages) and not self.cutting_primitives:
                 raise ValueError('Each hydraulic zone must fit inside one cutting stage')
         for i, a in enumerate(self.zones):
             for b in self.zones[i + 1:]:
-                if min(a.end, b.end) > max(a.start, b.start):
+                if not self.cutting_primitives and a.offset_u == b.offset_u and a.offset_v == b.offset_v and min(a.end, b.end) > max(a.start, b.start):
                     raise ValueError('Hydraulic zones must not overlap axially')
         if self.clearance_diameter < max(s.diameter for s in self.stages):
             raise ValueError('Installation envelope must cover the cavity mouth')
+        import math
+        if any(2*math.hypot(s.offset_u,s.offset_v)+max(s.diameter,s.end_diameter)>self.clearance_diameter+1e-6 for s in self.cutting_primitives):
+            raise ValueError('Installation envelope must cover all mapped footprint cuts')
         return self
 
 
@@ -138,6 +211,7 @@ class HydraulicNet(Strict):
     flow_lpm: float | None = Field(default=None, gt=0, le=10000)
     pressure_bar: float | None = Field(default=None, gt=0, le=2000)
     velocity_limit: float = Field(default=6, gt=0, le=100)
+    routing_variant: str | None = Field(default=None, pattern=r'^[xyz]{3}:(nearest|positive|negative):(direct|offset_[xyz]_[pm])$')
 
 
 class SchematicComponent(Strict):
@@ -174,6 +248,40 @@ class Rules(Strict):
     minimum_access_gap: Positive = 2
 
 
+class EngineeringReview(Strict):
+    """Uncertainty travels with the editable design, independent of its author/provider."""
+    id: Identifier
+    kind: Literal['assumption', 'component', 'dimension', 'connection', 'source', 'other'] = 'assumption'
+    subject: str = Field(default='', max_length=120)
+    description: str = Field(min_length=1, max_length=2000)
+    proposed_value: str = Field(default='', max_length=1000)
+    severity: Literal['review', 'blocking'] = 'review'
+    status: Literal['open', 'accepted', 'resolved'] = 'open'
+    resolution: str = Field(default='', max_length=2000)
+
+    @model_validator(mode='after')
+    def reviewed(self):
+        if self.status != 'open' and not self.resolution.strip():
+            raise ValueError('Accepted or resolved review items require an engineering decision note')
+        return self
+
+
+class DesignOrigin(Strict):
+    author: str = Field(default='', max_length=120)
+    method: Literal['manual', 'ai-assisted', 'drawing-import', 'unknown'] = 'unknown'
+    provider: str = Field(default='', max_length=120)
+    model: str = Field(default='', max_length=120)
+    notes: str = Field(default='', max_length=2000)
+
+
+class EngineeringLibraryResource(Strict):
+    id: str = Field(min_length=1,max_length=200)
+    unit_system: Literal['metric','inch','shared']
+    kind: str = Field(min_length=1,max_length=80)
+    source_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    record: dict | list
+
+
 class Design(Strict):
     schema_version: Literal[1] = 1
     name: str = Field(min_length=1, max_length=120)
@@ -186,9 +294,14 @@ class Design(Strict):
     components: list[SchematicComponent] = Field(default_factory=list, max_length=60)
     schematics: list[SchematicAsset] = Field(default_factory=list, max_length=20)
     constraints: DesignConstraints = Field(default_factory=DesignConstraints)
+    review_items: list[EngineeringReview] = Field(default_factory=list, max_length=100)
+    origin: DesignOrigin = Field(default_factory=DesignOrigin)
+    library_resources: list[EngineeringLibraryResource] = Field(default_factory=list,max_length=100)
 
     @model_validator(mode='after')
     def references(self):
+        if len({r.id for r in self.review_items}) != len(self.review_items):
+            raise ValueError('Engineering review IDs must be unique')
         ids = [f.id for f in self.features]
         lib = {d.id: d for d in self.library}
         if len(set(ids)) != len(ids) or len(lib) != len(self.library):

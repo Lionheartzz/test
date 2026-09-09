@@ -1,12 +1,13 @@
 import json
 import re
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import Field
 from .schema import Design, Strict, CavityDefinition
 from .routing import resolve_design, adopt_routes
-from .workflow import save_asset, save_library, library_entries, prepare_handoff, asset_path
+from .workflow import save_asset, save_library, library_entries, prepare_handoff, asset_path, set_library_deleted
+from .interchange import inspect_project
 from .store import ROOT, OUTPUT, read_design, revision, current, rebuild, engine_revision
 
 app = FastAPI(title='PMC Manifold', docs_url=None, redoc_url=None, openapi_url=None)
@@ -15,12 +16,12 @@ app = FastAPI(title='PMC Manifold', docs_url=None, redoc_url=None, openapi_url=N
 @app.middleware('http')
 async def local_only(request: Request, call_next):
     host = request.headers.get('host', '')
-    allowed = {'127.0.0.1:8765', 'localhost:8765', 'testserver'}
+    allowed = {'127.0.0.1:8765', 'localhost:8765', '192.168.253.117:8765', 'testserver'}
     if host not in allowed:
         return JSONResponse({'detail': 'Local host required'}, status_code=403)
     if request.method not in ('GET', 'HEAD'):
         origin = request.headers.get('origin')
-        if origin and origin not in {'http://127.0.0.1:8765', 'http://localhost:8765'}:
+        if origin and origin not in {'http://127.0.0.1:8765', '192.168.253.117:8765', 'http://localhost:8765'}:
             return JSONResponse({'detail': 'Same-origin request required'}, status_code=403)
         if request.headers.get('x-pmc-request') != 'local-console':
             return JSONResponse({'detail': 'Local request header required'}, status_code=403)
@@ -31,8 +32,8 @@ async def local_only(request: Request, call_next):
         body = bytearray()
         async for chunk in request.stream():
             body.extend(chunk)
-            if len(body) > (20_000_000 if upload else 1_000_000):
-                return JSONResponse({'detail': 'Design exceeds 1 MB'}, status_code=413)
+            if len(body) > (20_000_000 if upload else 8_000_000):
+                return JSONResponse({'detail': 'Design exceeds 8 MB'}, status_code=413)
         request._body = bytes(body)
     response = await call_next(request)
     response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -78,6 +79,23 @@ def check_design(design: Design):
     return design.model_dump()
 
 
+@app.get('/api/project-schema')
+def project_schema():
+    return Design.model_json_schema()
+
+
+@app.post('/api/import-project')
+def import_project(design: Design):
+    """Validate a proposed import without replacing the current project or draft."""
+    return inspect_project(design)
+
+
+@app.post('/api/export-project')
+def export_project(design: Design):
+    """Export a normalized editable draft, independent of its latest build status."""
+    return design.model_dump()
+
+
 @app.post('/api/preview')
 def preview(design: Design):
     try:
@@ -90,6 +108,19 @@ def preview(design: Design):
 @app.post('/api/adopt-routing')
 def adopt(design: Design):
     return adopt_routes(design).model_dump()
+
+
+class OptimizeRequest(BuildRequest):
+    max_attempts: int = Field(default=6,ge=1,le=12)
+
+
+@app.post('/api/optimize-routes')
+def optimize(payload: OptimizeRequest):
+    from .optimization import optimize_routes
+    try:
+        return optimize_routes(payload.design or read_design(),payload.expected_revision,payload.max_attempts)
+    except (ValueError,RuntimeError) as exc:
+        raise HTTPException(409,str(exc))
 
 
 class FreezeRequest(Strict):
@@ -118,13 +149,95 @@ def freeze_net(payload: FreezeRequest):
 
 
 @app.get('/api/library')
-def library():
-    return library_entries()
+def library(include_deleted: bool = False):
+    return library_entries(include_deleted)
+
+
+@app.get('/api/catalog')
+def catalog_search(q: str = '', unit: str = '', kind: str = 'cavity', manufacturer: str = '',
+                   cavity_type: str = '', thread: str = '', offset: int = Query(0,ge=0), limit: int = Query(40,ge=1,le=100),include_deleted: bool = False):
+    from .catalog import search
+    return search(q,unit,kind,manufacturer,cavity_type,thread,offset,limit,include_deleted)
+
+
+@app.get('/api/catalog/manifest')
+def catalog_manifest():
+    from .catalog import manifest
+    return manifest()
+
+
+@app.get('/api/catalog/resources')
+def catalog_resources():
+    from .catalog import shared_resources
+    return shared_resources()
+
+
+@app.get('/api/catalog/resource')
+def catalog_resource(id: str):
+    from .catalog import resource
+    try:
+        return resource(id)
+    except ValueError as exc:
+        raise HTTPException(404,str(exc))
+
+
+@app.get('/api/catalog/record')
+def catalog_record(id: str):
+    from .catalog import get_record, related, digest
+    try:
+        record = get_record(id)
+        return dict(record=record,related_records=related(record),sha256=digest(record))
+    except ValueError as exc:
+        raise HTTPException(404,str(exc))
+
+
+@app.get('/api/catalog/definition')
+def catalog_definition(id: str):
+    from .catalog import definition, pmc_id
+    try:
+        existing = [i['definition'] for i in library_entries() if i['preferred'] and i['definition']['id'] == pmc_id(id)]
+        if existing:
+            return existing[-1]
+        return definition(id).model_dump()
+    except ValueError as exc:
+        raise HTTPException(422,str(exc))
 
 
 @app.post('/api/library')
 def library_save(definition: CavityDefinition):
-    return save_library(definition)
+    try:
+        return save_library(definition)
+    except (ValueError,RuntimeError) as exc:
+        raise HTTPException(409,str(exc))
+
+
+@app.post('/api/library/project-native')
+def library_project_native(definition: CavityDefinition):
+    from .catalog import map_record
+    if not definition.native:
+        raise HTTPException(422,'Native source record is required')
+    try:
+        mapped = map_record(definition.native.record.model_dump(),definition.native.related_records,definition.native.datum_mode)
+        for key in ('id','label','source','manufacturer','cartridge_models','revision','provenance','machining_notes','tooling'):
+            setattr(mapped,key,getattr(definition,key))
+        mapped.native.source_sha256 = definition.native.source_sha256
+        mapped.native.derived_from = definition.native.derived_from
+        return mapped.model_dump()
+    except ValueError as exc:
+        raise HTTPException(422,str(exc))
+
+
+class LibraryVisibility(Strict):
+    id: str = Field(pattern=r'^[A-Za-z][A-Za-z0-9_-]{0,39}$')
+    deleted: bool
+
+
+@app.post('/api/library/visibility')
+def library_visibility(payload: LibraryVisibility):
+    try:
+        return set_library_deleted(payload.id,payload.deleted)
+    except (ValueError,RuntimeError) as exc:
+        raise HTTPException(409,str(exc))
 
 
 @app.post('/api/assets')

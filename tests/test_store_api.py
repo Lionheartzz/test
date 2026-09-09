@@ -78,7 +78,7 @@ def test_api_origin_header_schema_and_path_guards(isolated):
     headers['Origin'] = 'http://127.0.0.1:8765'
     assert client.post('/api/build', json={'expected_revision': 'bad'}, headers=headers).status_code == 422
     assert client.post('/api/build', json={'expected_revision': '0' * 64}, headers=headers).status_code == 409
-    assert client.post('/api/build', content='x' * 1_000_001, headers={**headers, 'Content-Type': 'application/json'}).status_code == 413
+    assert client.post('/api/build', content='x' * 8_000_001, headers={**headers, 'Content-Type': 'application/json'}).status_code == 413
     assert client.get('/api/artifacts/bad/server.py').status_code == 404
     assert client.post('/api/check-design', json=demo().model_dump(), headers=headers).status_code == 200
     assert client.post('/api/check-design', json={'name': 'bad'}, headers=headers).status_code == 422
