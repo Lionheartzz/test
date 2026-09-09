@@ -25,7 +25,7 @@ def revision(design):
 
 
 def engine_revision():
-    files = ['cad.py','catalog.py','schema.py','kinematics.py','routing.py','optimization.py','geometry.py','validation.py','manufacturing.py','store.py']
+    files = ['cad.py','catalog.py','boundaries.py','flow.py','schema.py','kinematics.py','routing.py','optimization.py','geometry.py','validation.py','manufacturing.py','store.py']
     return hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in files)).hexdigest()
 
 
@@ -92,21 +92,9 @@ def build_outputs(design, folder):
     report['counts']['PASS' if passed else 'FAIL'] += 1
     if not passed:
         report['status'] = 'FAIL'
-    features = {f.id: f for f in design.features}
-    parts = [dict(id='block', kind='body', color='#9ba9b9', **mesh(g.production))]
-    for key, cut in g.cuts.items():
-        f = features[key]
-        if f.kind == 'cavity':
-            parts.append(dict(id=key, owner=key, kind='cavity', color='#bbc7d4', **mesh(cut)))
-    for key, shape in g.nodes.items():
-        owner = key.split(':')[0]
-        f = features[owner]
-        parts.append(dict(id=key, owner=owner, kind='zone' if ':' in key else f.kind,
-                          circuit=g.circuits[key], color=next((n.color for n in design.nets if n.id == g.circuits[key] and n.color), COLORS.get(g.circuits[key], '#b08bea')), **mesh(shape)))
-    for key, shape in g.plugs.items():
-        parts.append(dict(id=key + ':plug', owner=key, kind='plug', color='#d5dee9', **mesh(shape)))
-    review = dict(design_revision=rev, block=design.block.model_dump(), parts=parts, placements=g.placements,
-                  volume_mm3=round(g.production.Volume(), 3), colors=COLORS)
+    from .geometry import review_model
+    review = review_model(design,g)
+    review['design_revision']=rev
     atomic_json(folder / 'review.json', review)
     atomic_json(folder / 'design.json', authored.model_dump())
     atomic_json(folder / 'resolved_design.json', design.model_dump())

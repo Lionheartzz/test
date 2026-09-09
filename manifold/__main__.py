@@ -10,6 +10,7 @@ def main():
     parser.add_argument('command', choices=['init', 'build', 'validate', 'prove', 'serve'])
     parser.add_argument('--project', type=Path)
     parser.add_argument('--out', type=Path)
+    parser.add_argument('--lan',action='store_true',help='Serve on LAN interfaces (default: this computer only)')
     args = parser.parse_args()
     if args.command == 'init':
         if not PROJECT.exists():
@@ -42,7 +43,11 @@ def main():
         print(json.dumps(dict(invalid=bad['counts'], corrected=good['counts'], output=str(folder))))
     else:
         import uvicorn
-        uvicorn.run('manifold.server:app', host='127.0.0.1', port=8765, workers=1)
+        import os
+        os.environ['PMC_LAN']='1' if args.lan else '0'
+        from .network import endpoints
+        print(json.dumps(endpoints()),flush=True)
+        uvicorn.run('manifold.server:app', host='0.0.0.0' if args.lan else '127.0.0.1', port=8765, workers=1,proxy_headers=False)
 
 
 if __name__ == '__main__':

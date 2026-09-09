@@ -84,6 +84,8 @@ class LibraryRecord(BaseModel):
 class NativeLibrarySnapshot(Strict):
     record: LibraryRecord
     related_records: list[dict] = Field(default_factory=list, max_length=200)
+    mapping_record: LibraryRecord | None = None
+    mapping_related_records: list[dict] | None = Field(default=None,max_length=200)
     source_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     origin: str = 'VEST MDTools 930'
     geometry_status: Literal['draft-projection', 'imported-dimensional', 'engineer-mapped'] = 'draft-projection'
@@ -100,6 +102,35 @@ class NativeLibrarySnapshot(Strict):
             raise ValueError('Geometry mapping requires an engineering decision')
         if self.machining_status == 'engineer-reviewed' and not self.machining_decision.strip():
             raise ValueError('Machining review requires an engineering decision')
+        return self
+
+
+class LibraryLineage(Strict):
+    kind: Literal['imported-mdtools','pmc-derived','pmc-custom','demo-provisional']
+    original_source: str = Field(max_length=500)
+    source_sha256: str | None = Field(default=None,pattern=r'^[0-9a-f]{64}$')
+    derived_from: str = Field(default='',max_length=240)
+    revision_history: list[str] = Field(default_factory=list,max_length=100)
+
+
+class CartridgeCompatibility(Strict):
+    model: str = Field(min_length=1,max_length=120)
+    manufacturer: str = Field(default='',max_length=120)
+    source: str = Field(min_length=1,max_length=500)
+    status: Literal['documented','engineer-confirmed','unconfirmed'] = 'unconfirmed'
+
+
+class ComponentBoundary(Strict):
+    category: Literal['mounting-footprint','external-body','service','tool'] = 'mounting-footprint'
+    points: list[tuple[float,float]] = Field(min_length=3,max_length=100)
+    height: float = Field(default=0,ge=0,le=2000)
+    source: str = Field(min_length=1,max_length=500)
+    status: Literal['source-mapped','engineer-confirmed'] = 'source-mapped'
+
+    @model_validator(mode='after')
+    def finite_boundary(self):
+        if any(abs(v)>2000 for p in self.points for v in p):
+            raise ValueError('Boundary coordinate exceeds 2000 mm')
         return self
 
 
@@ -124,9 +155,17 @@ class CavityDefinition(Strict):
     native: NativeLibrarySnapshot | None = None
     cutting_primitives: list[CuttingPrimitive] = Field(default_factory=list, max_length=180)
     catalog_id: str = Field(default='',max_length=120)
+    lineage: LibraryLineage | None = None
+    compatible_cartridges: list[CartridgeCompatibility] = Field(default_factory=list,max_length=100)
+    boundaries: list[ComponentBoundary] = Field(default_factory=list,max_length=40)
 
     @model_validator(mode='after')
     def consistent(self):
+        if self.lineage is None:
+            kind = ('pmc-derived' if self.native.derived_from else 'imported-mdtools') if self.native else ('demo-provisional' if self.demo_only else 'pmc-custom')
+            self.lineage = LibraryLineage(kind=kind,original_source=self.source,
+                                         source_sha256=self.native.source_sha256 if self.native else None,
+                                         derived_from=self.native.derived_from if self.native else '')
         end = 0
         previous_diameter = float('inf')
         for s in self.stages:
@@ -174,12 +213,22 @@ class Feature(Strict):
     cartridge_model: str = Field(default='', max_length=120)
     schematic_id: str = Field(default='', max_length=80)
     route_net: Circuit | None = None
+    frozen_net: Circuit | None = None
+    direction: tuple[float,float,float] | None = None
     machining_id: str = Field(default='', max_length=60)
     parent_id: Identifier | None = None
     local_offset: tuple[float, float] = (0, 0)
 
     @model_validator(mode='after')
     def fields_for_kind(self):
+        if self.direction is not None:
+            import math
+            from .kinematics import FACE_AXES
+            _,_,axis,sign=FACE_AXES[self.face]
+            length=math.sqrt(sum(x*x for x in self.direction))
+            if self.kind!='drilling' or length<1e-6 or self.direction[axis]*sign/length<0.25:
+                raise ValueError('Angled direction requires an inward drilling axis with entry cosine >= 0.25')
+            self.direction=tuple(x/length for x in self.direction)
         if self.kind == 'cavity':
             if not self.definition or self.circuit is not None or self.diameter is not None or self.depth is not None or self.plugged:
                 raise ValueError('Cavity uses definition and circuits, not bore fields')
@@ -203,6 +252,7 @@ class HydraulicNet(Strict):
     label: str = Field(default='', max_length=120)
     members: list[str] = Field(default_factory=list, max_length=60)
     routing: Literal['manual', 'automatic'] = 'manual'
+    drilling_mode: Literal['orthogonal','allow-angled','simplest'] = 'orthogonal'
     diameter: Positive = 8
     preferred_axis: Literal['auto', 'x', 'y', 'z'] = 'auto'
     entry_preference: Literal['nearest', 'positive', 'negative'] = 'nearest'
@@ -211,7 +261,7 @@ class HydraulicNet(Strict):
     flow_lpm: float | None = Field(default=None, gt=0, le=10000)
     pressure_bar: float | None = Field(default=None, gt=0, le=2000)
     velocity_limit: float = Field(default=6, gt=0, le=100)
-    routing_variant: str | None = Field(default=None, pattern=r'^[xyz]{3}:(nearest|positive|negative):(direct|offset_[xyz]_[pm])$')
+    routing_variant: str | None = Field(default=None, pattern=r'^([xyz]{3}:(nearest|positive|negative):(direct|offset_[xyz]_[pm])|simple_[0-9]+)$')
 
 
 class SchematicComponent(Strict):
@@ -286,6 +336,7 @@ class Design(Strict):
     schema_version: Literal[1] = 1
     name: str = Field(min_length=1, max_length=120)
     units: Literal['mm'] = 'mm'
+    project_context: Literal['metric', 'inch'] = 'metric'
     block: Block
     rules: Rules = Field(default_factory=Rules)
     library: list[CavityDefinition] = Field(min_length=1, max_length=30)

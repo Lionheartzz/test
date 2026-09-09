@@ -12,16 +12,21 @@ def manufacturing_outputs(design, g, folder):
         if f.suppressed:
             continue
         rows.append(dict(machining_id=f.machining_id or f'M{i:03}', feature=f.id, kind=f.kind, face=f.face,
+                         axis_x=g.placements[f.id]['direction'][0],axis_y=g.placements[f.id]['direction'][1],axis_z=g.placements[f.id]['direction'][2],
                          u=f.u,v=f.v,diameter=f.diameter or '',depth=f.depth or lib[f.definition].stages[-1].end,
                          plug_length=f.plug_length if f.plugged else '',tooling='; '.join(lib[f.definition].tooling) if f.definition else 'Drill selection requires review'))
     with (folder/'drill-chart.csv').open('w',newline='',encoding='utf-8-sig') as handle:
-        writer=csv.DictWriter(handle,fieldnames=['machining_id','feature','kind','face','u','v','diameter','depth','plug_length','tooling'])
+        writer=csv.DictWriter(handle,fieldnames=['machining_id','feature','kind','face','axis_x','axis_y','axis_z','u','v','diameter','depth','plug_length','tooling'])
         writer.writeheader(); writer.writerows(rows)
     meets=[]
     for a,b in combinations(g.nodes,2):
         shape=g.nodes[a].intersect(g.nodes[b]); volume=shape.Volume()
         if volume > 1e-6:
-            meets.append(dict(a=a,b=b,volume_mm3=round(volume,5),center_mm=shape.Center().toTuple(),same_net=g.circuits[a]==g.circuits[b]))
+            from .flow import opening_area,equivalent_diameter
+            area=opening_area(g.nodes[a],g.nodes[b],[g.placements[x.split(':')[0]]['direction'] for x in (a,b)])
+            meets.append(dict(a=a,b=b,volume_mm3=round(volume,5),center_mm=shape.Center().toTuple(),same_net=g.circuits[a]==g.circuits[b],
+                              characteristic_opening_mm2=round(area,5),equivalent_diameter_mm=round(equivalent_diameter(area),5),
+                              method='Minimum axial common sections at overlap centroid; geometric screen, not minimum-throat certification'))
     flows=[]
     for n in design.nets:
         if n.flow_lpm:

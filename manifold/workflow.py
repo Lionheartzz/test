@@ -43,13 +43,19 @@ def _catalog_state():
 
 
 def save_library(definition):
+    definition = definition.model_copy(deep=True)
     if definition.native:
-        definition = definition.model_copy(deep=True)
         definition.native.derived_from = definition.native.record.id + '@' + definition.native.source_sha256
-    body=definition.model_dump()
-    digest=hashlib.sha256(json.dumps(body,sort_keys=True).encode()).hexdigest()
-    path=store.PROJECT.parent/'library'/definition.id/(digest+'.json')
+        definition.lineage.kind = 'pmc-derived'
+        definition.lineage.derived_from = definition.native.derived_from
     with store.project_lock():
+        previous = [i for i in library_entries(include_deleted=True) if i['preferred'] and i['definition']['id']==definition.id]
+        if previous:
+            history = previous[-1]['definition'].get('lineage',{}).get('revision_history',[])
+            definition.lineage.revision_history = list(dict.fromkeys([*history,*definition.lineage.revision_history,previous[-1]['sha256']]))[-100:]
+        body=definition.model_dump()
+        digest=hashlib.sha256(json.dumps(body,sort_keys=True).encode()).hexdigest()
+        path=store.PROJECT.parent/'library'/definition.id/(digest+'.json')
         if not path.exists(): store.atomic_json(path,body)
         state = _catalog_state()
         state['hidden_ids'] = [id for id in state['hidden_ids'] if id != definition.id]
@@ -65,8 +71,9 @@ def library_entries(include_deleted=False):
         entries[digest]=dict(sha256=digest,definition=data)
     for path in sorted((store.PROJECT.parent/'library').glob('*/*.json')):
         try:
-            data=CavityDefinition.model_validate_json(path.read_text(encoding='utf-8')).model_dump()
-            digest=hashlib.sha256(json.dumps(data,sort_keys=True).encode()).hexdigest()
+            original=json.loads(path.read_text(encoding='utf-8'))
+            data=CavityDefinition.model_validate(original).model_dump()
+            digest=hashlib.sha256(json.dumps(original,sort_keys=True).encode()).hexdigest()
             if digest == path.stem: entries[digest]=dict(sha256=digest,definition=data)
         except (ValueError,OSError): continue
     state = _catalog_state()

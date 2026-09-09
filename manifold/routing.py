@@ -95,16 +95,18 @@ def propose(design, net, order, entry=None, detour='direct'):
 
 
 def segment_distance(a,b,c,d):
-    """Minimum distance between finite orthogonal centerline segments, no CAD imports."""
-    ai = next((i for i in range(3) if abs(a[i]-b[i]) > 1e-7),0)
-    ci = next((i for i in range(3) if abs(c[i]-d[i]) > 1e-7),0)
-    if ai == ci:
-        gap = max(0, min(a[ai],b[ai])-max(c[ci],d[ci]), min(c[ci],d[ci])-max(a[ai],b[ai]))
-        return math.sqrt(gap*gap + sum((a[i]-c[i])**2 for i in range(3) if i != ai))
-    pa,pb = list(a),list(c)
-    pa[ai] = max(min(a[ai],b[ai]),min(max(a[ai],b[ai]),c[ai]))
-    pb[ci] = max(min(c[ci],d[ci]),min(max(c[ci],d[ci]),a[ci]))
-    return math.dist(pa,pb)
+    """Finite 3D segment distance; analytic interior solution plus all four edges."""
+    u=[y-x for x,y in zip(a,b)];v=[y-x for x,y in zip(c,d)];w=[x-y for x,y in zip(a,c)]
+    dot=lambda x,y:sum(i*j for i,j in zip(x,y))
+    aa,bb,cc,dd,ee=dot(u,u),dot(u,v),dot(v,v),dot(u,w),dot(v,w)
+    clamp=lambda x:max(0,min(1,x))
+    candidates=[(0,clamp(ee/cc) if cc else 0),(1,clamp((ee+bb)/cc) if cc else 0),
+                (clamp(-dd/aa) if aa else 0,0),(clamp((bb-dd)/aa) if aa else 0,1)]
+    det=aa*cc-bb*bb
+    if det>1e-12:
+        s,t=(bb*ee-cc*dd)/det,(aa*ee-bb*dd)/det
+        if 0<=s<=1 and 0<=t<=1:candidates.append((s,t))
+    return min(math.sqrt(sum((w[i]+s*u[i]-t*v[i])**2 for i in range(3))) for s,t in candidates)
 
 
 def segment(feature, block, start=0, end=None):
@@ -117,9 +119,50 @@ def segment(feature, block, start=0, end=None):
 
 def cylinder_bounds(feature, block, start, end, diameter):
     a,b = segment(feature,block,start,end)
-    axis = FACE_AXES[feature.face][2]
-    return [(min(a[i],b[i])-(diameter/2 if i != axis else 0),
-             max(a[i],b[i])+(diameter/2 if i != axis else 0)) for i in range(3)]
+    _,direction=pose(feature,block)
+    return [(min(a[i],b[i])-diameter/2*math.sqrt(max(0,1-direction[i]**2)),
+             max(a[i],b[i])+diameter/2*math.sqrt(max(0,1-direction[i]**2))) for i in range(3)]
+
+
+def simple_routes(design,net):
+    """Single-entry proposals may exploit offset intersection; exact checks decide adequacy."""
+    points=terminal_points(design);targets=[points[m] for m in net.members if m in points]
+    if len(targets)<2 or net.construction_access:
+        return []
+    routes=[];digest=hashlib.sha256(net.id.encode()).hexdigest()[:8]
+    for port in design.features:
+        if port.kind!='port' or port.suppressed or port.circuit!=net.id or port.diameter<net.diameter:
+            continue
+        origin,direction=pose(port,design.block)
+        depths=[sum((p[i]-origin[i])*direction[i] for i in range(3)) for p in targets]
+        if min(depths)<=0:continue
+        radii={f.id:f.diameter/2 for f in design.features if f.kind=='port'}
+        for f in design.features:
+            if f.kind=='cavity':
+                definition=next(d for d in design.library if d.id==f.definition)
+                radii.update({f'{f.id}:{z.id}':z.diameter/2 for z in definition.zones})
+        if any(math.dist(points[m],tuple(origin[i]+direction[i]*sum((points[m][j]-origin[j])*direction[j] for j in range(3)) for i in range(3)))>=radii[m]+net.diameter/2-1e-6 for m in net.members if m in points):
+            continue
+        routes.append([Feature(id=f'R-{digest}-1',kind='drilling',face=port.face,u=port.u,v=port.v,circuit=net.id,
+                              diameter=net.diameter,depth=max(depths)+net.diameter/2,route_net=net.id)])
+    if net.drilling_mode!='orthogonal' and len(set(targets))==2:
+        a,b=targets;length=math.dist(a,b)
+        if length>1e-6:
+            for start,end in [(a,b),(b,a)]:
+                direction=tuple((end[i]-start[i])/length for i in range(3))
+                entries=[]
+                for face,(u,v,axis,sign) in FACE_AXES.items():
+                    if direction[axis]*sign<.25:continue
+                    surface=0 if sign>0 else dimensions(design.block)[axis]
+                    t=(start[axis]-surface)/direction[axis]
+                    p=tuple(start[i]-t*direction[i] for i in range(3))
+                    if t>8 and all(0<=p[i]<=dimensions(design.block)[i] for i in (u,v)):
+                        entries.append((t,face,p))
+                if entries:
+                    t,face,p=min(entries);u,v,_,_=FACE_AXES[face]
+                    routes.append([Feature(id=f'R-{digest}-1',kind='drilling',face=face,u=p[u],v=p[v],direction=direction,
+                                           circuit=net.id,diameter=net.diameter,depth=t+length+net.diameter/2,plugged=True,route_net=net.id)])
+    return routes
 
 
 def proximity_risk(design, net, route):
@@ -186,6 +229,8 @@ def route_options(design, net):
         orders = [o for o in orders if o[0] == 'xyz'.index(net.preferred_axis)]
     entries = ['nearest','negative','positive'] if net.entry_preference == 'nearest' else [net.entry_preference]
     options, seen = [],set()
+    for i,route in enumerate(simple_routes(design,net)):
+        options.append(dict(key=f'simple_{i}',route=route,risk=proximity_risk(design,net,route),cost=route_cost(design,route)))
     detours = ['direct'] + [f'offset_{axis}_{side}' for axis in 'xyz' for side in 'pm']
     for order,entry,detour in itertools.product(orders,entries,detours):
         key = ''.join('xyz'[i] for i in order)+':'+entry+':'+detour
@@ -209,11 +254,17 @@ def resolve_design(design):
             continue
         choices = route_options(resolved,net)
         if net.routing_variant:
-            order,entry,detour = net.routing_variant.split(':')
-            if sorted(order) != ['x','y','z']:
-                raise ValueError('Routing variant must use each axis once')
-            route = propose(resolved,net,tuple('xyz'.index(i) for i in order),entry,detour)
-            selected = dict(key=net.routing_variant,route=route,risk=proximity_risk(resolved,net,route),cost=route_cost(resolved,route))
+            if net.routing_variant.startswith('simple_'):
+                selected=next((o for o in choices if o['key']==net.routing_variant),None)
+                if selected is None:
+                    selected=choices[0]  # Moved/reassigned terminals invalidate the old proposal.
+                route=selected['route']
+            else:
+                order,entry,detour = net.routing_variant.split(':')
+                if sorted(order) != ['x','y','z']:
+                    raise ValueError('Routing variant must use each axis once')
+                route = propose(resolved,net,tuple('xyz'.index(i) for i in order),entry,detour)
+                selected = dict(key=net.routing_variant,route=route,risk=proximity_risk(resolved,net,route),cost=route_cost(resolved,route))
         else:
             selected = choices[0]
             route = selected['route']

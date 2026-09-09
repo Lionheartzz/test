@@ -10,7 +10,9 @@
 .\Start-Manifold.ps1
 ```
 
-打开 <http://127.0.0.1:8765>。服务只监听回环地址。关闭运行服务的终端或按 Ctrl+C 停止。再次启动不会覆盖已有项目。
+打开 <http://127.0.0.1:8765>。默认只监听回环地址。关闭运行服务的终端或按 Ctrl+C 停止。再次启动不会覆盖已有项目。
+
+局域网使用双击 `Start-Manifold-LAN.cmd`，或运行 `.\Start-Manifold.ps1 -LAN`。服务监听 `0.0.0.0:8765`，终端输出本机当前 IP 和主机名入口，无需修改源码中的 IP。若已有本地模式服务，先 Ctrl+C 停止再启动 LAN 模式。在可信局域网中使用；若其他电脑无法连接，在 Windows 防火墙允许专用网络上的入站 TCP 8765，脚本不会自动修改防火墙。同源写入检查仍然生效。停止 LAN 服务后用普通入口恢复本地模式。
 
 另一台 Windows 电脑：安装 **Python 3.11 x64、Node.js 22.12+ 或 24 LTS**，然后运行：
 
@@ -20,23 +22,27 @@
 
 首次安装需要网络；安装完成后的建模、校验、网页和导出都在本地运行。脚本使用 `requirements-lock.txt` 和 `package-lock.json` 固定已验证依赖，不修改系统 Python。若 PowerShell 执行策略阻止脚本，使用同目录的 `.cmd` 入口。
 
+直接复制整个目录也可启动：脚本检测失效或迁移的 `.venv`，先保留到 `output/runtime-backups/`，再使用本机 Python 3.11 x64 重建。支持 Python Launcher、uv 管理的 Python 和常见安装目录；uv 存在但未安装 3.11 时先运行 `uv python install 3.11`。Node 从本机查找并用对应 npm 安装依赖，不依赖旧电脑的 npm 启动包装器。可用 `-Python 'C:\路径\python.exe' -Node 'C:\路径\node.exe'` 指定运行时，`-CheckEnvironment` 仅检查、不修改环境。完整首次准备使用 `-Setup`。
+
 本机实际运行结果、最终构建标识和截图见 [VERIFICATION.md](VERIFICATION.md)。
 
 Windows CAD 依赖已固定版本；`manifold/cad.py` 会先加载 CasADi 再加载 CadQuery，规避本机已复现的 NLopt/CasADi DLL 加载顺序导致的退出堆错误。新增 CAD 代码也应从这个模块导入 `cq`，不要绕过它。自动化测试包含真实子进程的正常退出检查。
 
 ## 日常设计（新版默认英文界面）
 
-1. **Import Project / Export Project** 是 AI 和人工设计的共同入口。导入 `.pmc.json` 后查看摘要、使用可撤销草稿；导出保留完整孔型版本、连接意图和复核决定，即使草稿还没有 PASS。项目 JSON 上限 8 MB，图纸二进制仍单独存放在本地 assets。
+1. **New Manifold** 三步建立阀块、Metric/Inch 上下文、网络和初始油口，之后按 Cavities → Placement → Hydraulic Nets → Review → Save & Validate 操作。工程坐标始终为 mm，界面保留完整编辑入口。**Import Project / Export Project** 是 AI 和人工设计的共同入口。导入 `.pmc.json` 后查看摘要、使用可撤销草稿；导出保留完整孔型版本、连接意图和复核决定，即使草稿还没有 PASS。项目 JSON 上限 8 MB，图纸二进制仍单独存放在本地 assets。
 2. **Schematic** 上传 PDF、PNG 或 JPEG。AI 提供者与模型信息属于可携带的项目来源字段；当前版本不调用 AI 服务。可选 Codex handoff 收在展开项中，通用 AI 交付格式见 [AI_PROJECT_CONTRACT.md](docs/AI_PROJECT_CONTRACT.md)。
 3. **Engineering Review** 管理假设、尺寸、选型和连接疑问。接受或解决事项必须填写决定；元件确认检查实际孔腔接口网络。对当前项目使用的孔型，可点 **Edit pinned definition** 修改并重新映射接口。
 4. **Cavity Library** 按单位、制造商、类型、螺纹和关键词分页查询完整 MDTools 转换库。原生记录和独立 footprint 关系保持结构化；可插入、编辑、复制、删除及恢复目录项。PMC 修订保存在 `projects/library/`，项目内固定定义不随目录更新。材料、加工规则及其他工程资源可查看并固定到项目。
 5. 元件支持 Duplicate、Replace、Suppress、Delete、换面、位置与网络编辑。六面孔口中心及附近均可开始拖动，悬停高亮、grab / grabbing 光标显示状态；完整安装包络限制边界，默认 1 mm 吸附、Alt 暂停。Undo / Redo 可撤销草稿操作。
 6. **Hydraulic Nets** 区分连接意图和派生钻孔；优化比较正交轴顺序、入口和偏移路径，最多六个精确候选。以实际 FAIL、WARNING 和加工代价选择不退步方案，失败候选也保存到 `output/optimizations/`。优化期间草稿变化会阻止覆盖。该有限搜索不保证任意布局都找到可行路线。
-7. **Save & Validate** 保存并生成精确 OCCT 实体、校验和不可变构建。DRAFT 预览不代表精确布尔切削或 PASS。当前 PASS 才开放 STEP；加工清单保留原生配方与未解析表达式，`manufacturing_ready` 独立于几何结果。
+7. **Save & Validate** 保存并生成精确 OCCT 实体、校验和不可变构建。**Solid** 显示实际加工孔口；未保存草稿会按需生成精确切削预览，明确标记未校验且不写入项目或构建。**Internal Review** 显示孔腔阶梯/锥面，**Hydraulic zones** 可独立关闭。普通拖动预览仍是参数预览。当前 PASS 才开放 STEP；加工清单保留原生配方与未解析表达式，`manufacturing_ready` 独立于几何结果。
 
 运行时仅读取 `PMC_MDTools_Library/PMC_Library_Converted_v05` 的转换工程目录；不读取 MDB、raw 归档或 QC 报告。Metric / Inch 原始值与单位身份保留，精确 CAD 使用 mm。库含 2477 / 841 个公制 / 英制孔腔及 3915 / 1649 个独立 footprint。全量载入审计：3318 个孔腔无损，3077 个尺寸映射、241 个待几何映射复核。尺寸映射不等于厂家批准。
 
-原生切削支持圆柱、锥面、显式环槽及旋转后的 footprint 偏移。Sun locating-shoulder 基准和不能自动应用的特殊槽等保留待复核状态；线程、容差、刀具和 `$STEP*` 配方保留完整数据，不伪装成已执行加工。演示孔腔仍是演示尺寸。多选、斜孔、完整刀具执行和尺寸工程图边界见 [DEVELOPMENT.md](docs/DEVELOPMENT.md)。
+241 条待复核记录仍可查看、插入及派生 PMC 解释。原始 MDTools 记录、关联记录和来源 SHA 保持只读；编辑作用于独立的 PMC interpretation，不覆盖导入文件或把原始记录改成修订值。待复核状态不会因数据保留完整而自动解除。逐条来源及文件哈希审计见 `output/library-preservation-v5.json`。
+
+原生切削支持圆柱、锥面、显式环槽及旋转后的 footprint 偏移。Sun locating-shoulder 基准和不能自动应用的特殊槽等保留待复核状态；线程、容差、刀具和 `$STEP*` 配方保留完整数据，不伪装成已执行加工。演示孔腔仍是演示尺寸。多选、完整刀具执行和尺寸工程图边界见 [DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 ## 和 Codex 协作
 
@@ -64,7 +70,7 @@ Codex 修改结构化项目数据后运行：
 | front / back | X | Z | +Y / −Y |
 | bottom / top | X | Y | +Z / −Z |
 
-`depth` 是圆柱部分深度；118° 钻尖的额外深度由几何引擎计算并参与壁厚检查。180° 表示平底加工。首版只支持从六个外表面垂直进刀的直线钻孔，不支持任意斜孔或曲线通道。
+`depth` 是圆柱部分深度；118° 钻尖的额外深度由几何引擎计算并参与壁厚检查。180° 表示平底加工。钻孔默认垂直进刀；可选全局单位方向向量支持从六个外表面进入的直线斜孔，入口余弦须不小于 0.25。精确切削仅在声明入口平面裁剪，其他面穿出仍失败。曲线通道、完整夹具和刀具执行尚不支持。
 
 - `cavity`：使用 `definition` 引用库定义，各轴向液压窗口分别通过 `circuits` 指定油路，例如 `CV1:upper` 和 `CV1:lower`。
 - `port` / `drilling`：使用独立 `circuit` 字段。颜色由工程 ID 决定，永不通过颜色推断油路。
@@ -81,7 +87,7 @@ Codex 修改结构化项目数据后运行：
 
 **加工空腔与装阀后的油路不同**：真实未装阀孔腔是连续切削体，液压校验则按已安装密封阀芯的接口窗口建图。同一孔腔的不同窗口不会自动串联；窗口外的孔壁/密封/螺纹区域禁止其他钻孔侵入。首版不模拟阀位及阀内流动。
 
-PASS 仅代表当前规则范围通过，**不是制造放行或承压认证**。材料为工程元数据；压力、疲劳、流量分配、压损、热、污染、完整刀具/夹具干涉、螺纹强度及密封性能尚未计算；新版提供有明确假设的最小孔径流速筛查。油口目前为尺寸可配置的直孔，类型和规格为注记，尚未实现 SAE / BSP 等标准完整接口。外部工具干涉使用声明的圆柱包络。
+PASS 仅代表当前规则范围通过，**不是制造放行或承压认证**。材料为工程元数据；压力、疲劳、流量分配、压损、热、污染、完整刀具/夹具干涉、螺纹强度及密封性能尚未计算；新版提供有明确假设的最小孔径流速筛查。油口目前为尺寸可配置的直孔，类型和规格为注记，尚未实现 SAE / BSP 等标准完整接口。外部工具干涉使用声明的圆柱包络及有来源的安装边界；未提供的阀体高度、夹具和工具外形不推定。
 
 ## 校验与复现
 
@@ -121,3 +127,14 @@ PASS 仅代表当前规则范围通过，**不是制造放行或承压认证**�
 本地 API 仅允许固定文件与构建目录，不接受路径或可执行 CAD 代码；拒绝外部 Host/Origin、缺失本地请求标头、超过 8 MB 的 JSON 输入（图纸上传为 20 MB）。没有跨域开放。CSP 脚本仅限本源，样式内联仅用于 Three.js DOM 标注的位置和数据颜色。
 
 技术参考：[CadQuery 安装](https://cadquery.readthedocs.io/en/stable/installation.html)、[CAD API](https://cadquery.readthedocs.io/en/stable/classreference.html)。
+
+
+## 2026-09-09 引导工程工作流
+
+- 工具按真实 `tool` + `family` 查询：drill 305、flat_bottom_drill 43、spot_face 64；材料按 `material_stock` 查询，共 268。完整记录优先于索引摘要。
+- 库新增显式 lineage（导入、PMC 派生、PMC 自建、演示/暂定）、来源 SHA、派生关系和修订历史，兼容旧版本 1 项目与旧库存储哈希。兼容型号需记录来源和复核状态，不从孔型名称推断。
+- 放置支持数量、初始面与接口网络；Smart align 可选吸附邻近轴线、窗口、原点及阀块中心，黄色线显示候选，Alt 暂停。XYZ 原点与选中对象的全局/面 UV 坐标可见。
+- 二维轴向剖面/顶视图随尺寸更新；完整原生记录继续保留。明确闭合的源 `L` 线段轮廓作为独立安装边界；无高度时只代表平面安装区，不能当作完整阀体或服务空间。
+- 自动候选可复用偏置相交的单个油口钻孔，也可在允许时提出两终端斜孔方案。有限搜索仍由精确验证裁决；不保证任意布置可路由。冻结后可逐段手工修改，Reroute 删除该网冻结的派生段并重新生成。
+- 通油面积筛查取重叠体质心处沿两个流向的精确 BRep 公共截面面积之小值，输出等效直径。给定网络流量/流速时，小于要求的连接报 FAIL 并不计入有效连通图。这是可复现的**特征开口筛查**，不保证全路径最小喉口，不是压损、CFD、制造或承压认证。
+- `output/library-mapping-v4.json` 保留全部 241 条暂定映射及原因；界面 Provisional mapping report 可重新查看。几何映射和加工配方复核独立。

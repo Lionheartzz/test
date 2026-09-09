@@ -38,6 +38,15 @@ def validate(design, g):
             result('declared_connection', [a, b], declared, True, declared,
                    'Every physical contact must be explicitly listed in connects_to.')
             if volume >= threshold and same:
+                from .flow import opening_area, required_area
+                net = next((n for n in design.nets if n.id == g.circuits[a]), None)
+                if net and net.flow_lpm:
+                    area = opening_area(g.nodes[a], g.nodes[b], [g.placements[x.split(':')[0]]['direction'] for x in (a,b)])
+                    required = required_area(net.flow_lpm, net.velocity_limit)
+                    result('connection_opening_area', [a,b], area, round(required,5), area + EPS >= required,
+                           'Minimum of exact axial common sections at overlap centroid; characteristic opening/velocity screen, not minimum-throat, pressure-drop or CFD certification.', unit='mm²')
+                    if area + EPS < required:
+                        continue
                 graph[a].add(b)
                 graph[b].add(a)
     for a, b in sorted(expected):
@@ -116,6 +125,7 @@ def validate(design, g):
             ports = [p for p in design.features if p.kind == 'port' and p.face == f.face
                      and abs(p.u - f.u) < EPS and abs(p.v - f.v) < EPS
                      and p.diameter >= f.diameter and p.circuit == f.circuit
+                     and all(abs(x-y)<EPS for x,y in zip(g.placements[p.id]['direction'],g.placements[f.id]['direction']))
                      and tuple(sorted((p.id, f.id))) in expected]
             result('drilling_entry_closure', [f.id], len(ports), '>= 1 port or a plug', bool(ports),
                    'Every drilling opening requires a coaxial external port or a declared plug.')
@@ -130,6 +140,26 @@ def validate(design, g):
         result('installation_access', [a, b], distance, design.rules.minimum_access_gap,
                distance + EPS >= design.rules.minimum_access_gap,
                'Declared cartridge, fitting and plug tool envelopes need separation.', unit='mm')
+
+    for key, boundary in g.boundaries.items():
+        shape=boundary['shape']; owner=boundary['owner']; feature=by_id[owner]
+        bb=shape.BoundingBox()
+        from .kinematics import FACE_AXES, dimensions
+        u,v,_,_=FACE_AXES[feature.face]; dims=dimensions(design.block)
+        ranges=[(bb.xmin,bb.xmax),(bb.ymin,bb.ymax),(bb.zmin,bb.zmax)]
+        fits=all(ranges[i][0]>=-EPS and ranges[i][1]<=dims[i]+EPS for i in (u,v))
+        result('mounting_boundary_stock',[owner,key],fits,True,fits,'Source-backed boundary must fit the mounting face; height zero represents only a planar mounting region.')
+        for other in g.envelopes:
+            if other==owner:
+                continue
+            distance=shape.distance(g.envelopes[other])
+            result('boundary_access',[owner,other],distance,design.rules.minimum_access_gap,distance+EPS>=design.rules.minimum_access_gap,'Declared mounting/body/service boundary versus neighboring fitting or tool envelope.',unit='mm')
+    for a,b in combinations(g.boundaries,2):
+        aa,bb=g.boundaries[a],g.boundaries[b]
+        if aa['owner']==bb['owner']:
+            continue
+        distance=aa['shape'].distance(bb['shape'])
+        result('component_boundary_clearance',[aa['owner'],bb['owner']],distance,design.rules.minimum_access_gap,distance+EPS>=design.rules.minimum_access_gap,'Distinct source-backed mounting/body/service regions require separation; no undeclared body height is assumed.',unit='mm')
 
     for net in design.nets:
         missing = sorted(set(net.members) - set(g.nodes))
@@ -169,7 +199,8 @@ def validate(design, g):
             if definition.native.geometry_status == 'imported-dimensional':
                 from .catalog import map_record
                 try:
-                    mapped=map_record(definition.native.record.model_dump(),definition.native.related_records,definition.native.datum_mode)
+                    native=definition.native
+                    mapped=map_record((native.mapping_record or native.record).model_dump(),native.mapping_related_records if native.mapping_related_records is not None else native.related_records,native.datum_mode)
                     mapping_valid=(mapped.native.geometry_status=='imported-dimensional' and
                                    mapped.cutting_primitives==definition.cutting_primitives and mapped.zones==definition.zones)
                 except ValueError:
@@ -192,5 +223,6 @@ def validate(design, g):
                 limitations=['Library demo cavities and straight-bore ports are illustrative and not manufacturer machining specifications.',
                              'Cartridge zones assume an installed sealing cartridge; valve-state flow is not simulated.',
                              'Threads are metadata; helical threads, tolerances, finishes and seals are not modeled.',
-                             'Access is checked against declared cylindrical envelopes, not full tools or fixtures.',
-                             'Only orthogonal straight drilling from the six block faces is supported.'])
+                             'Access uses declared cylindrical envelopes and sourced mounting/body/service boundaries; missing tool, valve-body and fixture geometry remains unverified.',
+                             'Straight orthogonal and inward angled drillings use exact cuts; complete tooling, setups and machining instructions require review.',
+                             'Opening screen uses exact common sections at overlap centroid, not a proven minimum throat or CFD model. Without stated net flow, hydraulic adequacy is undetermined.'])

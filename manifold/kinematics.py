@@ -15,7 +15,7 @@ def pose(feature, block):
     p = [0.0, 0.0, 0.0]
     p[u], p[v], p[axis] = feature.u, feature.v, 0 if sign > 0 else dimensions(block)[axis]
     d = [0, 0, 0]; d[axis] = sign
-    return tuple(p), tuple(d)
+    return tuple(p), feature.direction or tuple(d)
 
 
 def footprint_radius(feature, library):
@@ -29,8 +29,14 @@ def placement_bounds(feature, design):
     u, v, _, _ = FACE_AXES[feature.face]
     radius = footprint_radius(feature, design.library)
     sizes = dimensions(design.block)
-    return dict(min_u=radius, max_u=sizes[u] - radius, min_v=radius, max_v=sizes[v] - radius,
-                fits=2 * radius <= sizes[u] and 2 * radius <= sizes[v], radius=radius)
+    extents=[(-radius,-radius),(radius,radius)]
+    if feature.kind=='cavity':
+        definition=next(d for d in design.library if d.id==feature.definition)
+        angle=math.radians(feature.rotation)
+        extents.extend((x*math.cos(angle)-y*math.sin(angle),x*math.sin(angle)+y*math.cos(angle)) for boundary in definition.boundaries for x,y in boundary.points)
+    min_u,min_v=-min(p[0] for p in extents),-min(p[1] for p in extents)
+    max_u,max_v=sizes[u]-max(p[0] for p in extents),sizes[v]-max(p[1] for p in extents)
+    return dict(min_u=min_u,max_u=max_u,min_v=min_v,max_v=max_v,fits=min_u<=max_u and min_v<=max_v,radius=radius)
 
 
 def clamp_placement(feature, design, u, v, snap=1):

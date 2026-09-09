@@ -20,7 +20,7 @@ Preserve the existing BRep builder, exact rule engine, STEP roundtrip and immuta
 
 ## Later capabilities
 
-Multiple selection/group dragging and alignment, angle/compound-angle drilling, detailed pressure loss and branch-flow simulation, pressure certification, vendor-specific threads/form tools, orifices, automatic application of every source O-ring/slot/undercut recipe, assembly STEP imports and dimensioned production drawings need dedicated engineering slices. This release screens orthogonal detours and compares a bounded set with exact CAD validation; it does not promise to find a valid layout for every arbitrary move. Do not label unsupported calculations as passing. The additive metadata and parent links support these extensions without replacing the physical core.
+Multiple selection/group dragging, general multi-terminal angled route search, detailed pressure loss and branch-flow simulation, pressure certification, vendor-specific threads/form tools, orifices, automatic application of every source O-ring/slot/undercut recipe, assembly STEP imports and dimensioned production drawings need dedicated engineering slices. This release supports exact manually authored straight angled drillings and bounded two-terminal angled proposals, plus optional alignment. It screens orthogonal detours and compares a bounded set with exact CAD validation; it does not promise to find a valid layout for every arbitrary move. Do not label unsupported calculations as passing. The additive metadata and parent links support these extensions without replacing the physical core.
 
 
 ## Editable project and native catalog extension

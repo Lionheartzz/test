@@ -1,6 +1,37 @@
+# Display, LAN and Windows portability verification — 2026-09-09
+
+Current local delivery; sections below record prior builds.
+
+- Final immutable build `output/builds/715f1ac4db3c442bac1ba126be9076f4/`: **238 PASS / 0 WARNING / 0 FAIL**, including STEP round trip; CLI exit 0. Design SHA remains `70a3fea1d910304c08bcdece92a9091a72baf03ff15fdf51a51cf8237c807fd1`; engine SHA `68d469399486911883a8f609d2394e73d18693d653adad6a07b353119f450e3b`.
+- Full `.venv` test suite: **60 passed**, four upstream deprecation warnings, 263.06 seconds, exit 0. Includes store/API, original-record preservation, exact draft cutting without writes, LAN Host/Origin rejection, routing and geometry tests.
+- Required proof `output/proof/20260909-151237/`: deliberate invalid design **6 FAIL**, corrected **238 PASS / 0 WARNING / 0 FAIL**, exit 0. Both cases retained.
+- Production frontend build passed: 582.07 kB / 151.64 kB gzip; Vite bundle-size advisory remains.
+- Actual browser interactions: saved and edited-draft Solid modes show machined openings; hydraulic zones toggle independently from visible cavity outlines; draft length edit was undone and discarded. Desktop 1280 and 1440 layouts and 390-pixel mobile layout were visually inspected. Validation heading/filter are outside the model/sidebar grid. Screenshots: `output/playwright/v5-solid-final.png`, `v5-draft-solid.png`, `v5-zones.png`, `v5-mobile.png`. A connection-refused console entry occurred while deliberately restarting the server; it is not represented as a zero-error session.
+- Real socket LAN test: GET state and same-origin POST check-design returned 200 through both discovered IPv4 addresses and the machine hostname. Unit tests reject foreign hosts and mismatched origin scheme/port. These requests originated on this computer; access from a second PC and its firewall were not tested. No firewall rule was added.
+- `scripts/test-runtime.ps1` passed: copied virtual environment under a path containing spaces, invalid previous-user Python paths, preserved backup, healthy rebuilt environment, and no replacement of a healthy environment. Evidence directory `output/runtime-tests/24a14f0bf1aa47b0b9638d26039a18b3/`. The uv discovery branch used a simulated uv command with a real Python 3.11 probe; this machine does not have uv. Explicit Node/npm discovery and `-CheckEnvironment` passed.
+- `output/library-preservation-v5.json`: **3318 total / 3077 dimensional / 241 provisional**. All 241 source record SHA values match the preceding inventory and each original record round-trips exactly. All **9717** source JSON files were hashed before/after mapping and remain byte-identical. PMC mapping edits use separate interpretation records; original imported records and relations remain pinned. Provisional engineering status is retained.
+- No changes to the authoritative demo, original library files or existing build snapshots; no Git push or publication for this revision.
+
+# Guided engineering / routing verification — 2026-09-09
+
+Historical V4 delivery. No GitHub push or external publication was performed for this revision.
+
+- Final build: `output/builds/138ce8aaa47c48079ea80869a56e8110/`: **238 PASS / 0 WARNING / 0 FAIL**, including STEP round trip. Authoritative `projects/demo.json` was not changed by browser tests.
+- Design revision: `70a3fea1d910304c08bcdece92a9091a72baf03ff15fdf51a51cf8237c807fd1`. Engine revision: `7e307625c85090d332977d2230c540a8f732aff1506486b610b8e0a3a7b394bc`, independently matched against current engine files. Engine identity includes the new boundary and flow modules.
+- Full suite during implementation: **55 passed**, `output/tests-v4-final.xml`. Subsequent changed-area checks: **30 passed** (`tests-v4-final-targeted.xml`), **13 passed** (`tests-v4-storage-final.xml`), **6 passed** (`tests-v4-angle-final.xml`), and final library ledger checks **2 passed** (`tests-v4-ledger-final.xml`). Each command exited 0; four upstream deprecation warnings remain. The initial failing routing assertions are retained in `output/tests-v4.xml`; missing-terminal proposal screening was fixed and the offset regression now checks real connectivity instead of demanding extra drilling geometry.
+- Final required proof: `output/proof/20260909-100456/`, deliberate cross-net fault **6 FAIL**, corrected **238 PASS / 0 WARNING / 0 FAIL**, exit 0. Earlier proof evidence remains intact.
+- Real converted-catalog audit: drill **305**, flat-bottom drill **43**, spot-face **64**, material stock **268**, checked through API tests and actual browser filter changes after debounce completion. Index summaries no longer overwrite full tool/material records.
+- Full geometry-mapping inventory: **3318 total / 3077 dimensional / 241 provisional**, with source SHA and individual reasons in `output/library-mapping-v4.json`. No provisional status was relaxed.
+- Exact angled fixture: one straight angled drilling connects two installed cavity windows, meets the specified flow-area screen, preserves one valid solid and round-trips through STEP within 0.01 mm³. Breakout and invalid entry direction are rejected. Grazing overlap is smaller than the required flow area even with positive overlap volume.
+- Browser checks: Metric/Inch guided draft creation, arbitrary Pilot net, real catalog kinds/families, numeric profile changes, sequential net color/diameter edits, freeze → select/edit segment → return to automatic routing, optional smart-alignment drag with visible guide, and XYZ/UV display. All browser test drafts were discarded; no test custom cavity was saved to the shared library.
+- Visual artifacts inspected: `output/playwright/v4-material-library.png`, `v4-profile.png`, `v4-frozen-route.png`, `v4-smart-align.png`, `v4-final-workspace.png`.
+- Frontend production build exits 0; 580.06 kB / 151.01 kB gzip bundle. Existing Vite bundle-size advisory remains.
+
+Engineering limits: opening adequacy is a characteristic BRep section/velocity screen at overlap centroid, not a proven minimum throat or CFD/pressure certification. Angled route proposal search is bounded to two terminals; authored straight angled drills are exact. Only defensibly closed source line boundaries are mapped; height zero is a planar mounting region, not an invented valve body. Missing compatibility, body/service geometry and machining interpretation remain engineering-review concerns. Normal editing still has expert controls.
+
 # Editable project / native library verification — 2026-09-08
 
-This is the current delivery. Earlier sections below are historical evidence and their build IDs are not the current pointer.
+Historical delivery evidence; see the newest section above for the current pointer.
 
 - Final build: `output/builds/016f2940926b4b1783b1ac4cd357d574/`; UI Save & Validate returned **238 PASS, 0 WARNING, 0 FAIL**.
 - Design SHA-256: `9df9bf0477e21cc7feff88c4102c659034061023f48004e7e525c5ad62c4ce6b`.

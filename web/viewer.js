@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-import { axes, pose, clamp } from './kinematics.js';
+import { axes, pose, clamp, smartAlign } from './kinematics.js';
 
 export function createViewer(container, onSelect, onDrag = ()=>{}) {
   const scene = new THREE.Scene();
@@ -24,11 +24,14 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
   }
   let group = new THREE.Group(), labelGroup = new THREE.Group(), grid;
   scene.add(group, labelGroup);
-  let block, mode = 'review', opacity = .22, selected = 'block';
+  const reference=new THREE.Group(),guides=new THREE.Group();scene.add(reference,guides);
+  function guideLine(a,b,color){const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a),new THREE.Vector3(...b)]),new THREE.LineBasicMaterial({color,depthTest:false}));line.renderOrder=20;guides.add(line);}
+
+  let block, mode = 'review', opacity = .22, selected = 'block', machinedBody=false;
   let design, editing = true, handles = new THREE.Group(); scene.add(handles);
   const hitAreas = new THREE.Group(); scene.add(hitAreas);
-  let hovered = null;
-  const visible = { cavities: true, drillings: true, labels: true, circuits: new Set(['P', 'T', 'A', 'B', 'LS', 'Drain']) };
+  let hovered = null;const boundaryGroup=new THREE.Group();scene.add(boundaryGroup);
+  const visible = { cavities: true, zones: true, drillings: true, labels: true, circuits: new Set(['P', 'T', 'A', 'B', 'LS', 'Drain']) };
   function disposeGroup(target) {
     target.traverse(o => { o.geometry?.dispose(); if (o.material) o.material.dispose(); if (o.element) o.element.remove(); });
     target.clear();
@@ -48,11 +51,12 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
   function updateVisibility() {
     group.children.forEach(o => {
       const p = o.userData;
-      o.visible = p.kind === 'body' || p.kind === 'edge' || (mode === 'review'
-        && (!(p.kind === 'cavity' || p.kind === 'zone') || visible.cavities)
-        && (!(p.kind === 'drilling' || p.kind === 'plug') || visible.drillings)
-        && (!p.circuit || visible.circuits.has(p.circuit)));
-      if (p.kind === 'body') { o.material.opacity = mode === 'solid' ? 1 : opacity; o.material.depthWrite = mode === 'solid' || opacity >= .99; }
+      const cavity=p.kind==='cavity'||p.kind==='cavity-edge',zone=p.kind==='zone'||p.kind==='zone-edge';
+      o.visible = p.kind==='body' ? (mode!=='solid'||machinedBody) : p.kind==='edge' ? (mode!=='solid'||machinedBody) : mode==='review'
+        && (!cavity||visible.cavities) && (!zone||visible.zones)
+        && (!(p.kind==='drilling'||p.kind==='plug')||visible.drillings)
+        && (!p.circuit||visible.circuits.has(p.circuit));
+      if (p.kind==='body') { o.material.opacity = mode === 'solid' ? 1 : opacity; o.material.depthWrite = mode === 'solid' || opacity >= .99; }
     });
     labelGroup.children.forEach(o => {
       const p = o.userData;
@@ -68,7 +72,9 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
     for(const h of handles.children){h.material.color.set(h.userData.owner === hovered ? '#ffffff' : h.userData.owner === id ? '#a7e7c0' : '#65e4b1');h.scale.setScalar(h.userData.owner === hovered?1.25:1);}
   }
   function load(model, features) {
-    const first = !block; block = model.block;
+    const first = !block; block = model.block;machinedBody=model.geometry_kind!=='parameter-preview';container.dataset.geometry=machinedBody?'machined-brep':'parameter-preview';
+    disposeGroup(reference);reference.add(new THREE.AxesHelper(Math.min(block.length,block.width,block.height)*.35));
+    for(const [text,p]of [['0,0,0',[0,0,0]],['+X',[block.length*.4,0,0]],['+Y',[0,block.width*.4,0]],['+Z',[0,0,block.height*.4]]]){const e=document.createElement('div');e.className='model-label';e.textContent=text;const l=new CSS2DObject(e);l.position.set(...p);reference.add(l);}
     disposeGroup(group); disposeGroup(labelGroup);
     if (grid) { scene.remove(grid); grid.geometry.dispose(); grid.material.dispose(); }
     grid = new THREE.GridHelper(Math.max(block.length, block.width) * 2.8, 28, 0x3d5266, 0x2a394b);
@@ -77,16 +83,16 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
       if (p.circuit && !knownCircuits.has(p.circuit)) { knownCircuits.add(p.circuit); visible.circuits.add(p.circuit); }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(p.vertices, 3)); geo.setIndex(p.triangles); geo.computeVertexNormals();
-      const transparent = p.kind === 'body' || p.kind === 'cavity';
+      const transparent = ['body','cavity','zone'].includes(p.kind);
       const material = new THREE.MeshStandardMaterial({ color: p.color, metalness: p.kind === 'body' ? .35 : .12,
-        roughness: .42, transparent, opacity: p.kind === 'body' ? opacity : p.kind === 'cavity' ? .13 : 1,
-        depthWrite: !transparent, side: THREE.FrontSide });
+        roughness: .6, transparent, opacity: p.kind==='body'?opacity:p.kind==='cavity'?.38:p.kind==='zone'?.1:1,
+        depthWrite: !transparent, side: THREE.DoubleSide });
       const object = new THREE.Mesh(geo, material); object.userData = p;
       object.renderOrder = p.kind === 'body' ? 3 : p.kind === 'cavity' ? 2 : 0;
       group.add(object);
-      if (p.kind === 'body') {
-        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), new THREE.LineBasicMaterial({ color: '#8197ad', transparent: true, opacity: .25 }));
-        edges.userData = { kind: 'edge' }; group.add(edges);
+      if (['body','cavity','zone'].includes(p.kind)) {
+        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), new THREE.LineBasicMaterial({ color:p.kind==='body'?'#8197ad':p.kind==='cavity'?'#e1edf5':p.color, transparent:true,opacity:p.kind==='body'?.45:p.kind==='cavity'?.95:.65 }));
+        edges.userData={...p,kind:p.kind==='body'?'edge':p.kind+'-edge'};edges.renderOrder=4;group.add(edges);
       }
     }
     for (const f of features) {
@@ -103,7 +109,9 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
   const knownCircuits = new Set(visible.circuits);
   function aim(e) {const rect=renderer.domElement.getBoundingClientRect();pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);ray.setFromCamera(pointer,camera);}
   function setDesign(value) {
-    design=value;disposeGroup(handles);disposeGroup(hitAreas);
+    design=value;disposeGroup(handles);disposeGroup(hitAreas);disposeGroup(boundaryGroup);
+    for(const f of design.features.filter(f=>f.kind==='cavity'&&!f.suppressed)){const def=design.library.find(d=>d.id===f.definition),p=pose(f,design.block),[u,v]=axes[f.face],angle=(f.rotation||0)*Math.PI/180;for(const boundary of def.boundaries||[]){for(const height of boundary.height?[0,boundary.height]:[0]){const points=boundary.points.map(([x,y])=>{const q=p.origin.map((a,i)=>a-p.direction[i]*(height+.2));q[u]+=x*Math.cos(angle)-y*Math.sin(angle);q[v]+=x*Math.sin(angle)+y*Math.cos(angle);return new THREE.Vector3(...q);});points.push(points[0].clone());const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),new THREE.LineBasicMaterial({color:boundary.category==='mounting-footprint'?'#f2d454':'#be8aee',depthTest:false}));line.renderOrder=9;boundaryGroup.add(line);}}}
+
     for(const f of design.features.filter(f=>!f.suppressed&&f.kind!=='drilling'&&!f.parent_id)) {
       const p=pose(f,design.block),d=new THREE.Vector3(...p.direction);
       const h=new THREE.Mesh(new THREE.RingGeometry(4,6,32),new THREE.MeshBasicMaterial({color:f.id===selected?0xffffff:0x65e4b1,side:THREE.DoubleSide,depthTest:false}));
@@ -126,8 +134,8 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
     const add=(geo,p,color,kind,id,owner,circuit)=>{geo.applyQuaternion(p.q);geo.translate(...p.center);parts.push({vertices:Array.from(geo.attributes.position.array),triangles:geo.index?Array.from(geo.index.array):Array.from({length:geo.attributes.position.count},(_,i)=>i),color,kind,id,owner,circuit});geo.dispose();};
     const b=value.block;add(new THREE.BoxGeometry(b.length,b.width,b.height),{q:new THREE.Quaternion(),center:[b.length/2,b.width/2,b.height/2]},'#9ba9b9','body','block');
     const cylinder=(f,diam,start,end,color,kind,id,options={})=>{const p=pose(f,b),d=new THREE.Vector3(...p.direction),a=f.rotation*Math.PI/180,[u,v]=axes[f.face];p.origin[u]+=(options.offset_u||0)*Math.cos(a)-(options.offset_v||0)*Math.sin(a);p.origin[v]+=(options.offset_u||0)*Math.sin(a)+(options.offset_v||0)*Math.cos(a);add(new THREE.CylinderGeometry((options.kind==='cone'?options.end_diameter:diam)/2,diam/2,end-start,32),{q:new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),d),center:p.origin.map((a,i)=>a+p.direction[i]*(start+end)/2)},color,kind,id,f.id,f.circuit);};
-    for(const f of value.features.filter(f=>!f.suppressed)) {placements[f.id]=pose(f,b);if(f.kind==='cavity'){const d=value.library.find(d=>d.id===f.definition);for(const [i,s] of (d.cutting_primitives?.length?d.cutting_primitives:d.stages).entries())cylinder(f,s.diameter,s.start,s.end,'#b4c7da','cavity',f.id+'-'+i,s);for(const z of d.zones){const net=value.nets.find(n=>n.id===f.circuits[z.id]);cylinder(f,z.diameter,z.start,z.end,net?.color||({P:'#ef5959',T:'#459cff',A:'#41ca8b',B:'#f2d454'}[f.circuits[z.id]])||'#b08bea','zone',f.id+':'+z.id,z);}}else{cylinder(f,f.diameter,0,f.depth,({P:'#ef5959',T:'#459cff',A:'#41ca8b',B:'#f2d454'}[f.circuit])||'#b08bea',f.kind,f.id);}}
-    load({block:b,parts,placements},value.features);
+    for(const f of value.features.filter(f=>!f.suppressed)) {placements[f.id]=pose(f,b);if(f.kind==='cavity'){const d=value.library.find(d=>d.id===f.definition);for(const [i,s] of (d.cutting_primitives?.length?d.cutting_primitives:d.stages).entries())cylinder(f,s.diameter,s.start,s.end,'#b4c7da','cavity',f.id+'-'+i,s);for(const z of d.zones){const net=value.nets.find(n=>n.id===f.circuits[z.id]);cylinder(f,z.diameter,z.start,z.end,net?.color||({P:'#ef5959',T:'#459cff',A:'#41ca8b',B:'#f2d454'}[f.circuits[z.id]])||'#b08bea','zone',f.id+':'+z.id,z);}}else{cylinder(f,f.diameter,0,f.depth,value.nets.find(n=>n.id===f.circuit)?.color||({P:'#ef5959',T:'#459cff',A:'#41ca8b',B:'#f2d454'}[f.circuit])||'#b08bea',f.kind,f.id);}}
+    load({block:b,parts,placements,geometry_kind:'parameter-preview'},value.features);
   }
   let down, drag;
   renderer.domElement.addEventListener('pointerdown', e => {
@@ -138,8 +146,8 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
     const point=ray.ray.intersectPlane(plane,new THREE.Vector3());if(!point)return;
     drag={f,plane,start:point,u:f.u,v:f.v,moved:false};controls.enabled=false;renderer.domElement.setPointerCapture(e.pointerId);onSelect(f.id);hover(f.id);renderer.domElement.style.cursor='grabbing';container.classList.add('dragging');e.stopImmediatePropagation();
   },true);
-  renderer.domElement.addEventListener('pointermove',e=>{aim(e);if(!drag){hover(hitTarget()?.object.userData.owner||null);return;}if(!drag.moved&&Math.hypot(e.clientX-down[0],e.clientY-down[1])<3)return;const point=ray.ray.intersectPlane(drag.plane,new THREE.Vector3());if(!point)return;const [u,v]=axes[drag.f.face];const delta=point.clone().sub(drag.start).toArray();try{const [nu,nv]=clamp(drag.f,design,drag.u+delta[u],drag.v+delta[v],e.altKey?0:1);drag.moved=true;onDrag(drag.f.id,nu,nv,false);}catch{};});
-  function finish(e,cancel=false){if(!drag)return false;const old=drag;drag=null;controls.enabled=true;container.classList.remove('dragging');renderer.domElement.style.cursor=hovered?'grab':'';if(renderer.domElement.hasPointerCapture(e.pointerId))renderer.domElement.releasePointerCapture(e.pointerId);if(old.moved)onDrag(old.f.id,cancel?old.u:design.features.find(f=>f.id===old.f.id).u,cancel?old.v:design.features.find(f=>f.id===old.f.id).v,true);return true;}
+  renderer.domElement.addEventListener('pointermove',e=>{aim(e);if(!drag){hover(hitTarget()?.object.userData.owner||null);return;}if(!drag.moved&&Math.hypot(e.clientX-down[0],e.clientY-down[1])<3)return;const point=ray.ray.intersectPlane(drag.plane,new THREE.Vector3());if(!point)return;const [u,v]=axes[drag.f.face];const delta=point.clone().sub(drag.start).toArray();try{let [nu,nv]=clamp(drag.f,design,drag.u+delta[u],drag.v+delta[v],e.altKey?0:1);disposeGroup(guides);if(document.getElementById('smart-snap')?.checked&&!e.altKey){const aligned=smartAlign(drag.f,design,drag.u+delta[u],drag.v+delta[v]);[nu,nv]=aligned.values;for(const g of aligned.guides){const p=pose({...drag.f,u:nu,v:nv},design.block).origin,a=[...p],b=[...p],other=g.axis===u?v:u;a[other]=0;b[other]=[design.block.length,design.block.width,design.block.height][other];guideLine(a,b,'#f2d454');}container.dataset.alignment=aligned.guides.map(g=>g.label).join(', ');}drag.moved=true;onDrag(drag.f.id,nu,nv,false);}catch{};});
+  function finish(e,cancel=false){if(!drag)return false;const old=drag;drag=null;disposeGroup(guides);delete container.dataset.alignment;controls.enabled=true;container.classList.remove('dragging');renderer.domElement.style.cursor=hovered?'grab':'';if(renderer.domElement.hasPointerCapture(e.pointerId))renderer.domElement.releasePointerCapture(e.pointerId);if(old.moved)onDrag(old.f.id,cancel?old.u:design.features.find(f=>f.id===old.f.id).u,cancel?old.v:design.features.find(f=>f.id===old.f.id).v,true);return true;}
   renderer.domElement.addEventListener('pointercancel',e=>finish(e,true));
   renderer.domElement.addEventListener('lostpointercapture',e=>finish(e,true));
   renderer.domElement.addEventListener('pointerleave',()=>{if(!drag)hover(null);});

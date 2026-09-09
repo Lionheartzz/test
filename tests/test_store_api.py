@@ -68,7 +68,7 @@ def test_lock_excludes_second_builder(isolated):
 
 
 def test_api_origin_header_schema_and_path_guards(isolated):
-    client = TestClient(app)
+    client = TestClient(app,base_url='http://127.0.0.1:8765')
     assert client.get('/api/state').status_code == 200
     assert client.get('/api/state', headers={'Host': 'evil.example'}).status_code == 403
     body = dict(expected_revision=store.revision(demo()))

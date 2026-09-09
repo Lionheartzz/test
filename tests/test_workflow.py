@@ -38,7 +38,11 @@ def test_auto_route_reproduces_demo_and_follows_terminals(tmp_path):
     after,_=resolve_design(d)
     a0=next(f for f in before.features if f.route_net=='A')
     a1=[f for f in after.features if f.route_net=='A']
-    assert len(a1)>1 or a1[0].u!=a0.u
+    # A valid offset intersection may keep one drilling after the cavity moves.
+    # Verify the moved hydraulic terminals still connect, rather than demanding extra holes.
+    moved_geometry=build_geometry(after);authorize_generated_contacts(after,moved_geometry)
+    moved_report=validate(after,moved_geometry)
+    assert any(c['rule']=='circuit_connectivity' and c['message'].startswith('A:') and c['status']=='PASS' for c in moved_report['checks'])
     assert next(f for f in before.features if f.id=='XD-P').u==pytest.approx(67.5)
     manufacture=json.loads((tmp_path/'pass'/'manufacturing.json').read_text())
     assert manufacture['meet_list'] and len(manufacture['drill_chart'])==12

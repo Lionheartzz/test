@@ -4,6 +4,7 @@ Native records and footprint relationships remain separate, content-pinned objec
 The conservative cylinder projection is explicitly a draft, never a vendor cavity.
 """
 import hashlib
+import copy
 import json
 import math
 from functools import lru_cache
@@ -25,6 +26,8 @@ def records():
                       'assembly_envelopes', 'drill_tools', 'flat_bottom_drill_tools',
                       'spot_face_tools', 'material_stock', 'tooling', 'materials'):
             for path in sorted((base / group).rglob('*.json')):
+                if path.stem.endswith('_index'):
+                    continue  # Index rows are summaries, never authoritative engineering records.
                 data = json.loads(path.read_text(encoding='utf-8'))
                 for record in data if isinstance(data,list) else [data]:
                     if isinstance(record, dict) and isinstance(record.get('id'),str):
@@ -36,7 +39,7 @@ def records():
 def get_record(id):
     if id not in records():
         raise ValueError('Converted library record not found')
-    return records()[id][0]
+    return copy.deepcopy(records()[id][0])
 
 
 def digest(record):
@@ -82,7 +85,7 @@ def resource(id):
     return dict(id=id,unit_system=record.get('unit_system',id.split(':')[0]),kind=record.get('kind',id.split(':')[1]),source_sha256=digest(record),record=record)
 
 
-def search(q='', unit='', kind='cavity', manufacturer='', cavity_type='', thread='', offset=0, limit=40, include_deleted=False):
+def search(q='', unit='', kind='cavity', manufacturer='', cavity_type='', thread='', offset=0, limit=40, include_deleted=False, family=''):
     from .workflow import _catalog_state
     hidden = set(_catalog_state()['hidden_ids'])
     rows = []
@@ -93,13 +96,19 @@ def search(q='', unit='', kind='cavity', manufacturer='', cavity_type='', thread
         record_kind = record.get('kind',record['id'].split(':')[1])
         if unit and record_unit != unit or kind and record_kind != kind:
             continue
+        if family and record.get('family') != family:
+            continue
         maker = record.get('library', {}).get('name', '')
         typ = record.get('cavity_type', record.get('source_identity', {}).get('cavity_type', ''))
         threads = ' / '.join(' '.join(str(t.get(k, '')) for k in ('size', 'pitch', 'class')) for t in record.get('threads', []))
-        haystack = ' '.join([record['id'], record.get('name', ''), maker, typ, threads, record.get('comments', '')]).lower()
+        haystack = ' '.join([record['id'], record.get('name', ''), maker, typ, threads, record.get('comments', ''),
+                            record.get('family',''),record.get('material_name',''),
+                            ' '.join(str(record.get(k,{}).get('raw','')) for k in ('diameter','max_depth','size_1','size_2'))]).lower()
         if not all(token in haystack for token in q.lower().split()) or manufacturer.lower() not in maker.lower() or cavity_type.lower() not in typ.lower() or thread.lower() not in threads.lower():
             continue
-        rows.append(dict(id=record['id'], pmc_id=pmc_id(record['id']), name=record.get('name', record['id']),
+        label = record.get('name') or record.get('material_name') or record.get('family',record['id'])
+        dimensions = ' / '.join(str(record[k]['raw'])+' '+str(record[k].get('unit','')) for k in ('diameter','max_depth','size_1','size_2') if isinstance(record.get(k),dict))
+        rows.append(dict(id=record['id'], pmc_id=pmc_id(record['id']), name=label + (' · '+dimensions if dimensions else ''),family=record.get('family',''),
                          unit=record_unit, kind=record_kind, manufacturer=maker,
                          cavity_type=typ, thread=threads, sha256=digest(record),deleted=pmc_id(record['id']) in hidden))
     rows.sort(key=lambda r: (r['manufacturer'], r['name'], r['id']))
@@ -184,6 +193,8 @@ def definition(id):
 
 
 def map_record(record, related_records=None, datum_mode=None):
+    record=copy.deepcopy(record)
+    related_records=copy.deepcopy(related_records) if related_records is not None else None
     id = record['id']
     if record['kind'] != 'cavity':
         raise ValueError('Choose a cavity to insert; footprints retain their parent cavity relationship')
@@ -209,7 +220,7 @@ def map_record(record, related_records=None, datum_mode=None):
     if datum=='surface-relative':
         notes.append('Sun locating-shoulder datum requires installation review. Source depths are provisionally surface-relative; verify LS depth and socket counterbore before release. Original source values are unchanged.')
         status='draft-projection'
-    relations = related(record) if related_records is None else related_records
+    relations = copy.deepcopy(related(record)) if related_records is None else related_records
     zones = interface_windows(record,primitives,datum=datum)
     for footprint in relations:
         if footprint.get('kind') == 'footprint':
@@ -231,13 +242,17 @@ def map_record(record, related_records=None, datum_mode=None):
         status='draft-projection'
     diameter = max([s['diameter'] for s in stages]+[2*math.hypot(p['offset_u'],p['offset_v'])+p['diameter'] for p in primitives])
     threads = ' / '.join(' '.join(str(t.get(k, '')) for k in ('size', 'pitch', 'class')) for t in record.get('threads', []))
+    from .boundaries import mapped_boundaries
+    boundaries = mapped_boundaries(record,relations)
+    if not boundaries:
+        notes.append('No supported closed mounting boundary; external body and service footprint require engineering review.')
     body = dict(id=pmc_id(id), label=record['name'][:120], source='VEST MDTools 930 / '+id,
                 demo_only=False, thread_note=threads[:300], stages=stages, zones=zones,
                 clearance_diameter=diameter, clearance_height=max(1, mm(record.get('engineering', {}).get('insertion_depth')) or 20),
                 manufacturer=record.get('library', {}).get('name', '')[:120],
-                cartridge_models=[record['name']], valve_function=record.get('cavity_type', 'Unspecified'),
+                cartridge_models=[], valve_function=record.get('cavity_type', 'Unspecified'),
                 revision=digest(record)[:16], provenance='candidate', machining_notes='Native machining recipe retained independently; expressions require review.',
-                cutting_primitives=primitives,
+                cutting_primitives=primitives, boundaries=boundaries,
                 native=dict(record=record, related_records=relations, source_sha256=digest(record), geometry_notes=notes,geometry_status=status,datum_mode=datum))
     return CavityDefinition.model_validate(body)
 
@@ -245,3 +260,17 @@ def map_record(record, related_records=None, datum_mode=None):
 def manifest():
     path = ROOT / 'manifest.json'
     return json.loads(path.read_text(encoding='utf-8')) if path.is_file() else {'counts': {}, 'available': False}
+
+
+@lru_cache(maxsize=1)
+def mapping_report():
+    items=[];mapped=0
+    for record,_ in records().values():
+        if record.get('kind')!='cavity':continue
+        d=map_record(record,related(record))
+        if d.native.geometry_status=='draft-projection':
+            items.append(dict(id=record['id'],name=record['name'],source_sha256=d.native.source_sha256,
+                              status=d.native.geometry_status,reasons=d.native.geometry_notes))
+        else:mapped+=1
+    return dict(total=mapped+len(items),dimensional=mapped,provisional=len(items),items=items,
+                scope='Geometry mapping only; machining review and manufacturer approval are independent.')
