@@ -1,5 +1,5 @@
 export function projectLibrary(ctx){
-  const {$,element,action,api,post,openProject,isDirty,hasProject}=ctx;
+  const {$,element,action,api,post,openProject,isDirty,hasProject,onDeleted}=ctx;
   const home=element('section',null,'project-home');home.id='project-home';
   document.querySelector('.projectbar').before(home);
   let query='',archived=false;
@@ -21,6 +21,7 @@ export function projectLibrary(ctx){
           const buttons=element('div',null,'action-row');card.append(buttons);
           if(!r.error){action(buttons,'Open',async()=>{if(isDirty()&&!confirm('Discard the current unsaved draft and open this project?'))return;try{await openProject(r.id);}catch(e){alert(e.message);}});
             for(const [label,op]of [['Rename','rename'],['Duplicate','duplicate'],[r.archived?'Restore':'Archive',r.archived?'restore':'archive']])action(buttons,label,async()=>{let name;if(['rename','duplicate'].includes(op)){name=prompt('Project name',op==='duplicate'?r.name+' copy':r.name);if(!name?.trim())return;name=name.trim();}try{await post(`/api/projects/${r.id}/manage`,{expected_revision:r.revision,action:op,name:name||null});await show();}catch(e){alert(e.message);}});
+            action(buttons,'Delete permanently',async()=>{const name=prompt(`Permanently delete “${r.name}” and its revision history? This cannot be undone. Shared PMC/MDTools records, assets and immutable build evidence are retained. Type the exact project name to confirm.`);if(name===null)return;if(name!==r.name){alert('Project name did not match. Nothing was deleted.');return;}try{await post(`/api/projects/${r.id}/delete`,{expected_revision:r.revision,confirm_name:name});onDeleted(r.id);await show();}catch(e){alert(e.message);}});
           }
         }
       };search.oninput=()=>{query=search.value;render();};render();

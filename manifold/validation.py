@@ -177,7 +177,7 @@ def validate(design, g):
         result('engineering_review', [item.id, item.subject or 'project'], item.status, 'accepted or resolved',
                item.status != 'open', item.description,
                severity='FAIL' if item.severity == 'blocking' else 'WARNING')
-    active_definitions = {f.definition for f in design.features if f.kind == 'cavity' and not f.suppressed}
+    active_definitions = {f.definition for f in design.features if f.definition and not f.suppressed}
     for f in design.features:
         if f.kind == 'cavity' and not f.suppressed:
             definition = next(d for d in design.library if d.id == f.definition)

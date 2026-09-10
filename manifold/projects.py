@@ -72,6 +72,34 @@ class ManageRequest(Strict):
     action: str = Field(pattern=r'^(rename|archive|restore|duplicate)$')
     name: str | None = Field(default=None,min_length=1,max_length=120)
 
+class DeleteRequest(Strict):
+    expected_revision: str = Field(pattern=r'^[0-9a-f]{64}$')
+    confirm_name: str = Field(min_length=1,max_length=120)
+
+@router.post('/{key}/delete')
+def delete_project(key:str,payload:DeleteRequest):
+    try:
+        with store.project_lock():
+            r=read(key);check(r,payload.expected_revision)
+            if payload.confirm_name!=r['design']['name']:
+                raise ValueError('Type the exact project name to confirm permanent deletion')
+            # Fixed, validated ID under the project store; never follow directory links.
+            root=folder().resolve();target=path(key);history=root/'history'/key
+            if target.is_symlink() or target.resolve().parent!=root:
+                raise ValueError('Linked project files cannot be deleted here')
+            if history.exists():
+                if history.is_symlink() or not history.resolve().is_relative_to(root) or history.resolve().parent!=(root/'history').resolve() or (root/'history').is_symlink():
+                    raise ValueError('Linked project history cannot be deleted here')
+                files=list(history.iterdir())
+                if any(p.is_symlink() or not p.is_file() or p.suffix!='.json' for p in files):
+                    raise ValueError('Unexpected history contents; project retained')
+                for p in files:p.unlink()
+                history.rmdir()
+            target.unlink()
+            return dict(deleted=key,scope='Project and revision history deleted. Shared library, assets and immutable builds retained.')
+    except (ValueError,RuntimeError) as exc:raise HTTPException(409,str(exc))
+    except FileNotFoundError:raise HTTPException(404,'Project not found')
+
 @router.get('')
 def listing():
     entries=[]

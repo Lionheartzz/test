@@ -36,3 +36,11 @@ Multiple selection/group dragging, general multi-terminal angled route search, d
 - Source boundary role, shape type, raw syntax and hash are preserved. Closed line loops and verified full-circle records support exact faces/extrusions. Independent assembly envelopes require an explicit engineer-selected cavity association and role; unsupported syntax remains unmapped. See [source audit scope](MDTOOLS_SOURCE_AUDIT.md), including the pending original MDB inspection.
 
 Depth convention references: [VEST cavity modeling](https://www.vestusa.com/Help/MDTools-775/Modeling_Cavities.htm) and [VEST Library Manager manual](https://www.vestusa.com/Download/MDTools-Library-Manager-2018-User-Manual.pdf). These explain source conventions; they do not certify this implementation or any imported dimensions.
+
+## Hands-on usability corrections (2026-09-10)
+
+- Definition-backed `port` features keep one hydraulic net and an exact pinned cavity definition. Bore diameter/depth fields are derived summaries; cuts come from the definition. Native source types `Port`, `PORT`, and `P` are matched case-insensitively without changing raw records. Only definitions with one centered interface are accepted. Custom straight bores remain supported. Ports are continuous machined fluid volumes; installed fitting/seal behavior remains a separate engineering review.
+- Catalog search reads only the selected unit/category and hashes only returned rows. Full records still drive machining; directory indexes only locate potential related records whose full identities/parent links are checked.
+- The viewer ignores zero-size resize notifications and defers camera fit until measurable. Solid requests retain the prior view until a matching result arrives. Drillings use a visible overlay in Solid, full-length picking for refined segments, and centerline alignment references that retain automatic routes during gestures.
+- Permanent deletion uses a typed name and expected revision. Only the fixed project file and its own JSON history are removed; shared libraries, assets and immutable builds remain.
+- Run `node tests/route-alignment.test.mjs` for generated-route, external-port and transformed-interface alignment checks, in addition to Python geometry/store/API checks.

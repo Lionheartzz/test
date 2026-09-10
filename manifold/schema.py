@@ -242,11 +242,14 @@ class Feature(Strict):
         if self.kind == 'cavity':
             if not self.definition or self.circuit is not None or self.diameter is not None or self.depth is not None or self.plugged:
                 raise ValueError('Cavity uses definition and circuits, not bore fields')
+        elif self.kind=='port' and self.definition:
+            if self.circuit is None or self.circuits or self.plugged:
+                raise ValueError('Definition port requires one hydraulic net and no cartridge circuits')
         elif self.circuit is None or self.diameter is None or self.depth is None or self.definition or self.circuits:
             raise ValueError('Bore requires circuit, diameter, depth; no cavity definition')
         if self.plugged and (self.kind != 'drilling' or self.plug_length >= self.depth):
             raise ValueError('Plug requires a drilling deeper than its engagement')
-        if self.kind == 'port' and self.clearance_diameter < self.diameter:
+        if self.kind == 'port' and not self.definition and self.clearance_diameter < self.diameter:
             raise ValueError('Port clearance diameter cannot be smaller than bore')
         return self
 
@@ -370,6 +373,21 @@ class Design(Strict):
             raise ValueError('IDs must be unique')
         nodes = set()
         for f in self.features:
+            if f.kind=='port' and f.definition:
+                if f.definition not in lib:raise ValueError(f'{f.id}: missing port machining definition')
+                d=lib[f.definition]
+                if len(d.zones)!=1 or d.zones[0].offset_u or d.zones[0].offset_v:
+                    raise ValueError(f'{f.id}: external port definition requires one centered hydraulic interface')
+                if d.native:
+                    r=(d.native.mapping_record or d.native.record).model_dump()
+                    if str(r.get('cavity_type',r.get('source_identity',{}).get('cavity_type',''))).upper() not in ('P','PORT'):
+                        raise ValueError(f'{f.id}: source does not classify this cavity as an external port')
+                centered=[p.diameter for p in d.cutting_primitives if p.kind=='cylinder' and not p.offset_u and not p.offset_v]
+                f.diameter=min(centered or [s.diameter for s in d.stages])
+                f.depth=d.zones[0].end
+                f.tip_angle=180
+                f.clearance_diameter=d.clearance_diameter
+                f.clearance_height=d.clearance_height
             if f.kind == 'cavity':
                 if f.definition not in lib:
                     raise ValueError(f'{f.id}: missing library definition')

@@ -19,7 +19,7 @@ def pose(feature, block):
 
 
 def footprint_radius(feature, library):
-    if feature.kind == 'cavity':
+    if feature.definition:
         definition = next(d for d in library if d.id == feature.definition)
         return max(definition.clearance_diameter, *(s.diameter for s in definition.stages)) / 2
     return max(feature.diameter, feature.clearance_diameter if feature.kind == 'port' or feature.plugged else 0) / 2
@@ -30,7 +30,7 @@ def placement_bounds(feature, design):
     radius = footprint_radius(feature, design.library)
     sizes = dimensions(design.block)
     extents=[(-radius,-radius),(radius,radius)]
-    if feature.kind=='cavity':
+    if feature.definition:
         definition=next(d for d in design.library if d.id==feature.definition)
         angle=math.radians(feature.rotation)
         extents.extend((x*math.cos(angle)-y*math.sin(angle),x*math.sin(angle)+y*math.cos(angle)) for boundary in definition.boundaries for x,y in boundary.points)

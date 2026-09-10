@@ -15,7 +15,7 @@ export function structuredFields(ctx,parent,value,path='Native record',onEdit=()
 
 export function libraryUI(ctx,{open,editor,insert}){
   const {$,element,field,action,api,post,notice,get,change}=ctx,content=$('workflow-content');
-  const guard=fn=>async()=>{try{await fn();$('workflow-error').textContent='';}catch(e){$('workflow-error').textContent=e.message;}};
+  const guard=fn=>async()=>{const status=element('p','Loading catalog / preparing definition…','loading-state');status.setAttribute('role','status');content.prepend(status);try{await fn();$('workflow-error').textContent='';}catch(e){$('workflow-error').textContent=e.message;}finally{status.remove();}};
   let generation=0;
   return async function library(){
     const token=++generation;open('Cavity Library · PMC + MDTools 930');

@@ -21,7 +21,8 @@ def terminal_points(design):
                 point[v] += z.offset_u*math.sin(angle)+z.offset_v*math.cos(angle)
                 points[f'{f.id}:{z.id}'] = tuple(point)
         else:
-            points[f.id] = tuple(a + b * f.depth for a, b in zip(p, axis))
+            depth=(lib[f.definition].zones[0].start+lib[f.definition].zones[0].end)/2 if f.definition else f.depth
+            points[f.id] = tuple(a + b * depth for a, b in zip(p, axis))
     return points
 
 

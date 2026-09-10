@@ -14,32 +14,41 @@ from .schema import CavityDefinition
 ROOT = Path(__file__).resolve().parents[1] / 'PMC_MDTools_Library' / 'PMC_Library_Converted_v05'
 
 
-@lru_cache(maxsize=1)
-def records():
-    result = {}
-    for unit in ('metric', 'inch'):
-        base = ROOT / unit
-        if not base.is_dir():
-            continue
-        # Explicit allowlist: never walk raw/ or reports/.
-        for group in ('cavities', 'footprints', 'o_ring_grooves', 'undercuts', 'plugs',
-                      'assembly_envelopes', 'drill_tools', 'flat_bottom_drill_tools',
-                      'spot_face_tools', 'material_stock', 'tooling', 'materials'):
-            for path in sorted((base / group).rglob('*.json')):
-                if path.stem.endswith('_index'):
-                    continue  # Index rows are summaries, never authoritative engineering records.
-                data = json.loads(path.read_text(encoding='utf-8'))
-                for record in data if isinstance(data,list) else [data]:
-                    if isinstance(record, dict) and isinstance(record.get('id'),str):
-                        # Tool and material indexes intentionally omit redundant grouping fields.
-                        result[record['id']] = (record, path)
+GROUPS = ('cavities', 'footprints', 'o_ring_grooves', 'undercuts', 'plugs',
+          'assembly_envelopes', 'drill_tools', 'flat_bottom_drill_tools',
+          'spot_face_tools', 'material_stock', 'tooling', 'materials')
+KIND_GROUPS = dict(port_definition=('cavities',),cavity=('cavities',),footprint=('footprints',),o_ring_groove=('o_ring_grooves',),
+                   undercut=('undercuts',),plug=('plugs',),assembly_envelope=('assembly_envelopes',),
+                   tool=('drill_tools','flat_bottom_drill_tools','spot_face_tools','tooling'),material_stock=('material_stock','materials'))
+
+@lru_cache(maxsize=40)
+def group_records(root, unit, group):
+    result={}
+    for path in sorted((Path(root)/unit/group).rglob('*.json')):
+        if path.stem.endswith('_index'):continue
+        data=json.loads(path.read_text(encoding='utf-8'))
+        for record in data if isinstance(data,list) else [data]:
+            if isinstance(record,dict) and isinstance(record.get('id'),str):result[record['id']]=(record,path)
     return result
 
+@lru_cache(maxsize=1)
+def records():
+    return {key:value for unit in ('metric','inch') for group in GROUPS
+            for key,value in group_records(str(ROOT),unit,group).items()}
 
 def get_record(id):
-    if id not in records():
-        raise ValueError('Converted library record not found')
-    return copy.deepcopy(records()[id][0])
+    import re
+    match=re.fullmatch(r'(metric|inch):lib([0-9]+):(cavity|footprint):([0-9]+)',id)
+    if match:
+        unit,lib,kind,index=match.groups()
+        # Filename and folder only locate candidates. Identity always comes from the full record.
+        group='cavities' if kind=='cavity' else 'footprints'
+        for path in (ROOT/unit/group/('lib_'+lib)).glob(f'{int(index):05d}_*.json'):
+            record=json.loads(path.read_text(encoding='utf-8'))
+            if record.get('id')==id:return record
+    for record,_ in records().values():
+        if record['id']==id:return copy.deepcopy(record)
+    raise ValueError('Converted library record not found')
 
 
 def digest(record):
@@ -50,11 +59,23 @@ def pmc_id(id):
     return 'MD_' + id.replace(':', '_')
 
 
+@lru_cache(maxsize=4)
+def footprint_index(root,unit):
+    path=Path(root)/unit/'footprint_index.json'
+    if not path.is_file():return None
+    result={}
+    for row in json.loads(path.read_text(encoding='utf-8')):
+        result.setdefault(row.get('cavity_ref'),set()).add(row['id'])
+    return result
+
+
 def related(record):
     unit = record.get('unit_system',str(record['id']).split(':')[0])
-    result = [r for r, _ in records().values()
-            if r.get('unit_system') == unit and
-            r.get('source_identity', {}).get('cavity_ref') == record['id']]
+    index=footprint_index(str(ROOT),unit)
+    if index is not None:
+        candidates=[get_record(id) for id in sorted(index.get(record['id'],()))]
+    else:candidates=[r for r,_ in group_records(str(ROOT),unit,'footprints').values()]
+    result=[r for r in candidates if r.get('unit_system')==unit and r.get('source_identity',{}).get('cavity_ref')==record['id']]
     for group, refs in record.get('special_feature_refs', {}).items():
         for ref in refs if isinstance(refs,list) else []:
             for key, value in ref.items():
@@ -89,17 +110,19 @@ def search(q='', unit='', kind='cavity', manufacturer='', cavity_type='', thread
     from .workflow import _catalog_state
     hidden = set(_catalog_state()['hidden_ids'])
     rows = []
-    for record, _ in records().values():
+    candidates={key:value for selected_unit in ((unit,) if unit in ('metric','inch') else ('metric','inch')) for group in KIND_GROUPS.get(kind,GROUPS) for key,value in group_records(str(ROOT),selected_unit,group).items()}
+    for record, _ in candidates.values():
         if not include_deleted and pmc_id(record['id']) in hidden:
             continue
         record_unit = record.get('unit_system',record['id'].split(':')[0])
         record_kind = record.get('kind',record['id'].split(':')[1])
-        if unit and record_unit != unit or kind and record_kind != kind:
+        if unit and record_unit != unit or kind and record_kind != ('cavity' if kind=='port_definition' else kind):
             continue
         if family and record.get('family') != family:
             continue
         maker = record.get('library', {}).get('name', '')
         typ = record.get('cavity_type', record.get('source_identity', {}).get('cavity_type', ''))
+        if kind=='port_definition' and typ.upper() not in ('P','PORT'):continue
         threads = ' / '.join(' '.join(str(t.get(k, '')) for k in ('size', 'pitch', 'class')) for t in record.get('threads', []))
         haystack = ' '.join([record['id'], record.get('name', ''), maker, typ, threads, record.get('comments', ''),
                             record.get('family',''),record.get('material_name',''),
@@ -110,9 +133,11 @@ def search(q='', unit='', kind='cavity', manufacturer='', cavity_type='', thread
         dimensions = ' / '.join(str(record[k]['raw'])+' '+str(record[k].get('unit','')) for k in ('diameter','max_depth','size_1','size_2') if isinstance(record.get(k),dict))
         rows.append(dict(id=record['id'], pmc_id=pmc_id(record['id']), name=label + (' · '+dimensions if dimensions else ''),family=record.get('family',''),
                          unit=record_unit, kind=record_kind, manufacturer=maker,
-                         cavity_type=typ, thread=threads, sha256=digest(record),deleted=pmc_id(record['id']) in hidden))
+                         cavity_type=typ, thread=threads, deleted=pmc_id(record['id']) in hidden))
     rows.sort(key=lambda r: (r['manufacturer'], r['name'], r['id']))
-    return dict(total=len(rows), offset=offset, limit=limit, items=rows[offset:offset+limit],
+    page=rows[offset:offset+limit]
+    for row in page:row['sha256']=digest(candidates[row['id']][0])
+    return dict(total=len(rows), offset=offset, limit=limit, items=page,
                 available=ROOT.is_dir(), source='VEST MDTools 930 · converted v0.5')
 
 
@@ -160,6 +185,7 @@ def interface_windows(record, primitives, u=0, v=0, prefix='', datum='step0-rela
     end = max(p['end'] for p in primitives)
     diameter = max(p['diameter'] for p in primitives)
     typ = record.get('cavity_type',record.get('source_identity',{}).get('cavity_type',''))
+    typ=typ.upper()
     if typ in ('BH','LP'):
         return []
     bands=[]
