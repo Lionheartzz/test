@@ -1,6 +1,6 @@
 # PMC Manifold
 
-- Authoritative project: `projects/demo.json`. Preserve immutable build snapshots under `output/builds/` and schema version 1 compatibility.
+- Normal user projects live in `projects/saved/<id>.json`; each stores its design and build pointer. Respect project IDs and optimistic revisions. `projects/demo.json` is a legacy development/proof fixture, not the default user project. Preserve immutable build snapshots under `output/builds/` and schema version 1 compatibility.
 - Read README engineering boundaries before changing geometry or validation. Demo library dimensions must never be represented as vendor-approved cavities.
 - All CAD imports go through `manifold.cad`; its Windows DLL order is tested and prevents process-exit heap corruption.
 - Circuit identities are engineering fields. Distinguish cutting solids from installed cartridge interface nodes. Never infer connectivity from colors or tessellated meshes.

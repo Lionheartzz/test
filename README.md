@@ -10,7 +10,7 @@
 .\Start-Manifold.ps1
 ```
 
-打开 <http://127.0.0.1:8765>。默认只监听回环地址。关闭运行服务的终端或按 Ctrl+C 停止。再次启动不会覆盖已有项目。
+打开 <http://127.0.0.1:8765> 后进入 **Projects** 首页，可新建、打开已保存项目或导入项目。默认只监听回环地址。关闭运行服务的终端或按 Ctrl+C 停止。再次启动不会覆盖已有项目。
 
 局域网使用双击 `Start-Manifold-LAN.cmd`，或运行 `.\Start-Manifold.ps1 -LAN`。服务监听 `0.0.0.0:8765`，终端输出本机当前 IP 和主机名入口，无需修改源码中的 IP。若已有本地模式服务，先 Ctrl+C 停止再启动 LAN 模式。在可信局域网中使用；若其他电脑无法连接，在 Windows 防火墙允许专用网络上的入站 TCP 8765，脚本不会自动修改防火墙。同源写入检查仍然生效。停止 LAN 服务后用普通入口恢复本地模式。
 
@@ -30,12 +30,12 @@ Windows CAD 依赖已固定版本；`manifold/cad.py` 会先加载 CasADi 再加
 
 ## 日常设计（新版默认英文界面）
 
-1. **New Manifold** 三步建立阀块、Metric/Inch 上下文、网络和初始油口，之后按 Cavities → Placement → Hydraulic Nets → Review → Save & Validate 操作。工程坐标始终为 mm，界面保留完整编辑入口。**Import Project / Export Project** 是 AI 和人工设计的共同入口。导入 `.pmc.json` 后查看摘要、使用可撤销草稿；导出保留完整孔型版本、连接意图和复核决定，即使草稿还没有 PASS。项目 JSON 上限 8 MB，图纸二进制仍单独存放在本地 assets。
+1. **New Manifold** 五步完成阀块、Metric/Inch 上下文、网络与油口、元件选择、放置与接口分配、复核。支持 Cartridge first 查询明确记录的兼容关系，也支持 Cavity first 后查看已知型号或保留未知兼容状态。可以暂不选孔型；新项目只包含本次选择的定义。工程坐标始终为 mm，界面保留完整编辑入口。**Import Project / Export Project** 是 AI 和人工设计的共同入口。导入 `.pmc.json` 后查看摘要并创建独立项目草稿；导出保留完整孔型版本、连接意图和复核决定，即使草稿还没有 PASS。项目 JSON 上限 8 MB，图纸二进制仍单独存放在本地 assets。
 2. **Schematic** 上传 PDF、PNG 或 JPEG。AI 提供者与模型信息属于可携带的项目来源字段；当前版本不调用 AI 服务。可选 Codex handoff 收在展开项中，通用 AI 交付格式见 [AI_PROJECT_CONTRACT.md](docs/AI_PROJECT_CONTRACT.md)。
 3. **Engineering Review** 管理假设、尺寸、选型和连接疑问。接受或解决事项必须填写决定；元件确认检查实际孔腔接口网络。对当前项目使用的孔型，可点 **Edit pinned definition** 修改并重新映射接口。
 4. **Cavity Library** 按单位、制造商、类型、螺纹和关键词分页查询完整 MDTools 转换库。原生记录和独立 footprint 关系保持结构化；可插入、编辑、复制、删除及恢复目录项。PMC 修订保存在 `projects/library/`，项目内固定定义不随目录更新。材料、加工规则及其他工程资源可查看并固定到项目。
 5. 元件支持 Duplicate、Replace、Suppress、Delete、换面、位置与网络编辑。六面孔口中心及附近均可开始拖动，悬停高亮、grab / grabbing 光标显示状态；完整安装包络限制边界，默认 1 mm 吸附、Alt 暂停。Undo / Redo 可撤销草稿操作。
-6. **Hydraulic Nets** 区分连接意图和派生钻孔；优化比较正交轴顺序、入口和偏移路径，最多六个精确候选。以实际 FAIL、WARNING 和加工代价选择不退步方案，失败候选也保存到 `output/optimizations/`。优化期间草稿变化会阻止覆盖。该有限搜索不保证任意布局都找到可行路线。
+6. 三维中直接点击生成的钻孔可检查其网络、尺寸和位置；**Refine in 3D** 固定该回路当前分段，显示可拖动钻孔环。拖动结束后尽可能延长相连正交支路以保留交点，并运行精确草稿检查。端口位置不会被擅自移动；破坏入口封闭、壁厚、连接或通油开口的调整仍报 FAIL。**Hydraulic Nets** 区分连接意图和派生钻孔；优化比较正交轴顺序、入口和偏移路径，最多六个精确候选。以实际 FAIL、WARNING 和综合加工代价选择不退步方案；默认偏好最小壁厚之外额外 4 mm 的余量，以软惩罚与钻深、钻孔数和堵头数权衡，可在 Block & Constraints 修改。最小壁厚硬规则不变。失败候选也保存到 `output/optimizations/`。优化期间草稿变化会阻止覆盖。该有限搜索不保证任意布局都找到可行路线。
 7. **Save & Validate** 保存并生成精确 OCCT 实体、校验和不可变构建。**Solid** 显示实际加工孔口；未保存草稿会按需生成精确切削预览，明确标记未校验且不写入项目或构建。**Internal Review** 显示孔腔阶梯/锥面，**Hydraulic zones** 可独立关闭。普通拖动预览仍是参数预览。当前 PASS 才开放 STEP；加工清单保留原生配方与未解析表达式，`manufacturing_ready` 独立于几何结果。
 
 运行时仅读取 `PMC_MDTools_Library/PMC_Library_Converted_v05` 的转换工程目录；不读取 MDB、raw 归档或 QC 报告。Metric / Inch 原始值与单位身份保留，精确 CAD 使用 mm。库含 2477 / 841 个公制 / 英制孔腔及 3915 / 1649 个独立 footprint。全量载入审计：3318 个孔腔无损，3077 个尺寸映射、241 个待几何映射复核。尺寸映射不等于厂家批准。
@@ -46,19 +46,19 @@ Windows CAD 依赖已固定版本；`manifold/cad.py` 会先加载 CasADi 再加
 
 ## 和 Codex 协作
 
-权威文件是 **`projects/demo.json`**。孔腔库的固定版本内嵌在项目中，命名 nets 表达液压意图，自动钻孔保存在构建的 resolved_design.json；构建无需隐藏 CAD 脚本状态。可以直接告诉 Codex：
+当前打开项目的权威记录为 **`projects/saved/<id>.json`**，包含独立 design、更新时间、归档标记与构建指针。**Save Project** 保存未通过校验的工作进度；**Save & Validate** 保存并构建。Projects 可搜索、重命名、复制、归档和恢复项目。每次启动先展示项目库，不自动打开 demo。`projects/demo.json` 与 `manifold.demo` 只用于开发、旧 CLI 与工程证明，不自动进入用户项目库。孔腔库的固定版本内嵌在项目中，命名 nets 表达液压意图，自动钻孔保存在构建的 resolved_design.json；构建无需隐藏 CAD 脚本状态。可以直接告诉 Codex：
 
 - “把 CV2 沿 X 移动 15 mm，重建并检查连接。”
 - “把 RV1 改到前面，并调整相关钻孔，保留 7 mm 最小壁厚。”
 - “减少 P 油路的堵头，给出通过检查的方案。”
 
-Codex 修改结构化项目数据后运行：
+Codex 应使用对应项目 ID 和读取到的 revision。构建已保存项目可运行（把 ID 替换为实际值）：
 
 ```powershell
-.\.venv\Scripts\python.exe -m manifold build
+.\.venv\Scripts\python.exe -m manifold build --project-id <project-id>
 ```
 
-网页每 5 秒检查磁盘设计和构建版本；无草稿时自动更新，有草稿时保留它并提示冲突。保存请求必须携带读取时的 SHA-256，磁盘已变化则返回 409。所有 CLI/API 构建使用同一文件锁；构建期间检测到直接文件修改时放弃提交。API 保存旧项目到 `projects/.history/`，输出先写入独立目录，成功后原子切换指针。直接编辑 JSON 时建议一次性原子替换文件；CLI 不会为手工编辑之前的内容自动建备份。
+网页每 5 秒检查磁盘设计和构建版本；无草稿时自动更新，有草稿时保留它并提示冲突。保存请求必须携带读取时的 SHA-256，磁盘已变化则返回 409。所有 CLI/API 构建使用同一文件锁；构建期间检测到直接文件修改时放弃提交。命名项目历史保存在 `projects/saved/history/<id>/`，构建输出先写入独立目录，成功后原子更新该项目的指针。旧开发流程的历史仍在 `projects/.history/`。直接编辑 JSON 时建议一次性原子替换文件；CLI 不会为手工编辑之前的内容自动建备份。
 
 ## 坐标与连接
 
@@ -81,9 +81,9 @@ Codex 修改结构化项目数据后运行：
 
 ## 插装孔库与工程边界
 
-当前提供三个明确标记 **demo_only** 的示例：双区阶梯孔、紧凑双区孔、单区服务孔。它们由真实圆柱切削体构成，但**不是 SUN / HydraForce 的厂家孔腔**。
+开发夹具中保留三个明确标记 **demo_only** 的示例：双区阶梯孔、紧凑双区孔、单区服务孔。它们由真实圆柱切削体构成，但**不是 SUN / HydraForce 的厂家孔腔**。
 
-库定义包含来源、阶梯切削尺寸、液压窗口、安装工具空间和螺纹注记。添加真实库时必须按厂家图纸核对来源与版本、全部尺寸、公差、表面、密封分区及工具空间。当前内核支持连续且直径不递增的圆柱阶梯；需要锥面、退刀槽或完整螺纹的厂家孔腔须扩展切削模型后才能声称精确实现，不能仅改 `demo_only`。
+库定义包含来源、阶梯切削尺寸、液压窗口、安装工具空间和螺纹注记。添加真实库时必须按厂家图纸核对来源与版本、全部尺寸、公差、表面、密封分区及工具空间。当前内核支持显式圆柱阶梯、锥面/锥底、环状切削体，以及带局部偏移和旋转的 footprint 切削。完整螺纹牙型和尚未映射的特殊退刀槽不自动生成；仅保留原始配方并不代表已执行该加工，也不能仅改 `demo_only` 就宣称厂家精确实现。
 
 **加工空腔与装阀后的油路不同**：真实未装阀孔腔是连续切削体，液压校验则按已安装密封阀芯的接口窗口建图。同一孔腔的不同窗口不会自动串联；窗口外的孔壁/密封/螺纹区域禁止其他钻孔侵入。首版不模拟阀位及阀内流动。
 
@@ -111,14 +111,16 @@ PASS 仅代表当前规则范围通过，**不是制造放行或承压认证**�
 
 | 路径 | 用途 |
 |---|---|
-| `projects/demo.json` | 当前权威项目及孔腔库 |
+| `projects/saved/<id>.json` | 命名项目、固定定义及独立构建指针 |
+| `projects/saved/history/<id>/` | 项目修订历史 |
+| `projects/demo.json` | 旧开发/证明夹具，不用于正常启动 |
 | `manifold/schema.py` | 版本化设计数据模型 |
 | `manifold/geometry.py` | BRep 切削与审查几何 |
 | `manifold/validation.py` | 确定性工程规则 |
 | `manifold/store.py` | 原子持久化、版本与构建产物 |
 | `manifold/server.py` | 本地 API 和静态界面 |
 | `web/` | Three.js 查看器与编辑控制台 |
-| `output/current.json` | 当前构建指针及设计 SHA-256 |
+| `output/current.json` | 旧开发 CLI 的构建指针；用户项目使用各自记录中的指针 |
 | `output/builds/<build_id>/` | 每次构建的不可覆盖快照 |
 | `output/proof/` | 故意错误与修正后的示例及报告 |
 
@@ -138,3 +140,9 @@ PASS 仅代表当前规则范围通过，**不是制造放行或承压认证**�
 - 自动候选可复用偏置相交的单个油口钻孔，也可在允许时提出两终端斜孔方案。有限搜索仍由精确验证裁决；不保证任意布置可路由。冻结后可逐段手工修改，Reroute 删除该网冻结的派生段并重新生成。
 - 通油面积筛查取重叠体质心处沿两个流向的精确 BRep 公共截面面积之小值，输出等效直径。给定网络流量/流速时，小于要求的连接报 FAIL 并不计入有效连通图。这是可复现的**特征开口筛查**，不保证全路径最小喉口，不是压损、CFD、制造或承压认证。
 - `output/library-mapping-v4.json` 保留全部 241 条暂定映射及原因；界面 Provisional mapping report 可重新查看。几何映射和加工配方复核独立。
+
+## 原始数据库与边界语义核查
+
+源数据核查范围与结论见 [MDTools source audit](docs/MDTOOLS_SOURCE_AUDIT.md)。运行应用只读取转换工程库；原始 MDB 审计是单独的只读开发工具，不是应用运行依赖。原始库文件不被改写。
+
+Footprint envelope 保留来源角色、源形状类型、原始语法和 SHA。独立 AssemblyEnvelope 记录不按名称匹配孔腔或阀型号。Library 中可由工程师显式选择目标孔型、mounting/body/service/tool 角色与高度，再将原始记录固定到项目；该选择单独标为 engineer-selected，并保留复核项。高度 0 仅为平面区域。明确闭合直线轮廓与显式 Circle 的完整四圆弧记录可生成精确边界；未支持的一般曲线语法保留原文并要求独立映射。

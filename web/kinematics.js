@@ -4,7 +4,7 @@ export function pose(f,b) { const [u,v,a,s]=axes[f.face], p=[0,0,0],d=[0,0,0]; p
 export function bounds(f,design) {
   const d=design.library.find(d=>d.id===f.definition);
   const r=(d?Math.max(d.clearance_diameter,...d.stages.map(s=>s.diameter)):Math.max(f.diameter,f.kind==='port'||f.plugged?f.clearance_diameter:0))/2;
-  const [u,v]=axes[f.face], b=sizes(design.block),a=(f.rotation||0)*Math.PI/180,points=[[-r,-r],[r,r],...(d?.boundaries||[]).flatMap(b=>b.points.map(([x,y])=>[x*Math.cos(a)-y*Math.sin(a),x*Math.sin(a)+y*Math.cos(a)]))];const minU=-Math.min(...points.map(p=>p[0])),maxU=b[u]-Math.max(...points.map(p=>p[0])),minV=-Math.min(...points.map(p=>p[1])),maxV=b[v]-Math.max(...points.map(p=>p[1]));return {minU,maxU,minV,maxV,fits:minU<=maxU&&minV<=maxV};
+  const [u,v]=axes[f.face], b=sizes(design.block),a=(f.rotation||0)*Math.PI/180,points=[[-r,-r],[r,r],...(d?.boundaries||[]).flatMap(b=>b.circle?(()=>{const [x,y,r]=b.circle,cx=x*Math.cos(a)-y*Math.sin(a),cy=x*Math.sin(a)+y*Math.cos(a);return [[cx-r,cy-r],[cx+r,cy+r]];})():b.points.map(([x,y])=>[x*Math.cos(a)-y*Math.sin(a),x*Math.sin(a)+y*Math.cos(a)]))];const minU=-Math.min(...points.map(p=>p[0])),maxU=b[u]-Math.max(...points.map(p=>p[0])),minV=-Math.min(...points.map(p=>p[1])),maxV=b[v]-Math.max(...points.map(p=>p[1]));return {minU,maxU,minV,maxV,fits:minU<=maxU&&minV<=maxV};
 }
 export function clamp(f,design,u,v,snap=1) { const b=bounds(f,design);if(!b.fits)throw Error('Component envelope does not fit on this face');const round=n=>snap?Math.round(n/snap)*snap:n;return [Math.max(b.minU,Math.min(b.maxU,round(u))),Math.max(b.minV,Math.min(b.maxV,round(v)))]; }
 export function syncNets(d) {

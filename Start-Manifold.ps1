@@ -9,8 +9,8 @@ if ($CheckEnvironment) {
     return
 }
 $existing = $null
-try { $existing = Invoke-RestMethod 'http://127.0.0.1:8765/api/state' -TimeoutSec 2 } catch {}
-if ($existing -and $existing.revision -and $existing.design.schema_version -eq 1 -and !$Setup) {
+try { $existing = Invoke-RestMethod 'http://127.0.0.1:8765/api/health' -TimeoutSec 2 } catch {}
+if ($existing -and $existing.service -eq 'pmc-manifold' -and !$Setup) {
     if ($LAN -and $existing.network.mode -ne 'lan') { throw 'PMC is already running in local mode. Stop its console (Ctrl+C), then run Start-Manifold-LAN.cmd.' }
     Write-Host 'PMC is already running at http://127.0.0.1:8765'
     if (!$NoBrowser) { Start-Process 'http://127.0.0.1:8765' }
@@ -38,12 +38,8 @@ if ($Setup -or !$nodeHealthy -or $changedRuntime) {
     if ($LASTEXITCODE -ne 0) { throw 'Node dependency installation failed. Retry -Setup with a supported Node runtime.' }
 }
 $stamp | ConvertTo-Json | Set-Content -LiteralPath $stampPath -Encoding UTF8
-& $pythonPath -m manifold init
-if ($LASTEXITCODE -ne 0) { throw 'Project initialization failed.' }
 & $nodeRuntime.Executable $nodeRuntime.NpmCli run build
 if ($LASTEXITCODE -ne 0) { throw 'Web console build failed.' }
-& $pythonPath -m manifold build
-if ($LASTEXITCODE -ne 0) { Write-Warning 'Model did not pass. Open the console to inspect the report or check the terminal error.' }
 if ($existing) { Write-Host 'Setup completed. Restart the existing PMC console to load this runtime.'; return }
 if (!$NoBrowser) {
     $browserScript = Join-Path $PSScriptRoot 'scripts\open-browser.ps1'

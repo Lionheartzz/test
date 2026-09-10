@@ -7,9 +7,14 @@ from .routing import resolve_design, route_options, route_cost, authorize_genera
 from .kinematics import resolve_parents
 
 
-def optimize_routes(design, expected_revision, max_attempts=6):
+def optimize_routes(design, expected_revision, max_attempts=6, project_id=None):
+    def saved_revision():
+        if project_id:
+            from .projects import snapshot,read
+            return snapshot(read(project_id))['revision']
+        return store.revision(store.read_design())
     with store.project_lock():
-        if store.revision(store.read_design()) != expected_revision:
+        if saved_revision() != expected_revision:
             raise ValueError('Project changed on disk. Reload before optimizing.')
         folder = store.OUTPUT/'optimizations'/uuid.uuid4().hex
         attempts = []
@@ -72,7 +77,7 @@ def optimize_routes(design, expected_revision, max_attempts=6):
                 if trial < score:
                     best,score,target,routes,chosen = candidate,trial,new_target,new_routes,new_index
                     break
-        if store.revision(store.read_design()) != expected_revision:
+        if saved_revision() != expected_revision:
             raise ValueError('Project changed during optimization. Candidate evidence retained; newer project preserved.')
         summary = dict(optimization_id=folder.name, selected_attempt=chosen, attempts=attempts,
                        status=attempts[chosen]['status'], baseline=attempts[0]['counts'], final=attempts[chosen]['counts'],

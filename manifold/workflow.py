@@ -64,9 +64,9 @@ def save_library(definition):
     return dict(sha256=digest,definition=body)
 
 
-def library_entries(include_deleted=False):
+def library_entries(include_deleted=False, reusable_only=True):
     entries={}
-    for definition in store.read_design().library:
+    for definition in ([] if reusable_only else store.read_design().library):
         data=definition.model_dump(); digest=hashlib.sha256(json.dumps(data,sort_keys=True).encode()).hexdigest()
         entries[digest]=dict(sha256=digest,definition=data)
     for path in sorted((store.PROJECT.parent/'library').glob('*/*.json')):
@@ -96,9 +96,13 @@ def set_library_deleted(id, deleted):
     return dict(id=id,deleted=deleted,message='Shared catalog visibility changed. Pinned project definitions and immutable revisions are preserved.')
 
 
-def prepare_handoff(design, expected_revision):
+def prepare_handoff(design, expected_revision, project_id=None):
     with store.project_lock():
-        if store.revision(store.read_design()) != expected_revision:
+        if project_id:
+            from .projects import snapshot,read
+            saved_revision=snapshot(read(project_id))['revision']
+        else:saved_revision=store.revision(store.read_design())
+        if saved_revision != expected_revision:
             raise ValueError('Project changed; reload before preparing a handoff')
         for asset in design.schematics:
             path=asset_path(asset)
@@ -106,7 +110,9 @@ def prepare_handoff(design, expected_revision):
                 raise ValueError('Schematic asset is missing or hash differs')
         folder=store.PROJECT.parent/'handoffs'/uuid.uuid4().hex
         store.atomic_json(folder/'design.json',design.model_dump())
-        store.atomic_json(folder/'manifest.json',dict(base_revision=expected_revision,draft_revision=store.revision(design),assets=[dict(**a.model_dump(),path=str(asset_path(a))) for a in design.schematics]))
+        store.atomic_json(folder/'manifest.json',dict(project_id=project_id,base_revision=expected_revision,draft_revision=store.revision(design),assets=[dict(**a.model_dump(),path=str(asset_path(a))) for a in design.schematics]))
+        save_instruction=(f'Compare the saved project {project_id} revision with {expected_revision}. Save through manifold.projects.build(project_id, base_revision, proposal).'
+                          if project_id else f'Compare projects/demo.json revision with {expected_revision}. Save through manifold.store.rebuild(proposal, expected_revision=base_revision).')
         prompt=f'''Work in {store.ROOT}. Read AGENTS.md and README first.
 Read the immutable design.json and manifest.json beside this request.
 The manifest contains local schematic paths and SHA-256 identities. Inspect the actual schematic.
@@ -121,8 +127,7 @@ Engineering questions can be resolved later in Studio. Only ask immediately when
 ambiguous or no meaningful reversible draft can be made.
 Propose layout and orthogonal routing within constraints. Use manifold.routing and the exact
 CadQuery/OCCT validator. Preserve failing candidates and produce a final exact report.
-Before saving, compare projects/demo.json revision with {expected_revision}; do not overwrite newer edits.
-Save through manifold.store.rebuild(proposal, expected_revision=base_revision).
+Before saving, do not overwrite newer edits. {save_instruction}
 Also save the editable proposal as a .pmc.json file for normal Import Project JSON in Studio.
 The web console will discover a saved build. No API key, cloud or second AI service is required.
 '''

@@ -10,14 +10,22 @@ def main():
     parser.add_argument('command', choices=['init', 'build', 'validate', 'prove', 'serve'])
     parser.add_argument('--project', type=Path)
     parser.add_argument('--out', type=Path)
+    parser.add_argument('--project-id',help='Saved local project ID from Projects')
     parser.add_argument('--lan',action='store_true',help='Serve on LAN interfaces (default: this computer only)')
     args = parser.parse_args()
+    if args.project_id and (args.project or args.out or args.command not in {'build','validate'}):
+        parser.error('--project-id is for build/validate and cannot be combined with --project or --out')
     if args.command == 'init':
         if not PROJECT.exists():
             atomic_json(PROJECT, demo().model_dump())
         print(PROJECT)
     elif args.command == 'build':
-        if args.project:
+        if args.project_id:
+            from .projects import read,snapshot,build
+            saved=snapshot(read(args.project_id))
+            report=build(args.project_id,saved['revision'])['build']
+            print(json.dumps(report))
+        elif args.project:
             if not args.out:
                 parser.error('--project requires a new --out directory')
             report = build_outputs(read_design(args.project), args.out)
@@ -29,8 +37,15 @@ def main():
     elif args.command == 'validate':
         from .geometry import build_geometry
         from .validation import validate
-        design = read_design(args.project or PROJECT)
-        report = validate(design, build_geometry(design))
+        if args.project_id:
+            from .projects import read
+            from .schema import Design
+            from .routing import resolve_design,authorize_generated_contacts
+            design,_=resolve_design(Design.model_validate(read(args.project_id)['design']))
+        else:design = read_design(args.project or PROJECT)
+        geometry=build_geometry(design)
+        if args.project_id:authorize_generated_contacts(design,geometry)
+        report = validate(design, geometry)
         print(json.dumps(report, indent=2))
         raise SystemExit(1 if report['status'] == 'FAIL' else 0)
     elif args.command == 'prove':

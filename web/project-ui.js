@@ -5,7 +5,7 @@ export function projectUI(ctx){
   const guard=fn=>async()=>{try{await fn();}catch(e){$('workflow-error').textContent=e.message;}};
   $('project-import').onclick=()=>{
     open('Import PMC Project JSON');
-    content.append(element('p','AI and manual work use the same editable project. Import replaces the draft with Undo available; Save & Validate commits it. STEP is a downstream manufacturing artifact.'));
+    content.append(element('p','AI and manual work use the same editable project. Import starts a separate project; Save Project adds it to your local library. STEP is a downstream manufacturing artifact.'));
     const input=element('input');input.type='file';input.accept='.json,.pmc.json';input.setAttribute('aria-label','PMC project file');content.append(input);
     input.onchange=guard(async()=>{
       const file=input.files[0];if(!file)return;if(file.size>8000000)throw Error('Project JSON exceeds 8 MB.');
@@ -13,7 +13,7 @@ export function projectUI(ctx){
       const box=element('section',null,'library-card');box.append(element('h3',inspection.design.name));
       for(const [key,value] of Object.entries(inspection.summary))box.append(element('p',`${key.replaceAll('_',' ')}: ${typeof value==='object'?JSON.stringify(value):value}`));
       if(inspection.missing_assets.length)box.append(element('p','Missing local schematic files: '+inspection.missing_assets.map(a=>a.name||a).join(', ')));
-      action(box,'Use imported draft',()=>{change(()=>set(inspection.design));dialog.close();notice('Imported editable draft. Resolve Engineering Review items, then Save & Validate.');});content.append(box);
+      action(box,'Use imported draft',()=>{if(!ctx.newProject(inspection.design))return;dialog.close();notice('Imported editable draft. Resolve Engineering Review items, then Save & Validate.');});content.append(box);
     });
   };
   $('project-export').onclick=async()=>{try{const data=await post('/api/export-project',get());const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=element('a');a.href=url;a.download=data.name.replace(/[^a-zA-Z0-9_-]/g,'_')+'.pmc.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notice('Editable project exported, including pinned library definitions and review decisions. Schematic binaries stay in local assets.');}catch(e){notice(e.message,true);}};

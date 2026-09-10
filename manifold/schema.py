@@ -122,15 +122,25 @@ class CartridgeCompatibility(Strict):
 
 class ComponentBoundary(Strict):
     category: Literal['mounting-footprint','external-body','service','tool'] = 'mounting-footprint'
-    points: list[tuple[float,float]] = Field(min_length=3,max_length=100)
+    points: list[tuple[float,float]] = Field(default_factory=list,max_length=100)
+    circle: tuple[float,float,Positive] | None = None
     height: float = Field(default=0,ge=0,le=2000)
     source: str = Field(min_length=1,max_length=500)
     status: Literal['source-mapped','engineer-confirmed'] = 'source-mapped'
+    source_role: str = Field(default='',max_length=80)
+    source_type: str = Field(default='',max_length=120)
+    source_raw: str = Field(default='',max_length=20000)
+    source_sha256: str | None = Field(default=None,pattern=r'^[0-9a-f]{64}$')
+    association: Literal['source-linked','engineer-selected'] = 'source-linked'
 
     @model_validator(mode='after')
     def finite_boundary(self):
+        if (self.circle is None and len(self.points)<3) or (self.circle and self.points):
+            raise ValueError('Boundary requires a polygon or an exact circle, not both')
         if any(abs(v)>2000 for p in self.points for v in p):
             raise ValueError('Boundary coordinate exceeds 2000 mm')
+        if self.circle and any(abs(v)>2000 for v in self.circle):
+            raise ValueError('Boundary circle exceeds 2000 mm')
         return self
 
 
@@ -276,6 +286,7 @@ class SchematicComponent(Strict):
 
 
 class DesignConstraints(Strict):
+    preferred_wall_margin: float = Field(default=4, ge=0, le=50)
     envelope_max: tuple[Positive, Positive, Positive] | None = None
     preferred_component_faces: list[Face] = Field(default_factory=lambda: ['top'])
     preferred_port_faces: dict[Circuit, Face] = Field(default_factory=dict)
@@ -339,7 +350,7 @@ class Design(Strict):
     project_context: Literal['metric', 'inch'] = 'metric'
     block: Block
     rules: Rules = Field(default_factory=Rules)
-    library: list[CavityDefinition] = Field(min_length=1, max_length=30)
+    library: list[CavityDefinition] = Field(default_factory=list, max_length=30)
     features: list[Feature] = Field(default_factory=list, max_length=120)
     nets: list[HydraulicNet] = Field(default_factory=list, max_length=40)
     components: list[SchematicComponent] = Field(default_factory=list, max_length=60)

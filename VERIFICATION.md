@@ -1,6 +1,22 @@
+# Product usability verification — 2026-09-09
+
+Product usability changes; **original MDB inspection remains pending because source database files are unavailable**. See `docs/MDTOOLS_SOURCE_AUDIT.md`. Verification below was completed before Git delivery.
+
+- Full suite: **68 passed**, four upstream warnings, exit 0, `output/tests-v6-full.xml`. Final changed-area suite: **29 passed**, exit 0, `output/tests-v6-final-targeted.xml`; includes the equal-complexity route-margin fixture, named-project isolation, compare-and-swap saves, history, failed-build preservation, exact circular envelope and source preservation. Initial test evidence `tests-v6-projects.xml` is retained: its empty-stock fixture incorrectly expected PASS despite the existing required subtractive-volume rule; the build-pointer test now uses actual machined geometry. No validation rule was weakened.
+- Required proof: `output/proof/20260909-223054/`, deliberate invalid case **6 FAIL**, corrected **238 PASS / 0 WARNING / 0 FAIL**, exit 0.
+- Independent QA project built through both the browser and the new named-project CLI. Final CLI build `output/builds/9acb6927776345688efcb96bbb1246b7/`: **238 PASS / 0 WARNING / 0 FAIL**, including STEP round trip. Design SHA `33b7ec3577cf40c1d3f8b5d96c4438c4d9c467dab237d0f585da5887a3d9b3da`; engine SHA `f82611300d3006deee0fbc8b732249e23d3a8bcfdf472a4a7833efc91f883b12`. Legacy `projects/demo.json` was not edited.
+- Actual browser flows: empty startup library; five-step New Manifold with zero inherited definitions; real cavity selection with exactly one pinned definition; unknown compatibility; independent project import; Save Project; rename, duplicate, archive, restore and reopen with data equality. Known cartridge-first and cavity-first paths used an explicitly labeled temporary synthetic API response, removed after the test; no fictitious compatibility was saved to project or source data.
+- Three-dimensional generated drilling selected by clicking its visible mesh, then adopted with Refine in 3D and dragged. Exact draft checks detected the intentionally broken fixed-port entry closure (**1 FAIL**). Undo followed by Save & Validate restored PASS. A separate geometry test confirms connected branch extension preserves its declared connection.
+- Independent assembly-envelope association exercised in the browser with explicit tool role, height and written QA decision; exact source circle, role, association and raw source were checked in project JSON. The draft change was undone, not saved.
+- Desktop 1440 and mobile 390 project library and route workspace screenshots inspected: `output/playwright/v6-project-library-final.png`, `v6-project-library-mobile.png`, `v6-route-selected-3d.png`, `v6-route-drag-checked.png`, `v6-cavity-placement.png`. No accessibility certification or performance benchmark is claimed.
+- Final frontend build exits 0: 594.89 kB / 155.46 kB gzip; existing bundle-size advisory remains. Startup probe now uses `/api/health` and works without a demo file. Starting the launcher while the local service runs returns successfully without starting a second instance.
+- `output/library-preservation-v6.json`: all **9717** source JSON hashes match V5, all original cavity records round-trip exactly, **3077 dimensional / 241 provisional**. The raw historical export audit covers 8 database inventories, 367 tables and 9969 rows; it is explicitly not an inspection of the missing original MDB files.
+
+QA projects are retained as archived local test records; normal startup presents Projects. Completed/in-progress user projects remain separate from the legacy development demo and immutable build evidence.
+
 # Display, LAN and Windows portability verification — 2026-09-09
 
-Current local delivery; sections below record prior builds.
+Historical V5 delivery; sections below record prior builds.
 
 - Final immutable build `output/builds/715f1ac4db3c442bac1ba126be9076f4/`: **238 PASS / 0 WARNING / 0 FAIL**, including STEP round trip; CLI exit 0. Design SHA remains `70a3fea1d910304c08bcdece92a9091a72baf03ff15fdf51a51cf8237c807fd1`; engine SHA `68d469399486911883a8f609d2394e73d18693d653adad6a07b353119f450e3b`.
 - Full `.venv` test suite: **60 passed**, four upstream deprecation warnings, 263.06 seconds, exit 0. Includes store/API, original-record preservation, exact draft cutting without writes, LAN Host/Origin rejection, routing and geometry tests.

@@ -32,6 +32,17 @@ export function libraryUI(ctx,{open,editor,insert}){
         if(!result.available)list.append(element('p','Converted library directory is unavailable. Pinned project definitions remain usable.'));
         for(const row of result.items){const card=element('section',null,'library-card');list.append(card);card.append(element('h3',row.name),element('p',`${row.manufacturer} · ${row.unit.toUpperCase()} · ${row.cavity_type}\n${row.thread}\n${row.id}`));
           action(card,'Inspect full native record',guard(async()=>{const record=await api('/api/catalog/record?'+new URLSearchParams({id:row.id}));open(row.name+' · native record');content.append(element('p',`${row.unit} · SHA-256 ${record.sha256} · source inspection; use Edit to create a PMC revision.`));const pre=element('pre',JSON.stringify(record,null,2));pre.className='native-inspection';content.append(pre);action(content,'Back to library',library);}));
+          if(row.kind==='assembly_envelope'){
+            card.append(element('p','Independent assembly envelope. Source shape type is not a cartridge relationship or a body/service role.'));
+            action(card,'Associate boundary with a project cavity',guard(async()=>{
+              open('Assign assembly envelope · '+row.name);content.append(element('p','Choose the cavity, boundary role and supported height explicitly. This association is your engineering decision; the source does not link it to a cavity. Height 0 retains a planar region.'));
+              let definition_id='',category='',height=0,decision='';
+              field(content,'Project cavity definition','',v=>definition_id=v,{'':'Choose a cavity',...Object.fromEntries(get().library.map(d=>[d.id,d.label]))});
+              field(content,'Boundary role','',v=>category=v,{'':'Choose a meaning','mounting-footprint':'Mounting footprint','external-body':'External body',service:'Service clearance',tool:'Tool access'});
+              field(content,'Confirmed boundary height / mm',0,v=>height=v,null,true);field(content,'Association source / engineering decision','',v=>decision=v);
+              action(content,'Apply boundary to draft',guard(async()=>{const baseline=JSON.stringify(get());const design=await post('/api/assign-boundary',{design:get(),definition_id,source_id:row.id,category,height,decision});if(JSON.stringify(get())!==baseline)throw Error('Draft changed while assigning boundary; retry.');change(()=>{Object.assign(get(),design);});$('workflow-dialog').close();notice('Source envelope retained and explicit association added. Review orientation and run exact validation.');}));
+            }));
+          }
           if(row.kind==='cavity'){
             action(card,'Insert draft cavity',guard(async()=>insert(await api('/api/catalog/definition?'+new URLSearchParams({id:row.id})))));
             action(card,'Edit / create PMC revision',guard(async()=>editor(await api('/api/catalog/definition?'+new URLSearchParams({id:row.id})))));action(card,'Duplicate',guard(async()=>{const copy=await api('/api/catalog/definition?'+new URLSearchParams({id:row.id}));copy.id='COPY_'+Date.now().toString(36);copy.label+=' copy';copy.revision='PMC-1';editor(copy);}));action(card,row.deleted?'Restore':'Delete',guard(async()=>{await post('/api/library/visibility',{id:row.pmc_id,deleted:!row.deleted});load();}));
@@ -41,7 +52,7 @@ export function libraryUI(ctx,{open,editor,insert}){
         pager.append(element('span',`${query.offset+1}–${Math.min(query.offset+query.limit,result.total)} / ${result.total}`));
         if(query.offset+query.limit<result.total)action(pager,'Next page',()=>{query.offset+=query.limit;load();});
       }else{
-        const entries=await api('/api/library?include_deleted=true');if(request!==generation)return;
+        const entries=await api('/api/library?include_deleted=true');for(const definition of get().library)if(!entries.some(e=>JSON.stringify(e.definition)===JSON.stringify(definition)))entries.push({definition,preferred:true,deleted:false});if(request!==generation)return;
         list.replaceChildren();for(const item of entries.filter(x=>(showDeleted||!x.deleted)&&x.preferred&&JSON.stringify(x.definition).toLowerCase().includes(query.q.toLowerCase()))){
           const def=item.definition,card=element('section',null,'library-card');list.append(card);card.append(element('h3',def.label),element('p',`${def.manufacturer} · ${def.id} · revision ${def.revision} · ${item.deleted?'Deleted from catalog':def.provenance}`));
           if(!item.deleted)action(card,'Insert cavity',()=>insert(def));action(card,'Edit revision',()=>editor(def));

@@ -12,6 +12,8 @@ from .store import ROOT, OUTPUT, read_design, revision, current, rebuild, engine
 from .network import host_allowed, same_origin, endpoints
 
 app = FastAPI(title='PMC Manifold', docs_url=None, redoc_url=None, openapi_url=None)
+from .projects import router as project_router
+app.include_router(project_router)
 
 
 @app.middleware('http')
@@ -45,6 +47,12 @@ async def local_only(request: Request, call_next):
 class BuildRequest(Strict):
     expected_revision: str = Field(pattern=r'^[0-9a-f]{64}$')
     design: Design | None = None
+    project_id: str | None = Field(default=None,pattern=r'^[0-9a-f]{32}$')
+
+
+@app.get('/api/health')
+def health():
+    return dict(service='pmc-manifold',network=endpoints())
 
 
 @app.get('/api/state')
@@ -62,6 +70,9 @@ def state():
 @app.post('/api/build')
 def build(payload: BuildRequest):
     try:
+        if payload.project_id:
+            from .projects import build as project_build
+            return project_build(payload.project_id,payload.expected_revision,payload.design)
         return rebuild(payload.design, payload.expected_revision)
     except ValueError as exc:
         raise HTTPException(409, str(exc))
@@ -130,7 +141,7 @@ class OptimizeRequest(BuildRequest):
 def optimize(payload: OptimizeRequest):
     from .optimization import optimize_routes
     try:
-        return optimize_routes(payload.design or read_design(),payload.expected_revision,payload.max_attempts)
+        return optimize_routes(payload.design or read_design(),payload.expected_revision,payload.max_attempts,payload.project_id)
     except (ValueError,RuntimeError) as exc:
         raise HTTPException(409,str(exc))
 
@@ -142,28 +153,38 @@ class FreezeRequest(Strict):
 
 @app.post('/api/freeze-net')
 def freeze_net(payload: FreezeRequest):
+    from .route_edit import freeze
+    try:return freeze(payload.design,payload.net).model_dump()
+    except ValueError as exc:raise HTTPException(422,str(exc))
+
+
+class RefineRequest(Strict):
+    design: Design
+    feature_id: str
+    u: float = Field(ge=0,le=2000,allow_inf_nan=False)
+    v: float = Field(ge=0,le=2000,allow_inf_nan=False)
+
+
+@app.post('/api/refine-route')
+def refine_route(payload:RefineRequest):
+    from .route_edit import refine
     from .geometry import build_geometry
     from .routing import authorize_generated_contacts
-    resolved, _ = resolve_design(payload.design)
-    geometry = build_geometry(resolved)
-    authorize_generated_contacts(resolved, geometry)
-    result = payload.design.model_copy(deep=True)
-    result.features = [f for f in result.features if f.route_net != payload.net]
-    for feature in resolved.features:
-        if feature.route_net == payload.net:
-            feature.route_net = None
-            feature.frozen_net = payload.net
-            result.features.append(feature)
-    for net in result.nets:
-        if net.id == payload.net:
-            net.routing = 'manual'
-            net.construction_access = []
-    return result.model_dump()
+    from .validation import validate
+    try:
+        draft,adjusted,notes=refine(payload.design,payload.feature_id,payload.u,payload.v)
+        resolved,_=resolve_design(draft)
+        geometry=build_geometry(resolved);authorize_generated_contacts(resolved,geometry)
+        report=validate(resolved,geometry)
+        from datetime import datetime,timezone
+        report['generated_at']=datetime.now(timezone.utc).isoformat()
+        return dict(design=draft.model_dump(),report=report,adjusted_branches=adjusted,notes=notes,status='EXACT_DRAFT_CHECKS_NOT_SAVED')
+    except (ValueError,RuntimeError) as exc:raise HTTPException(422,str(exc))
 
 
 @app.get('/api/library')
-def library(include_deleted: bool = False):
-    return library_entries(include_deleted)
+def library(include_deleted: bool = False, reusable_only: bool = True):
+    return library_entries(include_deleted,reusable_only)
 
 
 @app.get('/api/catalog')
@@ -198,6 +219,41 @@ def catalog_resource(id: str):
         return resource(id)
     except ValueError as exc:
         raise HTTPException(404,str(exc))
+
+
+class BoundaryAssignment(Strict):
+    design: Design
+    definition_id: str
+    source_id: str
+    category: str = Field(pattern=r'^(mounting-footprint|external-body|service|tool)$')
+    height: float = Field(default=0,ge=0,le=2000,allow_inf_nan=False)
+    decision: str = Field(min_length=5,max_length=1000)
+
+
+@app.post('/api/assign-boundary')
+def assign_boundary(payload:BoundaryAssignment):
+    from .catalog import get_record,resource
+    from .boundaries import boundary_source,boundary_shape
+    from .schema import ComponentBoundary,EngineeringLibraryResource,EngineeringReview
+    try:
+        record=get_record(payload.source_id)
+        if record.get('kind')!='assembly_envelope':raise ValueError('Choose an assembly envelope record')
+        source=boundary_source(record)
+        shape=boundary_shape(source['source_raw'],source['source_type'],25.4 if record.get('unit_system')=='inch' else 1)
+        if not shape:raise ValueError('Source boundary syntax is preserved but not mapped. Enter a separately reviewed definition; no geometry has been guessed.')
+        draft=payload.design.model_copy(deep=True)
+        definition=next((d for d in draft.library if d.id==payload.definition_id),None)
+        if definition is None:raise ValueError('Select a pinned cavity definition in this project')
+        definition.boundaries.append(ComponentBoundary(**shape,**source,category=payload.category,height=payload.height,status='engineer-confirmed',association='engineer-selected'))
+        if not any(r.id==payload.source_id for r in draft.library_resources):
+            draft.library_resources.append(EngineeringLibraryResource.model_validate(resource(payload.source_id)))
+        import uuid
+        draft.review_items.append(EngineeringReview(id='ENV_'+uuid.uuid4().hex[:16],kind='source',subject=definition.id,
+            description='Engineer associated an independent assembly envelope with this cavity. Verify orientation, role and height against the installation.',
+            proposed_value=payload.category+'; '+payload.decision))
+        if definition.lineage:definition.lineage.kind='pmc-derived'
+        return Design.model_validate(draft.model_dump()).model_dump()
+    except ValueError as exc:raise HTTPException(422,str(exc))
 
 
 @app.get('/api/catalog/record')
@@ -286,7 +342,7 @@ def asset_download(digest: str):
 
 @app.post('/api/handoff')
 def handoff(payload: BuildRequest):
-    try: return prepare_handoff(payload.design or read_design(),payload.expected_revision)
+    try: return prepare_handoff(payload.design or read_design(),payload.expected_revision,payload.project_id)
     except (ValueError,RuntimeError) as exc: raise HTTPException(409,str(exc))
 
 

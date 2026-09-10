@@ -75,8 +75,12 @@ def build_geometry(design: Design):
                 circuits[key] = f.circuits[z.id]
             envelopes[f.id] = cylinder(origin, direction, d.clearance_diameter, -d.clearance_height, 0)
             for i, boundary in enumerate(d.boundaries):
-                points = [cq.Vector(*offset_origin(*p)) for p in boundary.points]
-                wire = cq.Wire.makePolygon([*points,points[0]])
+                if boundary.circle:
+                    x,y,radius=boundary.circle
+                    wire=cq.Wire.makeCircle(radius,cq.Vector(*offset_origin(x,y)),cq.Vector(*direction))
+                else:
+                    points = [cq.Vector(*offset_origin(*p)) for p in boundary.points]
+                    wire = cq.Wire.makePolygon([*points,points[0]])
                 face = cq.Face.makeFromWires(wire)
                 if not face.isValid() or face.Area() <= 1e-6:
                     raise ValueError(f'{f.id}: invalid mounting boundary')

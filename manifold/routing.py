@@ -216,11 +216,33 @@ def proximity_risk(design, net, route):
     return round(risk,6)
 
 
+def route_margin(design, route):
+    """Analytic outer-wall ranking for the entire drilled segment, excluding its entry plane.
+
+    Not a clearance certificate: exact stock, other features and opening checks remain authoritative.
+    """
+    clearances=[]
+    dims=dimensions(design.block)
+    for f in route:
+        _,_,entry_axis,sign=FACE_AXES[f.face]
+        bounds=cylinder_bounds(f,design.block,0,f.depth,f.diameter)
+        a,b=segment(f,design.block)
+        for axis,(lo,hi) in enumerate(bounds):
+            if axis!=entry_axis:
+                clearances.extend([min(lo,a[axis],b[axis]),dims[axis]-max(hi,a[axis],b[axis])])
+            else:
+                clearances.append(dims[axis]-max(hi,b[axis]) if sign>0 else min(lo,b[axis]))
+    target=design.rules.minimum_wall+design.constraints.preferred_wall_margin
+    penalty=sum(max(0,target-c)**2 for c in clearances)*2
+    return dict(target_mm=target,estimated_min_wall_mm=min(clearances) if clearances else None,margin_penalty=round(penalty,6))
+
+
 def route_cost(design, route):
     length = sum(f.depth for f in route)
     plugs = sum(f.plugged for f in route)
     return round(length + len(route)*(60 if design.constraints.priority == 'simple_machining' else 20)
-                 + plugs*(150 if design.constraints.priority == 'fewer_plugs' else 30),6)
+                 + plugs*(150 if design.constraints.priority == 'fewer_plugs' else 30)
+                 + route_margin(design,route)['margin_penalty'],6)
 
 
 def route_options(design, net):
@@ -272,6 +294,7 @@ def resolve_design(design):
         if len(resolved.features) > 120:
             raise ValueError('Generated design exceeds 120 physical features; reduce routing complexity')
         candidates.append(dict(net=net.id, axis_order=selected['key'].split(':')[0], variant=selected['key'], proximity_risk=selected['risk'],
+                               **route_margin(design,route),
                                candidates=len(choices), drillings=len(route), plugs=sum(f.plugged for f in route),
                                length_mm=round(sum(f.depth for f in route),2), status='PROPOSAL_REQUIRES_EXACT_VALIDATION'))
     active = {f.id for f in resolved.features if not f.suppressed}

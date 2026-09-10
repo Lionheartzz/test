@@ -34,6 +34,11 @@ def placement_bounds(feature, design):
         definition=next(d for d in design.library if d.id==feature.definition)
         angle=math.radians(feature.rotation)
         extents.extend((x*math.cos(angle)-y*math.sin(angle),x*math.sin(angle)+y*math.cos(angle)) for boundary in definition.boundaries for x,y in boundary.points)
+        for boundary in definition.boundaries:
+            if boundary.circle:
+                x,y,r=boundary.circle
+                cx,cy=x*math.cos(angle)-y*math.sin(angle),x*math.sin(angle)+y*math.cos(angle)
+                extents.extend([(cx-r,cy-r),(cx+r,cy+r)])
     min_u,min_v=-min(p[0] for p in extents),-min(p[1] for p in extents)
     max_u,max_v=sizes[u]-max(p[0] for p in extents),sizes[v]-max(p[1] for p in extents)
     return dict(min_u=min_u,max_u=max_u,min_v=min_v,max_v=max_v,fits=min_u<=max_u and min_v<=max_v,radius=radius)
