@@ -132,6 +132,9 @@ Functional types inferred from hydraulic symbols without an explicit text label 
 source.kind = ai_inference and status = uncertain. Explicitly labelled/documented functional types
 may use schematic provenance with the actual document/page. Inference is not a confirmed schematic
 fact or engineer acceptance. This functional-type rule does not supply missing manufacturer/model/cavity provenance.
+Unknown or unsupported manufacturer/model/cavity values must be null with status unknown (or omitted).
+Do not guess product identity to complete the object. Valid hydraulic ports, nets and functional understanding
+can be returned while product identity remains unknown for engineer review and later library selection.
 Never invent cartridge compatibility, machining dimensions, thread standards, ratings or library matches.
 Source.document is the 1-based uploaded document number, Source.page its original 1-based page.
 Bbox is optional normalized [left, top, width, height] on the rendered full page. Use real source quotes.
@@ -165,7 +168,7 @@ def prompt_schema():
     return compact(CircuitReading.model_json_schema())
 
 
-def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None):
+def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, identity_omissions=()):
     result = dict(components=[], ports=[], nets=[], claims=[], evidence=[], design_intent=[],
                   unresolved=[], warnings=list(reading.warnings))
     groups = {}
@@ -221,6 +224,9 @@ def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None):
 
     for i, component in enumerate(reading.components, 1):
         key = f'C{i}'
+        for index, field in identity_omissions:
+            if index == i - 1:
+                unresolved(f'{field}: unsupported model value discarded because provenance was missing. Confirm from source or correct through engineer review before product selection.', key)
         ids = [label_claim(key, component.label, component.source)]
         ids += [claim(key, name, getattr(component, name)) for name in ('functional_type', 'manufacturer', 'model', 'cavity')]
         ids += [claim(key, x.name, x.reading, x.unit) for x in component.parameters]

@@ -3,6 +3,7 @@ import re
 from .. import catalog, workflow, projects
 from ..schema import CavityDefinition
 from .service import digest
+from .identity_admission import usable_identity
 
 
 def norm(value):
@@ -69,22 +70,26 @@ def value(result, subject, predicate):
 
 
 def candidates(inputs, result, component):
-    model = value(result, component['id'], 'model')
-    maker = value(result, component['id'], 'manufacturer')
-    cavity = value(result, component['id'], 'cavity')
+    model = identity_value(result, component['id'], 'model')
+    maker = identity_value(result, component['id'], 'manufacturer')
+    cavity = identity_value(result, component['id'], 'cavity')
     found = []
     for key, d in saved_definitions(inputs):
         matches = [c for c in d.compatible_cartridges if c.status != 'unconfirmed' and model and
                    norm(c.model) == norm(model) and (not maker or norm(maker) in norm(c.manufacturer))]
         if matches and d.usage_role == 'cartridge-cavity':
             found.append(dict(**summary(key, d), reason='Existing documented/engineer-confirmed model relationship'))
-    # Only an explicit source cavity designation can match native names, never inferred associations.
-    cavity_claim = next((c for c in result['claims'] if c['subject_id'] == component['id'] and c['predicate'] == 'cavity'), {})
-    if cavity and cavity_claim.get('kind') in ('schematic', 'user_requirement') and cavity_claim.get('status') == 'confirmed':
+    # Only confirmed schematic identity or explicit engineer review may match native names.
+    if cavity:
         for row in search(inputs, str(cavity)):
             if norm(row['label']) == norm(cavity) and (not maker or norm(maker) in norm(row['manufacturer'])):
                 found.append(dict(**row, reason='Exact cavity designation explicitly present in source; compatibility still needs review'))
     return list({row['key']: row for row in found}.values())
+
+
+def identity_value(result, subject, predicate):
+    return next((c['value'] for c in result['claims'] if c['subject_id'] == subject
+                 and c['predicate'] == predicate and usable_identity(c)), None)
 
 
 def matching_zones(result, component, zones):

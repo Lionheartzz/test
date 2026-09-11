@@ -1,3 +1,11 @@
+# V2.2 optional product identity admission — 2026-09-12
+
+- Targeted identity admission, functional inference, preference separation, diagnostics, SSE/provider, AI foundation and generation/store/API suites: **101 passed**, four upstream warnings, exit 0 (`output/tests-v15-identity-admission.xml`, 48.83 s).
+- Real-failure-shaped local transport fixture: three manufacturer/model/cavity missing-provenance errors become unknown/null claims, field-specific unresolved items and safe `normalized` diagnostics, with one request. Completed analysis persists/exports without unsupported values, preserves topology and separate SUN preference, and leaves library selection blocked. Existing successful runs remain unchanged. Unknown claims cannot simply be confirmed. Mixed critical errors, malformed product values, invalid source pages and preference-to-fact promotion remain rejected.
+- Uncertain/inferred identity cannot drive library candidates, knowledge queries or generated product model metadata. Explicit engineer corrections remain usable through existing review application; original claims remain immutable. Source-backed identities and functional inference are covered by the existing regressions.
+- Engineering proof: `output/proof/20260912-010656/`, exit 0. Intentional invalid case **264 PASS / 6 FAIL**; corrected case **238 PASS / 0 WARNING / 0 FAIL**. Canonical validation rules and geometry code were not modified.
+- Provider configuration SHA-256 is unchanged. No real Agnes request, UI change or service restart occurred. A separately authorized real run after loading prompt v5 is appropriate to check extraction quality; these fixtures do not establish real model behavior.
+
 # V2.2 SSE completion compatibility — 2026-09-12
 
 - Targeted streaming, provider, AI foundation and generation/store/API suites: **68 passed**, four upstream warnings, exit 0 (`output/tests-v14-stream-completion.xml`, 44.04 s).

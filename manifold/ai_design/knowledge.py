@@ -2,6 +2,7 @@
 from typing import Protocol
 import hashlib
 from .models import KnowledgeLookup, HydraulicRepresentation, Unresolved
+from .identity_admission import usable_identity
 
 
 class KnowledgeResolver(Protocol):
@@ -17,7 +18,8 @@ def resolve_knowledge(result: HydraulicRepresentation, resolver: KnowledgeResolv
     queries=[]
     claims={c.id:c for c in result.claims}
     for component in result.components:
-        values={claims[c].predicate:claims[c].value for c in component.claim_ids}
+        values={claims[c].predicate:claims[c].value for c in component.claim_ids
+                if usable_identity(claims[c].model_dump())}
         queries.append(KnowledgeLookup(id='KB_'+hashlib.sha256(component.id.encode()).hexdigest()[:24],component_id=component.id,
             manufacturer=str(values.get('manufacturer') or ''),model=str(values.get('model') or '')))
     resolved=resolver.resolve(queries)

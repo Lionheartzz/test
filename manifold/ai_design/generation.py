@@ -111,7 +111,7 @@ def prepare(inputs, result, options):
             if set(mapping) != {z.id for z in definition.zones} or set(mapping.values()) != set(component['port_ids']) or len(set(mapping.values())) != len(mapping):
                 blocked.append(f'{key}: map every cavity window to exactly one distinct schematic component port.')
         components.append(dict(id=key, label=library.value(result,key,'label') or key,
-                               model=library.value(result,key,'model') or '',
+                               model=library.identity_value(result,key,'model') or '',
                                function=library.value(result,key,'functional_type') or '',
                                choices=choices, definition=definition, mapping=dict(mapping or {}),
                                automatic=automatic, decision=decision))

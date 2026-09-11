@@ -75,7 +75,7 @@ def test_malformed_sse_stays_rejected(client, monkeypatch, bad):
 def test_done_without_finish_still_requires_valid_semantics(client, monkeypatch, case):
     raw = reading()
     if case == 'semantic':
-        raw['components'][0]['manufacturer']['source'] = {}
+        raw['components'][0]['ports'][0]['net']['source'] = {}
     elif case == 'normalization':
         raw['components'][0]['manufacturer']['source']['page'] = 999
     text = {'empty': '', 'json': '{', 'schema': '{"bogus": 1}'}.get(case, json.dumps(raw))

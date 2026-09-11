@@ -13,6 +13,7 @@ from .documents import render
 from .diagnostics import Diagnostics, Attempt, TOKENS, aggregate, normalize_usage
 from .transport_controls import reasoning_parameters
 from .validation_details import safe_validation_errors
+from .identity_admission import recover_unknown_identity
 
 
 class MultimodalProvider:
@@ -93,6 +94,7 @@ class MultimodalProvider:
                 if attempt['finish_reason'] == 'content_filter':
                     raise ProviderFailure('PROVIDER_CONTENT_FILTER')
                 attempt['phase'] = 'structured_output_validation'
+                identity_omissions = []
                 try:
                     if text.strip().startswith('```'):
                         lines = text.strip().splitlines()
@@ -102,10 +104,13 @@ class MultimodalProvider:
                 except ValidationError as exc:
                     attempt['validation_error_count'] = exc.error_count()
                     attempt['validation_errors'] = safe_validation_errors(exc)
-                    raise ProviderFailure('INVALID_STRUCTURED_OUTPUT') from None
+                    recovered = recover_unknown_identity(text, exc)
+                    if recovered is None:
+                        raise ProviderFailure('INVALID_STRUCTURED_OUTPUT') from None
+                    reading, attempt['validation_errors'], identity_omissions = recovered
                 attempt['phase'] = 'normalization'
                 try:
-                    result = normalize(reading, request.inputs, pages_by_doc)
+                    result = normalize(reading, request.inputs, pages_by_doc, identity_omissions)
                 except (ValueError, TypeError, KeyError):
                     raise ProviderFailure('NORMALIZATION_FAILED') from None
                 if time.monotonic() > deadline:
