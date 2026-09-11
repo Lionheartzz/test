@@ -6,6 +6,7 @@ from .semantic import CircuitReading
 
 ERROR_TYPES = set(get_args(ErrorType))
 CUSTOM = {
+    'Component-selection preference cannot establish an observed component fact': 'Keep component-selection preferences in requirements. They do not establish observed manufacturer, model, cavity or functional type facts; retain independent observation provenance.',
     'Unknown observation must have null value': 'Unknown observations must have a null value. Do not assert a value while marking it unknown.',
     'Clear observation needs a value': 'A clear observation requires a non-null value. If the source is unclear, preserve uncertainty instead of inventing a value.',
     'A value needs a source or explicit inference provenance': 'A non-null value needs schematic/user provenance or explicit AI-inference provenance; unknown provenance cannot support an asserted value.',

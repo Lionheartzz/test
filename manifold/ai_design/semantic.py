@@ -47,7 +47,7 @@ class PortReading(Strict):
 
 class ComponentReading(Strict):
     label: str = Field(min_length=1, max_length=120)
-    source: Source
+    source: Source = Field(default_factory=Source)
     functional_type: Observation = Field(default_factory=Observation)
     manufacturer: Observation = Field(default_factory=Observation)
     model: Observation = Field(default_factory=Observation)
@@ -77,6 +77,15 @@ class CircuitReading(Strict):
 
     @model_validator(mode='after')
     def names(self):
+        selection_preferences = {r.quote for r in self.requirements
+                                 if r.category == 'component_selection'
+                                 and (r.strength == 'preference' or r.operator == 'prefer')}
+        for component in self.components:
+            for name in ('manufacturer', 'model', 'cavity', 'functional_type'):
+                observation = getattr(component, name)
+                if (observation.value is not None and observation.source.kind == 'user_requirement'
+                        and observation.source.quote in selection_preferences):
+                    raise ValueError('Component-selection preference cannot establish an observed component fact')
         for labels in ([c.label for c in self.components], [p.label for p in self.external_ports],
                        *[[p.label for p in c.ports] for c in self.components]):
             if len(set(labels)) != len(labels):
@@ -96,7 +105,16 @@ ports internally just because they belong to one valve. External ports are manif
 not every component terminal. Preserve labels such as P1/P2, port numbers, manufacturers and exact models.
 If a line, label or model is unclear, return null/unknown or uncertain, never complete it by guessing.
 Capture pressure, flow, settings, orifices, coils and electrical notes in parameters with explicit units.
-Only report a cavity designation when it is actually present in the documents or original requirements.
+Distinguish observed component facts from user component-selection preferences. Manufacturer, model,
+cavity and functional_type are Observation objects, never scalar strings; keep their own provenance.
+Component-level source may be omitted when unavailable (defaults to unknown); it never supplies missing
+provenance for these observations. Report observed manufacturer/model/cavity facts only with schematic
+support. A requested product or cavity belongs in requirements, not as an already-observed component fact.
+For "USE SUN CARTRIDGES WHEN POSSIBLE", emit a requirement with that exact quote, category
+component_selection, property manufacturer, operator prefer, strength preference, value SUN. Leave each
+component manufacturer unknown unless the schematic itself supports it; do not copy SUN from this preference.
+Apply the same distinction to requested models, cavities and functional types. Preserve actual observed
+products even when they differ from the requested selection preference.
 Never invent cartridge compatibility, machining dimensions, thread standards, ratings or library matches.
 Source.document is the 1-based uploaded document number, Source.page its original 1-based page.
 Bbox is optional normalized [left, top, width, height] on the rendered full page. Use real source quotes.

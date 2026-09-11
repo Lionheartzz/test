@@ -1,3 +1,10 @@
+# V2.2 component provenance / selection preference correction — 2026-09-11
+
+- Targeted component-preference, validation-detail, provider, AI foundation and generation/store/API suites: **69 passed**, four upstream warnings, exit 0 (`output/tests-v12-component-preferences.xml`, 50.01 s).
+- Exact two-component regression: omitted component sources default to unknown; scalar SUN manufacturers still produce two rejected Observation type errors. The preference `USE SUN CARTRIDGES WHEN POSSIBLE` retains its exact quote/span and SUN intent value while unknown manufacturer/model/cavity/functional-type claims stay unresolved. Component labels remain uncertain inferences.
+- All four observation fields still reject values without provenance and reject promotion of an explicitly represented selection-preference quote into a component fact. Independent schematic SUN and HydraForce manufacturer observations survive normalization; invalid schematic pages still fail.
+- Prompt revision v3 clarifies observed facts versus selection preferences; historical v2 diagnostic records remain readable. Provider configuration hash is unchanged from the pre-change checkpoint. No provider request, UI change, CAD change or canonical engineering validation change was made. Local fixtures validate the contract; another real Agnes run remains separately authorized work.
+
 # V2.2 field-level validation diagnostics — 2026-09-11
 
 - Targeted provider, validation-detail, AI foundation and generation/store/API suites: **57 passed**, four upstream warnings, exit 0 (`output/tests-v11-validation-final.xml`, 45.57 s). Tests cover exact indexed schema paths, unknown-key/input redaction, semantic rejection, exact-error opt-in retry, default-no-retry, persisted failed runs and safe exports.

@@ -37,6 +37,8 @@ Structured-output failures retain each validation path (including zero-based arr
 
 Schema violations and semantic invariants are labeled separately; a schema violation is not proof that normalization is harmless. Both remain rejected. Canonical engineering validation is unchanged. Historical attempts that stored only an error count cannot recover field-level details: a newly authorized run is required. No new normalization rule was added without evidence of the actual deviation.
 
+The targeted component contract correction allows an omitted component-level `source` to default to unknown. Its label remains an uncertain inference downstream; this default supplies no provenance for manufacturer, model, cavity or functional type. Those fields remain Observation objects and scalar manufacturers remain rejected. Prompt revision `circuit-reading-1-compact-v3` explicitly represents `USE SUN CARTRIDGES WHEN POSSIBLE` as a component-selection preference, preserving independent schematic observations. A non-null component observation citing the same user quote as an explicit component-selection preference is rejected; this guard does not independently verify whether model-extracted schematic evidence is true. Source/page checks and canonical engineering rules remain in force.
+
 Diagnostics contain safe validation metadata, fixed classifications, counts and hashes. Raw provider error bodies, reasoning text, prompts and credentials are not written to diagnostic records. Keys remain server-local and excluded from project/analysis exports. Provider failure does not touch CAD, Library or saved projects.
 
 ## Next real test
