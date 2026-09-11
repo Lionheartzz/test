@@ -266,6 +266,8 @@ class MultimodalProvider:
         if event:
             consume()
         attempt['phase'] = 'response_parse'
-        if not attempt['stream_completed'] or attempt['finish_reason'] is None:
+        # [DONE] proves transport completion independently of optional finish metadata.
+        # Usage alone cannot distinguish a final report from a cumulative snapshot.
+        if not attempt['stream_completed']:
             raise ProviderFailure('PROVIDER_MALFORMED_RESPONSE')
         return ''.join(parts)

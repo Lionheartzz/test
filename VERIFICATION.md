@@ -1,3 +1,9 @@
+# V2.2 SSE completion compatibility — 2026-09-12
+
+- Targeted streaming, provider, AI foundation and generation/store/API suites: **68 passed**, four upstream warnings, exit 0 (`output/tests-v14-stream-completion.xml`, 44.04 s).
+- Completed `[DONE]` streams accept omitted finish metadata, with and without final usage; omitted finish reason remains null. Fixture usage 2,520 input / 1,910 output / 4,430 total and zero reasoning is retained. Normal stop, explicit length/content-filter failures, missing-DONE EOF even with usage, malformed SSE/UTF-8, empty content, invalid JSON/schema, missing observation provenance and invalid source-page rejection are covered.
+- Only the extra finish-reason requirement was removed from transport completion. Semantic contract, canonical engineering validation, provider settings and prompt are unchanged. Configuration SHA-256 matches the pre-change checkpoint. No real Agnes call, UI change, geometry change or service restart was performed.
+
 # V2.2 functional-type inference correction — 2026-09-11
 
 - Targeted functional-type, component-preference, validation-detail, provider, AI foundation and generation/store/API suites: **77 passed**, four upstream warnings, exit 0 (`output/tests-v13-functional-type-final.xml`, 39.35 s). Initial evidence is retained separately: three new test assertions incorrectly included the SUN design-intent claim among component identity claims; those assertion scopes were corrected before the final run.
