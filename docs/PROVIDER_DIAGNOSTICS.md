@@ -33,7 +33,11 @@ Failure stages distinguish rendering, provider call, response envelope parsing, 
 
 The analysis list exposes **latest attempt**, independently of the latest successful result. Opening a failed attempt shows its status, provider/model, duration, guidance and diagnostics above the inputs. History still opens previous successes. Background jobs keep the specific failed run and code rather than calling an unsuccessful analysis “completed”. Legacy runs show missing metrics/stage/retry count as unavailable and remain immutable.
 
-Diagnostics contain fixed classifications, counts and hashes only. Raw provider error bodies, reasoning text, prompts and credentials are not written to diagnostic records. Keys remain server-local and excluded from project/analysis exports. Provider failure does not touch CAD, Library or saved projects.
+Structured-output failures retain each validation path (including zero-based array indices), validation type and a fixed safe explanation. Known schema fields remain exact; unknown property names are redacted because they can contain provider-generated private text. Input values and arbitrary validator context/messages are excluded. Details survive persistence and exports and appear automatically in the per-attempt UI. An explicitly enabled contract-repair retry receives these same sanitized errors, without the rejected response body.
+
+Schema violations and semantic invariants are labeled separately; a schema violation is not proof that normalization is harmless. Both remain rejected. Canonical engineering validation is unchanged. Historical attempts that stored only an error count cannot recover field-level details: a newly authorized run is required. No new normalization rule was added without evidence of the actual deviation.
+
+Diagnostics contain safe validation metadata, fixed classifications, counts and hashes. Raw provider error bodies, reasoning text, prompts and credentials are not written to diagnostic records. Keys remain server-local and excluded from project/analysis exports. Provider failure does not touch CAD, Library or saved projects.
 
 ## Next real test
 

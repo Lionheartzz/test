@@ -1,3 +1,10 @@
+# V2.2 field-level validation diagnostics — 2026-09-11
+
+- Targeted provider, validation-detail, AI foundation and generation/store/API suites: **57 passed**, four upstream warnings, exit 0 (`output/tests-v11-validation-final.xml`, 45.57 s). Tests cover exact indexed schema paths, unknown-key/input redaction, semantic rejection, exact-error opt-in retry, default-no-retry, persisted failed runs and safe exports.
+- Frontend build passed (existing >500 kB bundle advisory). Real browser interaction with a clearly labeled, intercepted local fixture displayed `$.components[0].model.status`, `literal_error`, safe explanation and `schema / rejected`; details opened automatically. Screenshot `output/playwright/validation-details-fixture.png` was visually inspected. Interception was removed afterward; no stored run was changed by this UI check.
+- Provider configuration SHA-256 matched the pre-change checkpoint exactly. Provider/token/timeout/streaming/reasoning/API settings and canonical engineering validation were unchanged.
+- The historical HTTP 200 / stop / 6,366-token run retained only a validation count. Its discarded response cannot be reconstructed. Automatic approval review rejected a proposed real replay before execution because sending the saved inputs to the configured external provider needed explicit authorization. No replay was sent; the historical error remains unclassified, and no speculative normalization was introduced.
+
 # V2.2 real-provider controls and diagnostics — 2026-09-11
 
 Corrective delivery after `ac5ff6f`. Verification uses isolated/local fixtures; no additional paid provider request was issued by this work.

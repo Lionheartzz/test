@@ -17,6 +17,15 @@ class Usage(Strict):
     total_tokens: int | None = Field(default=None, ge=0, strict=True)
 
 
+class ValidationDetail(Strict):
+    path: list[str | int]
+    type: str
+    explanation: str
+    path_redacted: bool = False
+    classification: Literal['schema','semantic']
+    action: Literal['rejected','normalized'] = 'rejected'
+
+
 class Attempt(Strict):
     index: int = Field(ge=1)
     phase: Phase = 'provider_call'
@@ -34,6 +43,7 @@ class Attempt(Strict):
     usage_reported: bool = False
     usage_final: bool = False
     validation_error_count: int | None = Field(default=None, ge=0)
+    validation_errors: list[ValidationDetail] = Field(default_factory=list)
     stream_completed: bool | None = None
 
 

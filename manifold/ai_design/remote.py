@@ -12,6 +12,7 @@ from .semantic import CircuitReading, INSTRUCTIONS, normalize, prompt_schema
 from .documents import render
 from .diagnostics import Diagnostics, Attempt, TOKENS, aggregate, normalize_usage
 from .transport_controls import reasoning_parameters
+from .validation_details import safe_validation_errors
 
 
 class MultimodalProvider:
@@ -100,6 +101,7 @@ class MultimodalProvider:
                     reading = CircuitReading.model_validate_json(text)
                 except ValidationError as exc:
                     attempt['validation_error_count'] = exc.error_count()
+                    attempt['validation_errors'] = safe_validation_errors(exc)
                     raise ProviderFailure('INVALID_STRUCTURED_OUTPUT') from None
                 attempt['phase'] = 'normalization'
                 try:
@@ -122,9 +124,12 @@ class MultimodalProvider:
                 if index == settings.contract_retries or exc.code not in ('INVALID_STRUCTURED_OUTPUT','NORMALIZATION_FAILED'):
                     raise
                 # Opt-in fresh contract attempt. Never replay the response or reasoning text.
+                errors = json.dumps(attempt['validation_errors'],ensure_ascii=False,separators=(',',':'))
                 messages = [*messages, dict(role='user', content='The preceding request failed semantic contract validation. '
                     'Return one schema-valid JSON object with exact original requirement quotes, valid source pages '
-                    'and null for unknown observations. Do not include extra properties.')]
+                    'and null for unknown observations. Do not include extra properties. '
+                    'Correct these exact sanitized validation errors; paths are zero-based JSON field/index arrays. '
+                    'Do not change or invent hydraulic facts merely to satisfy the schema. Errors: '+errors)]
             finally:
                 attempt['latency_ms'] = round((time.monotonic()-started)*1000, 2)
                 diag['phase'] = attempt['phase']
