@@ -18,7 +18,7 @@ Settings are server-side in ignored `.pmc-local/ai-provider.json`. The key is st
 
 PDF pages are rasterized locally in an isolated renderer process; PNG/JPEG images are decoded and resized. Cached page images retain source SHA-256 and page identity. Default page budget is 12, configurable up to 24; exceeding it fails explicitly instead of silently dropping pages. Upload limits remain 20 files, 20 MB per file, 100 MB total. Original documents are hash-checked before analysis and generation. Source review supports rendered PDF pages and normalized region boxes.
 
-The provider sees a bounded semantic extraction schema and untrusted source evidence, never CAD tools. PMC computes internal identities, validates claims, source references, original requirement quotes and topology, and rejects extra fields or invalid units/numbers. Remote failures use bounded classifications; raw response/error bodies and credentials are not stored in diagnostics. Transport tests use a local HTTP server. A paid external model and its recognition accuracy have not been tested in this delivery.
+The provider sees a bounded semantic extraction schema and untrusted source evidence, never CAD tools. PMC computes internal identities, validates claims, source references, original requirement quotes and topology, and rejects extra fields or invalid units/numbers. Max output tokens accepts any positive integer or blank (omit the parameter); there is no PMC token ceiling or hidden 2 MB response ceiling. Existing semantic structure and document admission limits remain unchanged. Remote failures use bounded classifications; raw response/error bodies and credentials are not stored in diagnostics. Transport tests use a local HTTP server. Operator real-provider trials reached the API but failed with truncation/timeouts. The integration follow-up uses isolated HTTP fixtures and does not automatically repeat paid calls. See `docs/PROVIDER_DIAGNOSTICS.md` for findings and next-test settings.
 
 ## Generation and engineering authority
 
@@ -44,3 +44,7 @@ The original hydraulic schema remains distinct from Design. Claims preserve sour
 ## API map
 
 Existing task/run/review/export endpoints remain under `/api/ai-design`. New endpoints expose settings, rendered source pages, library searches, generation preflight, job start/status and immutable generation retrieval. Consult `manifold/ai_design/api.py` for the exact route contract. `remote.py` owns the current transport; `semantic.py` owns semantic admission; `generation.py` compiles into the existing CAD pipeline. Other providers can implement the same analysis adapter without changing Design or embedding vendor response syntax in hydraulic entities.
+
+## Provider diagnostics and controls
+
+Operator-selected reasoning dialect/mode/effort can be overridden per operation. No endpoint/model-name detection is used. Automatic semantic-contract retry defaults to zero and can be explicitly enabled once; auth, HTTP, network, timeout and truncation never retry. Optional SSE streaming records usage when reported and discards reasoning text. All requests share a total provider deadline. Runs expose normalized token fields, per-request evidence, stage and actionable failure guidance. Latest attempt is separate from latest successful result, including legacy failed runs. See [Provider diagnostics](PROVIDER_DIAGNOSTICS.md).

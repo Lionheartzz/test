@@ -56,7 +56,12 @@ def _execute(record):
             from .generation import generate
             from .generation_models import GenerationRequest
             result=generate(record['task_id'],GenerationRequest.model_validate(record['request']),update)
-        record.update(status='completed',message='Operation completed',result=result)
+        if record['operation']=='analyze' and result['run']['status']=='failed':
+            run=result['run']
+            record.update(status='failed',message='Last analysis failed · '+run['error']+'. '+run['error_message'],
+                          error=run['error'],phase=run.get('phase'),result=result)
+        else:
+            record.update(status='completed',message='Operation completed',result=result)
     except service.Conflict:
         record.update(status='conflict',message='Analysis changed while the operation ran. Earlier inputs and completed run/candidate evidence are retained; reopen the analysis.')
     except (ValueError,FileNotFoundError):

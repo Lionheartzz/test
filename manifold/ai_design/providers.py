@@ -34,6 +34,10 @@ class ProviderResponse:
     cost: float | None = None
     currency: str | None = None
     metadata: dict | None = None
+    reasoning_tokens: int | None = None
+    cached_tokens: int | None = None
+    total_tokens: int | None = None
+    diagnostics: dict | None = None
 
 
 class AnalysisProvider(Protocol):
@@ -46,10 +50,13 @@ class AnalysisProvider(Protocol):
 
 class ProviderFailure(Exception):
     """Bounded error classification; never put remote bodies or credentials in messages."""
-    def __init__(self,code='PROVIDER_FAILED'):
+    def __init__(self,code='PROVIDER_FAILED', *, diagnostics=None):
         self.code=code if code in ('PROVIDER_FAILED','PROVIDER_TIMEOUT','INVALID_PROVIDER_RESULT','UNSUPPORTED_MEDIA',
             'PROVIDER_AUTH','PROVIDER_RATE_LIMIT','PROVIDER_HTTP_ERROR','PROVIDER_NETWORK',
-            'PROVIDER_RESPONSE_LIMIT','PROVIDER_OUTPUT_TRUNCATED','DOCUMENT_LIMIT') else 'PROVIDER_FAILED'
+            'PROVIDER_RESPONSE_LIMIT','PROVIDER_OUTPUT_TRUNCATED','DOCUMENT_LIMIT',
+            'PROVIDER_MALFORMED_RESPONSE','PROVIDER_REQUEST_REJECTED','PROVIDER_CONTENT_FILTER',
+            'INVALID_STRUCTURED_OUTPUT','NORMALIZATION_FAILED','DOCUMENT_RENDER_FAILED') else 'PROVIDER_FAILED'
+        self.diagnostics = diagnostics
         super().__init__(self.code)
 
 

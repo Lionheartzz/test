@@ -23,9 +23,28 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
     check(form,'Enable this provider',value.enabled,v=>value.enabled=v);
     check(form,'Endpoint explicitly allows anonymous access',value.anonymous,v=>value.anonymous=v);
     check(form,'Request JSON object output',value.json_mode,v=>value.json_mode=v);
-    for(const [name,label]of [['max_tokens','Maximum output tokens'],['timeout_seconds','Total provider timeout (seconds)'],['max_pages','Maximum pages per analysis'],['image_max_side','Maximum image side (pixels)']])field(form,label,value[name],v=>value[name]=v,null,true);
+    const tokens=field(form,'Maximum output tokens',value.max_tokens==null?'':String(value.max_tokens),v=>value.max_tokens=v.trim()||null);tokens.inputMode='numeric';tokens.pattern='[0-9]*';tokens.placeholder='Blank = omit parameter; no PMC upper limit';
+    field(form,'Output token parameter',value.max_tokens_parameter,v=>value.max_tokens_parameter=v,{max_tokens:'max_tokens',max_completion_tokens:'max_completion_tokens'});
+    form.append(element('p','Any positive integer is passed unchanged. Blank uses the provider/model default. Provider context limits still apply; reasoning may share the output budget.','property-note'));
+    const reasoning=element('section',null,'library-card');form.append(reasoning);reasoning.append(element('h3','Thinking / reasoning controls'));
+    let scope='default';const reasonFields=element('div');
+    const drawReasoning=()=>{reasonFields.replaceChildren();const inherited=scope!=='default'&&!value.operation_reasoning[scope];
+      if(scope!=='default')check(reasonFields,'Override reasoning for this task',!inherited,enabled=>{if(enabled)value.operation_reasoning[scope]=structuredClone(value.reasoning);else delete value.operation_reasoning[scope];drawReasoning();});
+      if(inherited){reasonFields.append(element('p','Uses the default reasoning controls.'));return;}
+      const chosen=scope==='default'?value.reasoning:value.operation_reasoning[scope];
+      field(reasonFields,'Reasoning parameter dialect',chosen.dialect,v=>chosen.dialect=v,{provider_default:'Provider default · send no controls',reasoning_effort:'reasoning_effort · compatible endpoints',thinking:'thinking.type + reasoning_effort · supporting endpoints'});
+      field(reasonFields,'Thinking mode',chosen.mode,v=>chosen.mode=v,{provider_default:'Provider default',enabled:'Enabled',disabled:'Disabled'});
+      field(reasonFields,'Reasoning effort',chosen.effort,v=>chosen.effort=v,Object.fromEntries(['provider_default','none','minimal','low','medium','high','xhigh','max','ultra'].map(v=>[v,v==='provider_default'?'Provider default':v])));
+    };
+    field(reasoning,'Reasoning task',scope,v=>{scope=v;drawReasoning();},{default:'Default for all tasks',hydraulic_understanding:'Schematic extraction (current)',topology_reasoning:'Topology reasoning (future task)',manifold_optimization:'Manifold optimization (future task)'});reasoning.append(reasonFields);drawReasoning();
+    reasoning.append(element('p','Choose the dialect documented by your endpoint. Unsupported controls may be rejected or ignored by the provider. Requested controls and any PMC omissions appear in each run; PMC never infers support from a model name.','property-note'));
+    field(form,'Automatic contract retries',String(value.contract_retries),v=>value.contract_retries=Number(v),{'0':'None · one request per analysis','1':'One retry after invalid semantic output · repeats page inputs'});
+    check(form,'Stream provider response',value.stream,v=>value.stream=v);
+    check(form,'Request streaming usage statistics',value.stream_usage,v=>value.stream_usage=v);
+    form.append(element('p','Streaming must be supported by the endpoint. Usage may arrive only at the end; interrupted calls can still have unavailable totals. Auth, HTTP, timeout and truncation failures are never automatically retried.','property-note'));
+    for(const [name,label]of [['timeout_seconds','Total provider timeout (seconds)'],['max_pages','Maximum pages per analysis'],['image_max_side','Maximum image side (pixels)']])field(form,label,value[name],v=>value[name]=v,null,true);
     form.append(element('p','The selected provider must support image_url data images. PDFs are rendered locally into pages. Files and original requirements are sent only when you start an analysis. Changing the endpoint requires entering its key again.','property-note'));
-    action(form,'Save provider settings',safe(async()=>{const result=await post('/api/ai-design/settings',value);key.value='';value.api_key='';await onSaved(result);if(here())back();}));
+    action(form,'Save provider settings',safe(async()=>{const raw=tokens.value.trim();if(raw&&(!/^[0-9]+$/.test(raw)||BigInt(raw)<1n))throw Error('Maximum output tokens must be a positive whole number, or blank for the provider default.');value.max_tokens=raw||null;const result=await post('/api/ai-design/settings',value);key.value='';value.api_key='';await onSaved(result);if(here())back();}));
     if(current.key_present)action(form,'Forget stored API key',safe(async()=>{await post('/api/ai-design/settings/clear-key',{});await onSaved({ready:false});if(here())back();}));
     action(form,'Back to analysis',back);
   }

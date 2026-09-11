@@ -1,0 +1,44 @@
+# Real multimodal provider diagnostics — V2.2
+
+## Findings from the first operator trials
+
+The reviewed local history contains four failed real attempts (two truncations and two timeouts). Each has one document and a short requirement string. The old adapter threw on `finish_reason=length` **before reading usage**, and timeouts also stored neither usage nor request details. The workspace list displayed only `latest_run` (the last successful result), hiding failed attempts as “Not analyzed”. Old usage cannot be reconstructed; the reported 60,259-token dashboard total cannot be attributed exactly to these records.
+
+The request had no thinking/reasoning controls. DeepSeek documents thinking enabled with high effort by default. This is a plausible source of large output/latency, not proof of what an operator's custom endpoint/model actually did. See [DeepSeek thinking controls](https://api-docs.deepseek.com/guides/thinking_mode/) and [Chat Completions usage/limits](https://api-docs.deepseek.com/api/create-chat-completion/). The prior adapter could also repeat the same images/instructions once after invalid output; it did not retry a truncation or timeout directly. Historical per-request evidence is missing, so the contribution of that retry is unknown.
+
+The previous system prompt/schema was 6,699 characters, including a 4,230-character schema. It was sent once per request; original instructions and each page appeared once, with no assistant/reasoning history. The new schema omits descriptive titles/defaults while keeping validation rules (3,371 characters); the system prompt is 6,337 characters with concise output guidance and an observation example. These are character counts, **not token estimates**. Recognition fields, all-port topology, multi-page interpretation and existing semantic bounds were preserved. The optimization does not replace engineering details with a small-circuit-only prompt.
+
+## Operator controls
+
+Open **AI Design → Provider settings**. Existing saved endpoint/model/key and configured token/timeout values are retained; this fix does not rewrite the configuration file.
+
+- **Maximum output tokens:** any positive whole number, no PMC upper bound. Blank omits the parameter. Decimal-string UI submission preserves even integers beyond JavaScript's safe-number range. There is no silent clamp, reduction or retry with a smaller value. Choose `max_tokens` or `max_completion_tokens` as supported by the endpoint. Provider/model context and output limits still apply; leaving blank can select a large provider default, not necessarily a cheaper one.
+- **Reasoning parameter dialect:** `Provider default` sends no controls; `reasoning_effort` maps the selected mode/effort to that field; `thinking.type + reasoning_effort` supports endpoints documenting those controls. Neither endpoint URLs nor model names trigger automatic dialect selection.
+- **Thinking mode / Reasoning effort:** select the desired controls. Disabling thinking takes precedence over an effort; any omission is recorded. A mode/effort without a dialect is not sent and is explicitly flagged in run diagnostics. Providers may ignore or reject controls; HTTP rejection identifies a recognized parameter without exposing error prose. A successful request records requested-but-unverified support, not an assertion that the model honored it.
+- **Reasoning task:** default controls can be overridden for current schematic extraction (`hydraulic_understanding`). Future topology/optimization operation settings are stored separately; these labels do not introduce those operations into the current generator.
+- **Automatic contract retries:** default **None**. Explicitly choosing one permits a second request only after semantic JSON/schema or normalization failure. It reuses the source context with a short correction instruction; no provider response or reasoning text is replayed. Both attempts retain their own evidence. There is no fallback to mock output.
+- **Stream provider response:** optional, for compatible SSE endpoints. `Request streaming usage statistics` controls `stream_options.include_usage`. Keep streaming off for endpoints that do not support it. A final usage-only event and usage on the last content event are both supported.
+
+The previous fixed 2 MB transport and serialized-result gates were removed so they cannot act as hidden token ceilings. Semantic admission and document limits remain in force. Large non-streaming responses need corresponding local memory; streaming discards reasoning text as it arrives and retains only the semantic content for parsing.
+
+## Diagnostics and failure behavior
+
+Each attempt records phase, HTTP status, normalized finish reason, known rejected parameter, latency, response bytes, content/reasoning character counts and provider-reported input/output/reasoning/cached/total tokens. No character-to-token estimation is performed. The reader accepts common Chat Completions usage aliases, including nested reasoning/cached fields and DeepSeek cache-hit tokens. It does not assume all providers return them.
+
+Usage is captured **before** checking truncation or parsing the semantic content. SSE cumulative usage snapshots replace earlier snapshots; they are not summed. Across retries, all-request totals require a final reported value from every attempt; otherwise the field is **Unavailable**. A separate reported subtotal includes available partial data and can understate billing. Reasoning and cached fields are not added on top of provider totals. No cost is inferred from token counts; existing optional cost/currency data remains available when a provider adapter reports it.
+
+A single asynchronous deadline bounds all HTTP attempts, including a stream that continues emitting chunks. Timeout closes the local response/connection; it cannot guarantee cancellation of upstream work or billing. If a provider sends usage only at completion, a timeout can still have unavailable usage. Rendering is a separately bounded phase and contributes to the overall run latency.
+
+Failure stages distinguish rendering, provider call, response envelope parsing, semantic schema validation, normalization and later hydraulic admission/knowledge processing. Known timeout, length, authentication, rate-limit, network, unsupported-media, HTTP-parameter and malformed-response errors have actionable messages. Truncation, HTTP/auth/rate/network and timeout failures are never automatically retried.
+
+The analysis list exposes **latest attempt**, independently of the latest successful result. Opening a failed attempt shows its status, provider/model, duration, guidance and diagnostics above the inputs. History still opens previous successes. Background jobs keep the specific failed run and code rather than calling an unsuccessful analysis “completed”. Legacy runs show missing metrics/stage/retry count as unavailable and remain immutable.
+
+Diagnostics contain fixed classifications, counts and hashes only. Raw provider error bodies, reasoning text, prompts and credentials are not written to diagnostic records. Keys remain server-local and excluded from project/analysis exports. Provider failure does not touch CAD, Library or saved projects.
+
+## Next real test
+
+Keep the working endpoint, model and key. For an endpoint that documents DeepSeek-compatible controls, choose the `thinking.type + reasoning_effort` dialect and start with **Enabled / low** for schematic extraction. This is an operator test choice, not a new preset or a promise of recognition quality. Preserve the schematic, requirements and image resolution so results are comparable. For other endpoints, choose their documented dialect.
+
+Leave automatic retries at **None** for a clearly attributable first run. Choose your own output budget or blank for the provider default. Keep the current timeout initially; change it based on the reported phase/usage and intended reasoning workload. Enable streaming only if your endpoint supports SSE and its usage option. After one run, inspect the final/partial usage, reasoning count and failure phase before deciding on another test. No additional paid calls were made during this corrective work.
+
+[OpenAI's Chat Completions reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) documents the alternative output-budget and effort fields; support still varies by provider/model. PMC currently implements Chat Completions, not every vendor-native reasoning API.

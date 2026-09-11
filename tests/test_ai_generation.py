@@ -138,7 +138,7 @@ def http_provider():
 def test_real_multimodal_transport_sends_documents_requirements_and_normalizes(client,http_provider):
     state,url=http_provider
     task=TaskInput.model_validate(inputs(client,'P on left.'))
-    adapter=MultimodalProvider(config.ProviderSettings(base_url=url,model='custom-test-model',api_key=SecretStr('test-token'),enabled=True))
+    adapter=MultimodalProvider(config.ProviderSettings(base_url=url,model='custom-test-model',api_key=SecretStr('test-token'),enabled=True,contract_retries=1))
     response=adapter.analyze(AnalysisRequest(inputs=task,documents=service.verified_documents(task),result_schema={}))
     assert len(response.representation['components'])==1 and len(response.representation['nets'])==2
     path,body,authorization=state['requests'][0]

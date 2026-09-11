@@ -1,4 +1,5 @@
 import {aiGeneration} from './ai-generation.js';
+import {attemptStatus,runDiagnostics} from './ai-diagnostics.js';
 // Understanding and generation stay traceable; opening a generated draft is an explicit Studio handoff.
 export function aiDesign(ctx,open){
   const {$,element,field,action,api,post,get,state}=ctx,content=$('workflow-content');
@@ -16,7 +17,7 @@ export function aiDesign(ctx,open){
       await new Promise(resolve=>setTimeout(resolve,1000));status=await api('/api/ai-design/jobs/'+job.id);
     }
     if(progress?.isConnected)progress.textContent=status.message;
-    if(status.status!=='completed')throw Error(status.message);
+    if(status.status!=='completed'&&!status.result?.run)throw Error(status.message);
     return status.result;
   }
   async function settings(){await generator.settings(async config=>{providers=await api('/api/ai-design/providers');if(config.ready)provider='configured';else if(!providers.some(p=>p.id===provider))provider='mock-safe';});}
@@ -42,7 +43,7 @@ export function aiDesign(ctx,open){
     action(content,'New analysis',()=>{active=null;inputs=fresh();run=null;dirty=false;source=null;editor();});
     const job=await api('/api/ai-design/jobs/current');if(!here()||token!==generation)return;
     if(job){const card=element('section',null,'library-card');card.append(element('p','Running AI operation: '+job.message));action(card,'Follow running operation',guard(async()=>{const progress=element('p','', 'ai-job-state');card.append(progress);const result=await watchJob(job,progress);active=await api('/api/ai-design/tasks/'+job.task_id);inputs=structuredClone(active.inputs);dirty=false;run=result.run||await api(`/api/ai-design/tasks/${active.id}/runs/${result.run_id}`);if(here()){if(job.operation==='generate')generator.showPacket(result);else editor();}}));content.append(card);}
-    for(const row of rows){const card=element('section',null,'library-card');content.append(card);card.append(element('h3',row.title),element('p',`${row.documents} documents · ${row.latest_run?.status||'Not analyzed'}${row.stale?' · inputs changed':''}`));action(card,'Open analysis',guard(async()=>{active=await api('/api/ai-design/tasks/'+row.id);inputs=structuredClone(active.inputs);dirty=false;source=null;run=active.latest_run?await api(`/api/ai-design/tasks/${row.id}/runs/${active.latest_run.id}`):null;if(here())editor();}));}
+    for(const row of rows){const card=element('section',null,'library-card'),last=row.latest_attempt||row.latest_run;content.append(card);card.append(element('h3',row.title),element('p',`${row.documents} documents · ${attemptStatus(last)}${row.stale?' · inputs changed':''}`));if(last)card.append(element('p',`${last.provider.id} / ${last.provider.model} · ${(last.latency_ms/1000).toFixed(2)} s${last.phase?' · '+last.phase:''}`));action(card,'Open analysis',guard(async()=>{active=await api('/api/ai-design/tasks/'+row.id);inputs=structuredClone(active.inputs);dirty=false;source=null;const attempt=active.latest_attempt||active.latest_run;run=attempt?await api(`/api/ai-design/tasks/${row.id}/runs/${attempt.id}`):null;if(here())editor();}));}
     if(!rows.length)content.append(element('p','No analyses yet. Start with a schematic and your engineering requirements.'));
   }
   function editor(){
@@ -51,6 +52,7 @@ export function aiDesign(ctx,open){
     const nav=element('div',null,'action-row');content.append(nav);action(nav,'All analyses',library);
     action(nav,'Provider settings',()=>settings().catch(e=>$('workflow-error').textContent=e.message));
     nav.append(element('span',dirty?'Inputs changed · save before analysis':active?'Saved locally':'New analysis · not saved','ai-save-state'));
+    if(run)runDiagnostics(content,run,{element});
     const inputPanel=element('section',null,'ai-inputs');content.append(inputPanel);
     field(inputPanel,'Analysis title',inputs.title,v=>{inputs.title=v;touched();});
     field(inputPanel,'Engineering unit context',inputs.project_context,v=>{inputs.project_context=v;touched();},{metric:'Metric',inch:'Inch'});
@@ -63,7 +65,7 @@ export function aiDesign(ctx,open){
     action(extras,'Use synthetic sample schematic',guard(async()=>{const response=await fetch('/ai-demo.png');if(!response.ok)throw Error('Sample schematic is unavailable.');await upload(new File([await response.blob()],'PMC synthetic example.png',{type:'image/png'}));provider='mock-example';if(here())editor();}));
     if(get()?.schematics?.length)action(extras,'Use current project schematics',()=>{for(const a of get().schematics)addAsset(structuredClone(a));editor();});
     const label=element('label','Engineering requirements · original instruction','field'),requirements=element('textarea');requirements.rows=7;requirements.value=inputs.engineering_requirements;requirements.setAttribute('aria-label','Engineering requirements');requirements.placeholder='Use SUN cartridges where possible.\nP and T on bottom. A and B on left.\nMaximum block width 150 mm.\nWorking pressure 250 bar. Maximum flow 60 L/min.\nAdd selection, machining, access or interpretation requirements here.';requirements.oninput=()=>{inputs.engineering_requirements=requirements.value;touched();};label.append(requirements);inputPanel.append(label);
-    inputPanel.append(element('p','Your original wording is preserved. Proposed interpretations are reviewed separately and are not applied to geometry.','property-note'));
+    inputPanel.append(element('p','Your original wording is preserved. Reviewed interpretations and supported requirements participate in draft generation.','property-note'));
     const providerNote=element('p','', 'ai-mock-note');
     const explainProvider=()=>providerNote.textContent=providers.find(p=>p.id===provider)?.network_required?'Real provider: starting analysis sends the uploaded page images and original requirements to your configured endpoint. CAD and Library geometry stay local.':'Local mock: no network call or OCR. Example results are synthetic; use your configured multimodal provider for a real schematic.';
     field(inputPanel,'Analysis provider / model',provider,v=>{provider=v;explainProvider();},Object.fromEntries(providers.map(p=>[p.id,`${p.is_mock?'Local mock':'Provider'} · ${p.provider} / ${p.model}`])));

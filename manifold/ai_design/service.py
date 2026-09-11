@@ -11,6 +11,7 @@ from ..workflow import asset_path
 from .models import TaskInput,HydraulicRepresentation,ClaimReview,validate_context
 from .providers import AnalysisRequest,DocumentContent,ProviderFailure,available_providers
 from .knowledge import UnavailableKnowledgeResolver,resolve_knowledge
+from .diagnostics import Diagnostics, TOKENS, failure_help
 
 
 class Conflict(ValueError):pass
@@ -29,7 +30,8 @@ def check(record,expected):
     if revision(record)!=expected:raise Conflict('Analysis changed. Reopen it before saving; your input is preserved.')
 def snapshot(record):
     latest=record.get('latest_run')
-    return {**record,'revision':revision(record),'stale':bool(latest and latest['input_revision']!=digest(record['inputs']))}
+    attempt=record.get('runs',[])[-1] if record.get('runs') else None
+    return {**record,'latest_attempt':attempt,'revision':revision(record),'stale':bool(latest and latest['input_revision']!=digest(record['inputs']))}
 def write(record,previous=None):
     if previous:store.atomic_json(folder()/'history'/record['id']/(uuid.uuid4().hex+'.json'),previous)
     record['updated_at']=now();store.atomic_json(path(record['id']),record)
@@ -73,7 +75,7 @@ def list_tasks():
     for item in folder().glob('*.json'):
         try:
             record=read(item.stem);state=snapshot(record)
-            rows.append(dict(id=record['id'],title=record['inputs']['title'],updated_at=record['updated_at'],documents=len(record['inputs']['documents']),stale=state['stale'],latest_run=record.get('latest_run')))
+            rows.append(dict(id=record['id'],title=record['inputs']['title'],updated_at=record['updated_at'],documents=len(record['inputs']['documents']),stale=state['stale'],latest_run=record.get('latest_run'),latest_attempt=state['latest_attempt']))
         except (ValueError,OSError,KeyError):continue
     return sorted(rows,key=lambda r:r['updated_at'],reverse=True)
 
@@ -82,6 +84,7 @@ def load_run(key,run_id):
     read(key)
     run=json.loads(run_path(key,run_id).read_text(encoding='utf-8'))
     if run['task_id']!=key or run['id']!=run_id:raise ValueError('Analysis run identity mismatch')
+    if run.get('error'):run['error_message']=failure_help(run['error'])
     return run
 
 
@@ -94,35 +97,53 @@ def analyze(key,expected,provider_key):
     if provider_key not in providers:raise ValueError('Provider is not available')
     provider=providers[provider_key]
     documents=verified_documents(inputs)
-    if any(d.media_type not in provider.supported_media for d in documents):raise ValueError('Provider does not support this document type')
     request=AnalysisRequest(inputs=inputs.model_copy(deep=True),documents=documents,result_schema=HydraulicRepresentation.model_json_schema())
     run_id=uuid.uuid4().hex
     run=dict(schema_version=1,id=run_id,task_id=key,created_at=now(),input_revision=digest(record['inputs']),inputs=record['inputs'],
              provider=dict(id=provider.id,model=provider.model,is_mock=provider.is_mock,contract_version=1),status='failed',result=None,error=None)
     started=time.perf_counter()
+    phase='provider_call'
     try:
+        if any(d.media_type not in provider.supported_media for d in documents):raise ProviderFailure('UNSUPPORTED_MEDIA')
         response=provider.analyze(request)
-        serialized=json.dumps(response.representation,allow_nan=False)
-        if len(serialized.encode())>2_000_000:raise ProviderFailure('INVALID_PROVIDER_RESULT')
-        result=validate_context(HydraulicRepresentation.model_validate(response.representation),inputs)
-        result=resolve_knowledge(result,UnavailableKnowledgeResolver())
-        validate_context(result,inputs,provider_output=False)
-        usage=dict(input_tokens=response.input_tokens,output_tokens=response.output_tokens,cost=response.cost,currency=response.currency)
+        # Persist reported usage before downstream admission can fail.
+        usage={k:getattr(response,k) for k in TOKENS}
+        usage.update(cost=response.cost,currency=response.currency)
         if any(v is not None and (isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v<0) for k,v in usage.items() if k!='currency'):raise ProviderFailure('INVALID_PROVIDER_RESULT')
         if response.currency is not None and not re.fullmatch('[A-Z]{3}',response.currency):raise ProviderFailure('INVALID_PROVIDER_RESULT')
-        run.update(status='completed',result=result.model_dump(),usage=usage)
+        run['usage']=usage
+        if response.diagnostics is not None:run['diagnostics']=Diagnostics.model_validate(response.diagnostics).model_dump()
         if response.metadata is not None:run['adapter']=response.metadata
-    except ProviderFailure as exc:run['error']=exc.code
+        phase='admission'
+        serialized=json.dumps(response.representation,allow_nan=False)
+        result=validate_context(HydraulicRepresentation.model_validate(response.representation),inputs)
+        phase='knowledge_resolution'
+        result=resolve_knowledge(result,UnavailableKnowledgeResolver())
+        validate_context(result,inputs,provider_output=False)
+        run.update(status='completed',result=result.model_dump(),usage=usage)
+        phase='completed'
+    except ProviderFailure as exc:
+        run['error']=exc.code
+        if exc.diagnostics is not None:
+            try:
+                run['diagnostics']=Diagnostics.model_validate(exc.diagnostics).model_dump()
+                run['usage']={**run['diagnostics']['usage'],'cost':None,'currency':None}
+                phase=run['diagnostics']['phase']
+            except (ValueError,TypeError):pass
     except TimeoutError:run['error']='PROVIDER_TIMEOUT'
     except (ValueError,TypeError,KeyError):run['error']='INVALID_PROVIDER_RESULT'
     except Exception:run['error']='PROVIDER_FAILED'
+    run['phase']=phase
+    if run['error']:run['error_message']=failure_help(run['error'])
     run['latency_ms']=round((time.perf_counter()-started)*1000,2)
     # Even stale/failed attempts retain immutable, bounded evidence; no raw model body.
     store.atomic_json(run_path(key,run_id),run)
     with store.project_lock():
         latest=read(key)
         if revision(latest)!=expected:raise Conflict('Analysis inputs changed during execution. Run '+run_id+' was retained without replacing the current result.')
-        summary={k:run[k] for k in ('id','created_at','input_revision','provider','status','error','latency_ms')}
+        summary={k:run[k] for k in ('id','created_at','input_revision','provider','status','error','latency_ms','phase')}
+        for k in ('usage','diagnostics','error_message'):
+            if k in run:summary[k]=run[k]
         updated={**latest,'runs':[*latest['runs'],summary][-100:]}
         if run['status']=='completed':updated['latest_run']=summary
         state=write(updated,latest)

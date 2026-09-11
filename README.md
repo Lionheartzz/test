@@ -52,6 +52,8 @@ Windows CAD 依赖已固定版本；`manifold/cad.py` 会先加载 CasADi 再加
 
 配置步骤、工程边界与失败恢复见 [AI Design 使用说明](docs/AI_DESIGN_LAYER.md)，验证证据见 [VERIFICATION](VERIFICATION.md)。
 
+真实模型测试可在 Provider settings 控制 reasoning、按任务覆盖、可选 streaming 和契约重试。Max Tokens 无 PMC 上限，留空使用 provider 默认值。失败记录可直接查看耗时、阶段和 token 明细；详细说明见 [Provider diagnostics](docs/PROVIDER_DIAGNOSTICS.md)。
+
 ## 和 Codex 协作
 
 当前打开项目的权威记录为 **`projects/saved/<id>.json`**，包含独立 design、更新时间、归档标记与构建指针。**Save Project** 保存未通过校验的工作进度；**Save & Validate** 保存并构建。Projects 可搜索、重命名、复制、归档和恢复项目。Delete permanently 要求输入完整项目名，删除该项目记录及修订历史；共享库、源记录、assets 与不可变构建证据保留。每次启动先展示项目库，不自动打开 demo。`projects/demo.json` 与 `manifold.demo` 只用于开发、旧 CLI 与工程证明，不自动进入用户项目库。孔腔库的固定版本内嵌在项目中，命名 nets 表达液压意图，自动钻孔保存在构建的 resolved_design.json；构建无需隐藏 CAD 脚本状态。可以直接告诉 Codex：
