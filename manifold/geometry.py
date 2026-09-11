@@ -69,8 +69,8 @@ def build_geometry(design: Design):
             cuts[f.id] = pieces[0].fuse(*pieces[1:]).clean() if len(pieces) > 1 else pieces[0]
             for z in d.zones:
                 key = f.id if f.kind=='port' else f'{f.id}:{z.id}'
-                nodes[key] = cuts[f.id] if f.kind=='port' else cylinder(offset_origin(z.offset_u,z.offset_v), direction, z.diameter, z.start, z.end)
-                if z.clip_to_cut and f.kind!='port':
+                nodes[key] = cylinder(offset_origin(z.offset_u,z.offset_v), direction, z.diameter, z.start, z.end)
+                if z.clip_to_cut:
                     nodes[key] = nodes[key].intersect(cuts[f.id]).clean()
                 circuits[key] = f.circuit if f.kind=='port' else f.circuits[z.id]
             envelopes[f.id] = cylinder(origin, direction, d.clearance_diameter, -d.clearance_height, 0)

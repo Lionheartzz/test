@@ -61,7 +61,7 @@ def optimize_routes(design, expected_revision, max_attempts=6, project_id=None):
                     key = (store.revision(best),net_id,option['key'])
                     if key in inspected or option['key'] == selected:
                         continue
-                    proposals.append((option['risk'],option['cost'],net_id,option['key'],key))
+                    proposals.append((option['cost']+option['risk'],option['cost'],net_id,option['key'],key))
                     # Keep alternatives across nets rather than exhaust one net before considering the others.
                     break
             if not proposals:

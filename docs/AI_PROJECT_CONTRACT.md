@@ -19,3 +19,7 @@ Example review item:
 ```
 
 Use only known local paths and the current revision in a Codex handoff. No cloud, database, login, deployment or messages to other people are needed.
+
+## V2.2 understanding contract
+
+The AI Design foundation emits a separate `pmc-ai-analysis` packet containing document references, original engineering requirements, hydraulic understanding, proposed intent, source evidence, unresolved knowledge requests and engineer reviews. It is not accepted as this manifold Design contract. A future proposal stage must deliberately translate reviewed understanding into a Design and use the existing deterministic admission/build APIs. See [AI Design Layer](AI_DESIGN_LAYER.md).

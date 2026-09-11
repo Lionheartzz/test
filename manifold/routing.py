@@ -264,10 +264,10 @@ def route_options(design, net):
         seen.add(signature)
         risk = proximity_risk(design,net,route)
         options.append(dict(key=key,route=route,risk=risk,cost=route_cost(design,route)))
-    return sorted(options,key=lambda o:(o['risk'],o['cost'],o['key']))
+    return sorted(options,key=lambda o:(o['cost']+o['risk'],o['cost'],o['key']))
 
 
-def resolve_design(design):
+def _resolve_proposals(design):
     resolved = resolve_parents(design)
     automatic = {n.id for n in resolved.nets if n.routing == 'automatic'}
     resolved.features = [f for f in resolved.features if f.route_net not in automatic]
@@ -302,6 +302,77 @@ def resolve_design(design):
     for f in resolved.features:
         f.connects_to = [t for t in f.connects_to if t.split(':')[0] in active]
     return resolved, candidates
+
+
+def resolve_design(design, *, exact=True):
+    """Resolve explicit choices and compare up to six default proposals exactly.
+
+    The interactive parameter preview can opt out; build/validation never does.
+    Proxy risk schedules proposals only. Exact failures, warnings, then machining
+    cost determine selection, with the complete multi-net design as context.
+    """
+    target, routes = _resolve_proposals(design)
+    pending = [n for n in design.nets if n.routing == 'automatic' and not n.routing_variant]
+    if not exact or not pending:
+        return target, routes
+    from .geometry import build_geometry
+    from .validation import validate
+    from . import store
+    import uuid
+    folder = store.OUTPUT/'route-selections'/uuid.uuid4().hex
+    attempts=[]
+    skipped=[]
+    def evaluate(candidate, reason):
+        resolved, metadata = _resolve_proposals(candidate)
+        try:
+            geometry=build_geometry(resolved)
+            authorize_generated_contacts(resolved,geometry)
+            report=validate(resolved,geometry)
+            failed=report['counts']['FAIL']
+        except Exception as exc:
+            failed=1_000_000
+            report=dict(counts=dict(FAIL=1,WARNING=0),checks=[dict(rule='cad_candidate_error',status='FAIL',error=type(exc).__name__)])
+        cost=route_cost(resolved,[f for f in resolved.features if f.kind=='drilling' and not f.suppressed])
+        index=len(attempts)
+        score=(failed,report['counts']['WARNING'],cost)
+        store.atomic_json(folder/f'attempt-{index:02}'/'resolved_design.json',resolved.model_dump())
+        store.atomic_json(folder/f'attempt-{index:02}'/'validation.json',report)
+        attempts.append(dict(reason=reason,score=score,routes=metadata))
+        return score,resolved,metadata,index
+    best=design.model_copy(deep=True)
+    # Pin the baseline before varying one net, avoiding implicit nested searches.
+    for net in best.nets:
+        if net.routing=='automatic':net.routing_variant=next(r['variant'] for r in routes if r['net']==net.id)
+    score,target,routes,chosen=evaluate(best,'Default baseline')
+    proposals=[]
+    for original in pending:
+        context=target.model_copy(deep=True)
+        context.features=[f for f in context.features if f.route_net!=original.id]
+        net=next(n for n in context.nets if n.id==original.id)
+        options=route_options(context,net)
+        # Include both economical and low-proxy-risk routes in the bounded pool.
+        pool=sorted(options,key=lambda o:(o['cost'],o['risk'],o['key']))[:3]
+        pool+=sorted(options,key=lambda o:(o['risk'],o['cost'],o['key']))[:2]
+        seen=set()
+        for option in pool:
+            if option['key']==net.routing_variant or option['key'] in seen:continue
+            seen.add(option['key']);proposals.append((option['cost']+option['risk'],original.id,option['key']))
+    for _,net_id,variant in sorted(proposals)[:5]:
+        candidate=best.model_copy(deep=True)
+        next(n for n in candidate.nets if n.id==net_id).routing_variant=variant
+        proposal,_=_resolve_proposals(candidate)
+        cost=route_cost(proposal,[f for f in proposal.features if f.kind=='drilling' and not f.suppressed])
+        if score[:2]==(0,0) and cost>=score[2]:
+            # No outcome can improve zero failures/warnings at equal or higher cost.
+            skipped.append(dict(net=net_id,variant=variant,cost=cost,reason='Cannot improve exact PASS at lower machining cost'))
+            continue
+        trial,new_target,new_routes,index=evaluate(candidate,net_id+': '+variant)
+        if trial<score:best,score,target,routes,chosen=candidate,trial,new_target,new_routes,index
+    store.atomic_json(folder/'summary.json',dict(selected_attempt=chosen,attempts=attempts,skipped=skipped))
+    for route in routes:
+        route['selection_evidence']=folder.name
+        route['status']='EXACT_CANDIDATE_CHECKED_REQUIRES_FINAL_VALIDATION'
+    return target,routes
 
 
 def authorize_generated_contacts(design, geometry):

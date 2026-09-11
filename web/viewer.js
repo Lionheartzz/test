@@ -1,3 +1,4 @@
+import {createReferenceState} from './viewer-references.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
@@ -28,7 +29,8 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
   function guideLine(a,b,color){const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a),new THREE.Vector3(...b)]),new THREE.LineBasicMaterial({color,depthTest:false}));line.renderOrder=20;guides.add(line);}
 
   let block, mode = 'review', opacity = .22, selected = 'block', machinedBody=false, pendingFit=null;
-  let referenceFeatures=[], renderedFeatures=[], design, editing = true, handles = new THREE.Group(); scene.add(handles);
+  const references=createReferenceState();
+  let renderedFeatures=[], design, editing = true, handles = new THREE.Group(); scene.add(handles);
   const hitAreas = new THREE.Group(); scene.add(hitAreas);
   let hovered = null;const boundaryGroup=new THREE.Group();scene.add(boundaryGroup);
   const visible = { cavities: true, zones: true, drillings: true, labels: true, circuits: new Set(['P', 'T', 'A', 'B', 'LS', 'Drain']) };
@@ -78,7 +80,7 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
   }
   function load(model, features) {
     renderedFeatures=features.map(f=>({...f}));
-    referenceFeatures=features;referenceFeatures=model.geometry_kind==='parameter-preview'?[...features,...referenceFeatures.filter(f=>f.route_net&&!features.some(x=>x.id===f.id))]:features;const first = !block; block = model.block;machinedBody=model.geometry_kind!=='parameter-preview';container.dataset.geometry=machinedBody?'machined-brep':'parameter-preview';
+    references.load(model.geometry_kind,features);const first = !block; block = model.block;machinedBody=model.geometry_kind!=='parameter-preview';container.dataset.geometry=machinedBody?'machined-brep':'parameter-preview';
     disposeGroup(reference);reference.add(new THREE.AxesHelper(Math.min(block.length,block.width,block.height)*.35));
     for(const [text,p]of [['0,0,0',[0,0,0]],['+X',[block.length*.4,0,0]],['+Y',[0,block.width*.4,0]],['+Z',[0,0,block.height*.4]]]){const e=document.createElement('div');e.className='model-label';e.textContent=text;const l=new CSS2DObject(e);l.position.set(...p);reference.add(l);}
     disposeGroup(group); disposeGroup(labelGroup);
@@ -159,7 +161,7 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
     const point=ray.ray.intersectPlane(plane,new THREE.Vector3());if(!point)return;
     drag={f,plane,start:point,u:f.u,v:f.v,moved:false};controls.enabled=false;renderer.domElement.setPointerCapture(e.pointerId);onSelect(f.id);hover(f.id);renderer.domElement.style.cursor='grabbing';container.classList.add('dragging');e.stopImmediatePropagation();
   },true);
-  renderer.domElement.addEventListener('pointermove',e=>{aim(e);if(!drag){const h=hitTarget()||ray.intersectObjects(group.children.filter(o=>o.isMesh&&o.visible&&o.userData.kind==='drilling'))[0];hover(h?.object.userData.owner||null);return;}if(!drag.moved&&Math.hypot(e.clientX-down[0],e.clientY-down[1])<3)return;const point=ray.ray.intersectPlane(drag.plane,new THREE.Vector3());if(!point)return;const [u,v]=axes[drag.f.face];const delta=point.clone().sub(drag.start).toArray();try{let [nu,nv]=clamp(drag.f,design,drag.u+delta[u],drag.v+delta[v],e.altKey?0:1);disposeGroup(guides);if(document.getElementById('smart-snap')?.checked&&!e.altKey){const aligned=smartAlign(drag.f,design,drag.u+delta[u],drag.v+delta[v],2,referenceFeatures);[nu,nv]=aligned.values;for(const g of aligned.guides){const p=pose({...drag.f,u:nu,v:nv},design.block).origin,a=[...p],b=[...p],other=g.axis===u?v:u;a[other]=0;b[other]=[design.block.length,design.block.width,design.block.height][other];guideLine(a,b,'#f2d454');}container.dataset.alignment=aligned.guides.map(g=>g.label).join(', ');}drag.moved=true;onDrag(drag.f.id,nu,nv,false);}catch{};});
+  renderer.domElement.addEventListener('pointermove',e=>{aim(e);if(!drag){const h=hitTarget()||ray.intersectObjects(group.children.filter(o=>o.isMesh&&o.visible&&o.userData.kind==='drilling'))[0];hover(h?.object.userData.owner||null);return;}if(!drag.moved&&Math.hypot(e.clientX-down[0],e.clientY-down[1])<3)return;const point=ray.ray.intersectPlane(drag.plane,new THREE.Vector3());if(!point)return;const [u,v]=axes[drag.f.face];const delta=point.clone().sub(drag.start).toArray();try{let [nu,nv]=clamp(drag.f,design,drag.u+delta[u],drag.v+delta[v],e.altKey?0:1);disposeGroup(guides);if(document.getElementById('smart-snap')?.checked&&!e.altKey){const aligned=smartAlign(drag.f,design,drag.u+delta[u],drag.v+delta[v],2,references.features);[nu,nv]=aligned.values;for(const g of aligned.guides){const p=pose({...drag.f,u:nu,v:nv},design.block).origin,a=[...p],b=[...p],other=g.axis===u?v:u;a[other]=0;b[other]=[design.block.length,design.block.width,design.block.height][other];guideLine(a,b,'#f2d454');}container.dataset.alignment=aligned.guides.map(g=>g.label).join(', ');}drag.moved=true;onDrag(drag.f.id,nu,nv,false);}catch{};});
   function finish(e,cancel=false){if(!drag)return false;const old=drag;drag=null;disposeGroup(guides);delete container.dataset.alignment;controls.enabled=true;container.classList.remove('dragging');renderer.domElement.style.cursor=hovered?'grab':'';if(renderer.domElement.hasPointerCapture(e.pointerId))renderer.domElement.releasePointerCapture(e.pointerId);if(old.moved)onDrag(old.f.id,cancel?old.u:design.features.find(f=>f.id===old.f.id).u,cancel?old.v:design.features.find(f=>f.id===old.f.id).v,true);return true;}
   renderer.domElement.addEventListener('pointercancel',e=>finish(e,true));
   renderer.domElement.addEventListener('lostpointercapture',e=>finish(e,true));
@@ -183,6 +185,6 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
   const resize = new ResizeObserver(() => {if(resizeViewport()&&pendingFit!==null)fit(pendingFit);});
   resize.observe(container);
   renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); labels.render(scene, camera); });
-  return { load, fit, select, setDesign, preview, setReferences(value){referenceFeatures=value;}, editing(value){editing=value;handles.visible=value;},mode(value) { mode = value; updateVisibility(); }, opacity(value) { opacity = value; updateVisibility(); },
+  return { load, fit, select, setDesign, preview, setReferences(value){references.reset(value);}, editing(value){editing=value;handles.visible=value;},mode(value) { mode = value; updateVisibility(); }, opacity(value) { opacity = value; updateVisibility(); },
     toggle(key, value) { visible[key] = value; updateVisibility(); }, circuit(id, show) { show ? visible.circuits.add(id) : visible.circuits.delete(id); updateVisibility(); } };
 }

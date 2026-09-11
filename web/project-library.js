@@ -8,7 +8,7 @@ export function projectLibrary(ctx){
     home.replaceChildren();
     const intro=element('div',null,'home-intro');intro.append(element('span','YOUR LOCAL ENGINEERING WORKSPACE','eyebrow'),element('h1','Manifold projects'),element('p','Start a new design or continue a saved project. Work stays on this computer.'));
     const controls=element('div',null,'action-row');intro.append(controls);
-    action(controls,'New Manifold',()=>$('project-new').click());action(controls,'Import Project',()=>$('project-import').click());
+    action(controls,'New Manifold',()=>$('project-new').click());action(controls,'Import Project',()=>$('project-import').click());action(controls,'AI Design',()=>$('ai-design-open').click());
     if(hasProject())action(controls,'Return to current draft',()=>document.body.classList.remove('home'));
     const filters=element('div',null,'action-row'),search=element('input');search.placeholder='Search saved projects';search.setAttribute('aria-label','Search saved projects');search.value=query;filters.append(search);
     action(filters,archived?'Show active projects':'Show archived projects',()=>{archived=!archived;show();});

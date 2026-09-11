@@ -168,9 +168,21 @@ class CavityDefinition(Strict):
     lineage: LibraryLineage | None = None
     compatible_cartridges: list[CartridgeCompatibility] = Field(default_factory=list,max_length=100)
     boundaries: list[ComponentBoundary] = Field(default_factory=list,max_length=40)
+    usage_role: Literal['cartridge-cavity','external-port'] | None = None
+    usage_decision: str = Field(default='',max_length=1000)
 
     @model_validator(mode='after')
     def consistent(self):
+        # Legacy definitions retain their source role; window count is never a role.
+        source_type = ''
+        if self.native:
+            record = self.native.record.model_dump()
+            source_type = str(record.get('cavity_type', record.get('source_identity', {}).get('cavity_type', ''))).upper()
+        source_role = 'external-port' if source_type in ('P','PORT') else 'cartridge-cavity'
+        if self.usage_role is None:
+            self.usage_role = source_role
+        if self.usage_role != source_role and not self.usage_decision.strip():
+            raise ValueError('Changing definition usage role requires an explicit engineering decision')
         if self.lineage is None:
             kind = ('pmc-derived' if self.native.derived_from else 'imported-mdtools') if self.native else ('demo-provisional' if self.demo_only else 'pmc-custom')
             self.lineage = LibraryLineage(kind=kind,original_source=self.source,
@@ -376,12 +388,10 @@ class Design(Strict):
             if f.kind=='port' and f.definition:
                 if f.definition not in lib:raise ValueError(f'{f.id}: missing port machining definition')
                 d=lib[f.definition]
+                if d.usage_role != 'external-port':
+                    raise ValueError(f'{f.id}: definition usage role is not external-port')
                 if len(d.zones)!=1 or d.zones[0].offset_u or d.zones[0].offset_v:
                     raise ValueError(f'{f.id}: external port definition requires one centered hydraulic interface')
-                if d.native:
-                    r=(d.native.mapping_record or d.native.record).model_dump()
-                    if str(r.get('cavity_type',r.get('source_identity',{}).get('cavity_type',''))).upper() not in ('P','PORT'):
-                        raise ValueError(f'{f.id}: source does not classify this cavity as an external port')
                 centered=[p.diameter for p in d.cutting_primitives if p.kind=='cylinder' and not p.offset_u and not p.offset_v]
                 f.diameter=min(centered or [s.diameter for s in d.stages])
                 f.depth=d.zones[0].end
@@ -391,6 +401,8 @@ class Design(Strict):
             if f.kind == 'cavity':
                 if f.definition not in lib:
                     raise ValueError(f'{f.id}: missing library definition')
+                if lib[f.definition].usage_role != 'cartridge-cavity':
+                    raise ValueError(f'{f.id}: definition usage role is not cartridge-cavity')
                 if set(f.circuits) != {z.id for z in lib[f.definition].zones}:
                     raise ValueError(f'{f.id}: assign a circuit to every hydraulic zone')
                 nodes.update(f'{f.id}:{z}' for z in f.circuits)

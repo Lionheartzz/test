@@ -41,8 +41,9 @@ def test_editable_project_round_trip_preserves_unconfirmed_draft(tmp_path,monkey
 
 @pytest.mark.skipif(not catalog.ROOT.exists(),reason='Local converted vendor data is intentionally not checked into Git')
 def test_native_catalog_units_counts_and_lossless_records():
-    assert catalog.search(unit='metric')['total']==2477
-    assert catalog.search(unit='inch')['total']==841
+    # Cartridge selection excludes external-port machining, without losing records.
+    assert catalog.search(unit='metric')['total']+catalog.search(unit='metric',kind='port_definition')['total']==2477
+    assert catalog.search(unit='inch')['total']+catalog.search(unit='inch',kind='port_definition')['total']==841
     assert catalog.search(unit='metric',kind='footprint')['total']==3915
     assert catalog.search(unit='inch',kind='footprint')['total']==1649
     d=catalog.definition('inch:lib45:cavity:57')

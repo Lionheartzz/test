@@ -39,8 +39,14 @@ Depth convention references: [VEST cavity modeling](https://www.vestusa.com/Help
 
 ## Hands-on usability corrections (2026-09-10)
 
-- Definition-backed `port` features keep one hydraulic net and an exact pinned cavity definition. Bore diameter/depth fields are derived summaries; cuts come from the definition. Native source types `Port`, `PORT`, and `P` are matched case-insensitively without changing raw records. Only definitions with one centered interface are accepted. Custom straight bores remain supported. Ports are continuous machined fluid volumes; installed fitting/seal behavior remains a separate engineering review.
+- Definition-backed `port` features keep one hydraulic net and an exact pinned cavity definition. Bore diameter/depth fields are derived summaries; cuts come from the definition. Native source types `Port`, `PORT`, and `P` are matched case-insensitively without changing raw records. Only definitions with one centered interface are accepted. Custom straight bores remain supported. Ports use only the declared hydraulic window as their fluid node, clipped to the source cut where specified. Lateral intrusion into the non-hydraulic machining region fails; complete cuts still drive stock, wall/collision checks and STEP. A declared coaxial inlet continuation is handled separately.
 - Catalog search reads only the selected unit/category and hashes only returned rows. Full records still drive machining; directory indexes only locate potential related records whose full identities/parent links are checked.
 - The viewer ignores zero-size resize notifications and defers camera fit until measurable. Solid requests retain the prior view until a matching result arrives. Drillings use a visible overlay in Solid, full-length picking for refined segments, and centerline alignment references that retain automatic routes during gestures.
 - Permanent deletion uses a typed name and expected revision. Only the fixed project file and its own JSON history are removed; shared libraries, assets and immutable builds remain.
 - Run `node tests/route-alignment.test.mjs` for generated-route, external-port and transformed-interface alignment checks, in addition to Python geometry/store/API checks.
+
+## Review follow-up and V2.2 foundation
+
+Definition roles explicitly separate cartridge cavities and external-port machining. Legacy roles derive from immutable source classification; changing role requires a written engineering decision. Shared and pinned selection workflows filter the role; UUID port IDs keep user net labels independent. External-port search defaults to project native units. Default automatic routes compare bounded exact candidates before cost selection, with evidence under `output/route-selections/`. The real-browser continuous-drag regression runs with `node scripts/check-viewer-lifecycle.mjs`.
+
+The AI Design foundation uses a separate hydraulic understanding/intent contract and local analysis workspaces. It does not write Design geometry or Knowledge Base/library records. See [AI_DESIGN_LAYER.md](AI_DESIGN_LAYER.md) for provenance, provider and resolver boundaries, APIs, review storage and known debt.

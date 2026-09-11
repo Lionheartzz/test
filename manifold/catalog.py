@@ -123,6 +123,7 @@ def search(q='', unit='', kind='cavity', manufacturer='', cavity_type='', thread
         maker = record.get('library', {}).get('name', '')
         typ = record.get('cavity_type', record.get('source_identity', {}).get('cavity_type', ''))
         if kind=='port_definition' and typ.upper() not in ('P','PORT'):continue
+        if kind=='cavity' and typ.upper() in ('P','PORT'):continue
         threads = ' / '.join(' '.join(str(t.get(k, '')) for k in ('size', 'pitch', 'class')) for t in record.get('threads', []))
         haystack = ' '.join([record['id'], record.get('name', ''), maker, typ, threads, record.get('comments', ''),
                             record.get('family',''),record.get('material_name',''),
@@ -204,7 +205,10 @@ def interface_windows(record, primitives, u=0, v=0, prefix='', datum='step0-rela
             if 0<=start<stop<=end:
                 bands.append(dict(id=prefix+'port'+str(port['port']),start=start,end=stop,diameter=diameter,offset_u=u,offset_v=v,clip_to_cut=True))
     elif typ in ('DH','P','PORT'):
-        insertion=mm(record.get('engineering',{}).get('insertion_depth')) or 0
+        insertion=mm(record.get('engineering',{}).get('insertion_depth'))
+        if insertion is None and typ in ('P','PORT'):
+            return []  # Missing interface data cannot authorize the whole machining cut.
+        insertion=insertion or 0
         if insertion<end:
             name=record.get('hydraulic',{}).get('port_application_name',record.get('port_application_name','port1'))
             import re

@@ -33,7 +33,7 @@ def test_external_port_uses_source_cut_not_summary_bore():
 def test_port_definition_rejects_cartridge_semantics():
     from manifold.demo import demo
     d=demo();definition=d.library[0]
-    with pytest.raises(ValueError,match='one centered hydraulic interface'):
+    with pytest.raises(ValueError,match='usage role is not external-port'):
         Design(name='Invalid port',block=d.block,library=[definition],features=[dict(id='P',kind='port',face='front',u=40,v=50,circuit='P',definition=definition.id)])
 
 def test_cavity_search_and_definition_do_not_load_unrelated_catalog(monkeypatch):

@@ -78,6 +78,21 @@ def validate(design, g):
         sa, sb = g.cuts[a], g.cuts[b]
         fa, fb = by_id[a], by_id[b]
         volume = sa.intersect(sb).Volume()
+        for port, other in ((fa,fb),(fb,fa)):
+            if port.kind != 'port' or not port.definition or volume <= EPS:
+                continue
+            window = g.nodes[port.id]
+            # A coaxial continuation through the declared inlet is allowed; a lateral
+            # cut must stay inside the hydraulic window, including its opening area.
+            z = next(d for d in design.library if d.id == port.definition).zones[0]
+            coaxial = (other.kind == 'drilling' and other.face == port.face
+                       and abs(other.u-port.u)<EPS and abs(other.v-port.v)<EPS
+                       and other.diameter <= min(z.diameter,port.diameter) and other.circuit == port.circuit
+                       and all(abs(x-y)<EPS for x,y in zip(g.placements[port.id]['direction'],g.placements[other.id]['direction']))
+                       and tuple(sorted((port.id,other.id))) in expected)
+            intrusion = g.cuts[port.id].cut(window).intersect(g.cuts[other.id]).Volume()
+            result('port_protected_region',[port.id,other.id],intrusion,0,coaxial or intrusion<=EPS,
+                   'Lateral cuts may enter only the declared hydraulic window, never the spotface, seal or thread region.',unit='mm³')
         both_cavities = fa.kind == fb.kind == 'cavity'
         if both_cavities:
             result('cavity_collision', [a, b], volume, 0, volume <= EPS, 'Cartridge cutting volumes must not intersect.', unit='mm³')
@@ -179,7 +194,7 @@ def validate(design, g):
                severity='FAIL' if item.severity == 'blocking' else 'WARNING')
     active_definitions = {f.definition for f in design.features if f.definition and not f.suppressed}
     for f in design.features:
-        if f.kind == 'cavity' and not f.suppressed:
+        if f.definition and not f.suppressed:
             definition = next(d for d in design.library if d.id == f.definition)
             if definition.cutting_primitives:
                 for a,z in combinations(definition.zones,2):
@@ -188,7 +203,7 @@ def validate(design, g):
                     result('mapped_interface_separation',keys,volume,0,volume<=EPS,
                            'Separate installed hydraulic windows must not overlap. Native draft mappings retain conflicts for correction.',unit='mm³')
             for z in definition.zones:
-                key = f'{f.id}:{z.id}'
+                key = f.id if f.kind == 'port' else f'{f.id}:{z.id}'
                 if z.offset_u or z.offset_v or next(d for d in design.library if d.id == f.definition).cutting_primitives:
                     outside = max(0.0,g.nodes[key].Volume()-g.nodes[key].intersect(g.cuts[f.id]).Volume())
                     result('mapped_interface_containment',[key],outside,0,outside<=EPS,'Mapped hydraulic windows must be contained in the exact cavity cutting volume.',unit='mm³')

@@ -1,3 +1,5 @@
+import {aiDesign} from './ai-design.js';
+import {isCavity,definitionRole} from './definition-role.js';
 import {customPort,portSetup} from './port-setup.js';
 import {guided} from './guided.js';
 import {profileEditor} from './profile.js';
@@ -11,6 +13,7 @@ const guard=fn=>async()=>{try{await fn();$('workflow-error').textContent='';}cat
 function open(title){$('workflow-title').textContent=title;content.replaceChildren();$('workflow-error').textContent='';if(!dialog.open)dialog.showModal();}
 $('workflow-close').onclick=()=>dialog.close();
 function insertNow(def,face='top',mapping=null,index=0){
+  if(!isCavity(def))throw Error('This definition is for external-port use. Create an engineer-confirmed cartridge-cavity revision to reuse it.');
   def=structuredClone(def);const ok=change(()=>{const d=get();let existing=d.library.find(x=>x.id===def.id);if(existing&&JSON.stringify(existing)!==JSON.stringify(def)){def.catalog_id=def.catalog_id||def.id;def.id=def.id.slice(0,27)+'_r'+Date.now().toString(36);existing=null;}if(!existing)d.library.push(structuredClone(def));const f={id:newId('CV'),kind:'cavity',face,u:d.block.length/2+index*(def.clearance_diameter+5),v:d.block.width/2,definition:def.id,circuits:mapping||Object.fromEntries(def.zones.map((z,i)=>[z.id,d.nets[i%d.nets.length]?.id||'P'])),connects_to:[],suppressed:false,rotation:0,cartridge_model:def.cartridge_models[0]||'',schematic_id:'',parent_id:null,local_offset:[0,0],machining_id:''};[f.u,f.v]=clamp(f,d,f.u,f.v);d.features.push(f);if(def.native){d.review_items??=[];d.review_items.push({id:'MAP_'+f.id+'_'+Date.now().toString(36),kind:'connection',subject:f.id,description:'Review the imported cavity interface-to-net assignments and installation envelope.',proposed_value:Object.entries(f.circuits).map(([p,n])=>p+' → '+n).join(', '),severity:'review',status:'open',resolution:''});}syncNets(d);select(f.id);});if(ok)dialog.close();else $('workflow-error').textContent=$('notice').textContent;
 }
 function insert(def){
@@ -30,6 +33,7 @@ function editor(source,projectScope=false){
   const grid=element('div',null,'editor-grid');content.append(grid);
   for(const [key,label]of [['id','Definition ID'],['label','Label'],['manufacturer','Manufacturer'],['revision','Revision'],['valve_function','Valve function'],['source','Drawing / source reference'],['thread_note','Thread / tolerance notes'],['machining_notes','Machining notes']]){if(projectScope&&key==='id'){grid.append(element('p','Pinned ID: '+def.id));continue;}field(grid,label,def[key],v=>def[key]=v);}
   field(grid,'Cartridge models (comma separated)',def.cartridge_models.join(', '),v=>def.cartridge_models=v.split(',').map(s=>s.trim()).filter(Boolean));
+  field(content,'Engineering usage role',definitionRole(def),v=>def.usage_role=v,{'cartridge-cavity':'Cartridge cavity','external-port':'External-port machining'});field(content,'Usage role decision / source',def.usage_decision||'',v=>def.usage_decision=v);content.append(element('p','Changing the source role requires an explicit engineering decision. A single hydraulic window does not establish external-port suitability.'));
   const compatibility=element('section',null,'library-card');content.append(compatibility);compatibility.append(element('h3','Known cartridge compatibility'),element('p','Record only documented relationships. Legacy model names are unconfirmed; manual selection remains available for engineering review.'));
   def.compatible_cartridges??=[];
   for(const [i,c]of def.compatible_cartridges.entries()){for(const k of ['model','manufacturer','source'])field(compatibility,`Compatibility ${i+1} ${k}`,c[k],v=>c[k]=v);field(compatibility,`Compatibility ${i+1} status`,c.status,v=>c.status=v,{unconfirmed:'Unconfirmed',documented:'Documented source','engineer-confirmed':'Engineer confirmed'});}
@@ -58,7 +62,7 @@ $('library-open').onclick=guard(library);
 $('add-port').onclick=()=>{
   const p=customPort();let net=get().nets[0]?.id||'P';
   const render=()=>{open('Add external port');field(content,'Hydraulic net',net,v=>{net=v;render();},Object.fromEntries(get().nets.map(n=>[n.id,n.id])));portSetup(ctx,content,p,net,render);
-    action(content,'Add port to draft',guard(async()=>{if(p.mode!=='custom'&&!p.definition)throw Error('Select a machining definition first.');const baseline=JSON.stringify(get()),d=structuredClone(get());let id=net;for(let i=1;d.features.some(f=>f.id===id);i++)id=net.slice(0,36)+(i+1);
+    action(content,'Add port to draft',guard(async()=>{if(p.mode!=='custom'&&!p.definition)throw Error('Select a machining definition first.');const baseline=JSON.stringify(get()),d=structuredClone(get());const id='PORT_'+crypto.randomUUID().replaceAll('-','');
       const f={id,kind:'port',face:p.face,u:0,v:0,circuit:net,diameter:p.diameter,depth:p.depth,clearance_diameter:p.clearance,size:p.size.slice(0,80),port_type:p.definition?p.definition.label:'Custom straight bore'};
       if(p.definition){const def=structuredClone(p.definition),existing=d.library.find(x=>x.id===def.id);if(existing&&JSON.stringify(existing)!==JSON.stringify(def)){def.catalog_id=def.catalog_id||def.id;def.id=def.id.slice(0,27)+'_r'+Date.now().toString(36);}if(!d.library.some(x=>x.id===def.id))d.library.push(def);f.definition=def.id;}
       const axes={top:['length','width'],bottom:['length','width'],left:['width','height'],right:['width','height'],front:['length','height'],back:['length','height']}[p.face];[f.u,f.v]=clamp(f,d,d.block[axes[0]]/2,d.block[axes[1]]/2);d.features.push(f);syncNets(d);
@@ -82,6 +86,7 @@ function nets(){open('Hydraulic Nets · intent and derived connections');content
 }
 $('nets-open').onclick=nets;
 function schematic(){open('Schematic assets');content.append(element('p','Attach a PDF, PNG or JPEG to the editable project. Import an AI-generated PMC Project JSON from any provider, then resolve Engineering Review items. This local version does not call an AI service.'));
+  action(content,'Analyze schematics with engineering requirements',()=>ai.open());
   const input=element('input');input.type='file';input.accept='.pdf,.png,.jpg,.jpeg';input.setAttribute('aria-label','Upload schematic');content.append(input);input.onchange=guard(async()=>{const f=input.files[0];if(!f)return;const asset=await api('/api/assets',{method:'POST',headers:{'Content-Type':f.type,'X-PMC-Request':'local-console','X-File-Name':encodeURIComponent(f.name)},body:f});change(()=>{if(!get().schematics.some(a=>a.sha256===asset.sha256))get().schematics.push(asset);});schematic();});
   for(const a of get().schematics){const card=element('div',null,'library-card');card.append(element('h3',a.name));const link=element('a','Open local asset');link.href='/api/assets/'+a.sha256;link.target='_blank';link.rel='noopener';card.append(link,element('p','SHA-256 '+a.sha256));if(a.media_type.startsWith('image/')){const img=element('img');img.src=link.href;img.alt=a.name;img.className='schematic-preview';card.append(img);}content.append(card);}
   const components=element('section');components.append(element('h3','Schematic component mapping'));content.append(components);
@@ -90,6 +95,7 @@ function schematic(){open('Schematic assets');content.append(element('p','Attach
   const optional=element('details');optional.append(element('summary','Optional · Codex handoff'));content.append(optional);
   action(optional,'Prepare Codex handoff',guard(async()=>{if(!state().project_id)throw Error('Save Project before preparing a handoff.');const h=await post('/api/handoff',{project_id:state().project_id,expected_revision:state().revision,design:get()});const box=element('div',null,'library-card');box.append(element('h3','Ready for Codex · awaiting agent'),element('p',h.message));const text=element('textarea');text.value=h.prompt;text.readOnly=true;text.setAttribute('aria-label','Codex handoff prompt');box.append(text);action(box,'Copy Codex prompt',guard(async()=>{await navigator.clipboard.writeText(h.prompt);notice('Handoff prompt copied. Paste it into the current Codex task.');}));content.append(box);}));
 }
+const ai=aiDesign(ctx,open);
 $('schematic-open').onclick=schematic;
 return {editDefinition:def=>editor(def,true)};
 }

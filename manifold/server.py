@@ -14,6 +14,8 @@ from .network import host_allowed, same_origin, endpoints
 app = FastAPI(title='PMC Manifold', docs_url=None, redoc_url=None, openapi_url=None)
 from .projects import router as project_router
 app.include_router(project_router)
+from .ai_design.api import router as ai_design_router
+app.include_router(ai_design_router)
 
 
 @app.middleware('http')
@@ -110,7 +112,7 @@ def export_project(design: Design):
 @app.post('/api/preview')
 def preview(design: Design):
     try:
-        resolved, routes = resolve_design(design)
+        resolved, routes = resolve_design(design,exact=False)
     except ValueError as exc:
         raise HTTPException(422, str(exc))
     return dict(design=resolved.model_dump(),routes=routes,status='UNVALIDATED_PREVIEW')
@@ -295,7 +297,7 @@ def library_project_native(definition: CavityDefinition):
         native=definition.native
         mapped = map_record((native.mapping_record or native.record).model_dump(),
                             native.mapping_related_records if native.mapping_related_records is not None else native.related_records,native.datum_mode)
-        for key in ('id','label','source','manufacturer','cartridge_models','revision','provenance','machining_notes','tooling','lineage','compatible_cartridges'):
+        for key in ('id','label','source','manufacturer','cartridge_models','revision','provenance','machining_notes','tooling','lineage','compatible_cartridges','usage_role','usage_decision'):
             setattr(mapped,key,getattr(definition,key))
         mapped.native.source_sha256 = definition.native.source_sha256
         mapped.native.derived_from = definition.native.derived_from
