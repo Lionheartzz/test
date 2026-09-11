@@ -1,3 +1,19 @@
+# V2.2 editable AI manifold generation — 2026-09-11
+
+AI generation implementation based on foundation commit `e593cee`. The checks below were completed locally before Git delivery.
+
+- Full Python regression: **99 passed**, four upstream warnings, exit 0 (`output/tests-v9-generation-full.xml`, 438.11 s), including existing CAD, routing, project/store/API and AI tests. The final configuration-recovery adjustment is covered by the separate 11-test final suite below. `git diff --check` passes.
+- Final AI-generation suite: **11 passed**, four upstream warnings, exit 0 (`output/tests-v9-generation-final.xml`, 45.35 s). Includes configurable/redacted local credentials, corrupt-settings recovery, local PDF rendering, actual HTTP multimodal transport against an isolated test server, contract retry/auth behavior, native-cavity generation, input/library identity, stale/conflicting intent, persistent face restrictions, bottom-port routing, explicit terminal loads and restart-visible jobs. No paid provider was called.
+- Required proof: `output/proof/20260911-140605/`; intentional invalid case **264 PASS / 6 FAIL**, corrected **238 PASS / 0 WARNING / 0 FAIL**, exit 0. Failed cases and exact reports are retained.
+- Browser end-to-end: create synthetic analysis, upload fixture, require P/T on bottom, maximum width 150 mm and no top cross-drilling, explicitly choose existing VC08-2 geometry and map both source windows. Generation tried two candidates and selected **126 PASS / 7 WARNING / 0 FAIL**. This fixture mapping is a test decision, not cartridge compatibility approval.
+- Open the generation through the normal Studio, save and validate: **127 PASS / 7 WARNING / 0 FAIL**. Move P, undo, redo, reroute and save: **153 PASS / 7 WARNING / 0 FAIL**. Reopen the saved project; P remains at bottom U=79/V=50, RV1/P/T labels are readable, and the original requirement text and analysis/run/generation/hash trace remain intact. QA project: `projects/saved/f8f3f896d61440568f292adf508f943f.json`.
+- Exact-solid, edited and final desktop screenshots were visually inspected (`output/playwright/ai-generation-solid.png`, `ai-generation-edited.png`, `ai-generation-final.png`). The 390 px provider-settings screenshot was also inspected; dialog client/scroll widths both equal 350 px, endpoint/model remain blank, and the UI error area is empty. Console entries were browser password-form advisories, not application errors.
+- Five frontend alignment/label tests pass. The existing real-browser viewer regression passes all four movements within one continuous pointer drag (`node scripts/check-viewer-lifecycle.mjs`).
+- All **9,717** source-library files match the V5 SHA ledger, **0 changed** (`output/library-preservation-v9-generation.json`). Schema version 1, normal saved projects, immutable build snapshots and the existing CAD import boundary are preserved.
+- Final frontend build passes, exit 0: JS **639.52 kB / 169.99 kB gzip**. Existing >500 kB bundle advisory remains. Local service restarted with the completed backend and is available at `http://127.0.0.1:8765/`.
+
+Current limitations: one local AI job, configurable Chat Completions image transport, at most four cartridges and finite layout search; exact validation does not certify schematic semantics, vendor compatibility, pressure ratings or manufacturing approval. Real-model accuracy remains for the operator's first configured-provider trial. Instructions: `docs/AI_DESIGN_LAYER.md`.
+
 # V2.2 AI foundation and d58e907 review follow-up — 2026-09-11
 
 Local implementation and verification; no new Git push or deployment.

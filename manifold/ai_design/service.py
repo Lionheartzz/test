@@ -111,6 +111,7 @@ def analyze(key,expected,provider_key):
         if any(v is not None and (isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v<0) for k,v in usage.items() if k!='currency'):raise ProviderFailure('INVALID_PROVIDER_RESULT')
         if response.currency is not None and not re.fullmatch('[A-Z]{3}',response.currency):raise ProviderFailure('INVALID_PROVIDER_RESULT')
         run.update(status='completed',result=result.model_dump(),usage=usage)
+        if response.metadata is not None:run['adapter']=response.metadata
     except ProviderFailure as exc:run['error']=exc.code
     except TimeoutError:run['error']='PROVIDER_TIMEOUT'
     except (ValueError,TypeError,KeyError):run['error']='INVALID_PROVIDER_RESULT'

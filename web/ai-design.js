@@ -1,4 +1,5 @@
-// Hydraulic understanding is reviewed here; this module never mutates the CAD draft.
+import {aiGeneration} from './ai-generation.js';
+// Understanding and generation stay traceable; opening a generated draft is an explicit Studio handoff.
 export function aiDesign(ctx,open){
   const {$,element,field,action,api,post,get,state}=ctx,content=$('workflow-content');
   let active=null,inputs=null,run=null,dirty=false,pending=false,provider='mock-safe',source=null,providers=[],generation=0;
@@ -6,6 +7,19 @@ export function aiDesign(ctx,open){
   const here=()=>$('workflow-dialog').open&&$('workflow-title').textContent.startsWith('AI Design');
   const guard=fn=>async()=>{if(pending)return;pending=true;content.querySelectorAll('button,input,select,textarea').forEach(x=>x.disabled=true);$('workflow-error').textContent='';try{await fn();}catch(e){$('workflow-error').textContent=e.message;}finally{pending=false;if(here())content.querySelectorAll('button,input,select,textarea').forEach(x=>x.disabled=false);}};
   const touched=()=>{dirty=true;const status=content.querySelector('.ai-save-state');if(status)status.textContent='Inputs changed · save before analysis';};
+  const generator=aiGeneration(ctx,{open,back:()=>inputs?editor():library(),session:()=>({task:active,run,dirty}),
+    refreshTask:async id=>{const next=await api('/api/ai-design/tasks/'+id);if(active?.id===id)active=next;return next;},watchJob});
+  async function watchJob(job,progress){
+    let status=job;
+    while(['queued','running'].includes(status.status)){
+      if(progress?.isConnected)progress.textContent=status.message+' · You can close this dialog and return to the running operation from AI Design.';
+      await new Promise(resolve=>setTimeout(resolve,1000));status=await api('/api/ai-design/jobs/'+job.id);
+    }
+    if(progress?.isConnected)progress.textContent=status.message;
+    if(status.status!=='completed')throw Error(status.message);
+    return status.result;
+  }
+  async function settings(){await generator.settings(async config=>{providers=await api('/api/ai-design/providers');if(config.ready)provider='configured';else if(!providers.some(p=>p.id===provider))provider='mock-safe';});}
   async function save(){
     const signature=JSON.stringify(inputs),result=await post('/api/ai-design/tasks',{inputs,task_id:active?.id||null,expected_revision:active?.revision||null});
     active=result;if(JSON.stringify(inputs)===signature){inputs=structuredClone(result.inputs);dirty=false;}
@@ -20,10 +34,14 @@ export function aiDesign(ctx,open){
   async function library(){
     if(dirty&&!confirm('Leave these unsaved analysis inputs?'))return;
     const token=++generation;open('AI Design · Analysis workspaces');
-    content.append(element('p','Understand a hydraulic circuit before deciding how to build its manifold. Documents, original requirements, model interpretation and engineer review stay together.'));
+    content.classList.add('ai-content');
+    content.append(element('p','Upload a schematic with engineering requirements, interpret it with your selected provider, then create an editable manifold draft using existing library geometry.'));
+    action(content,'Provider settings',()=>settings().catch(e=>$('workflow-error').textContent=e.message));
     const loading=element('p','Loading local analyses and provider capabilities…','loading-state');content.append(loading);
     const [rows,available]=await Promise.all([api('/api/ai-design/tasks'),api('/api/ai-design/providers')]);if(!here()||token!==generation)return;providers=available;loading.remove();
     action(content,'New analysis',()=>{active=null;inputs=fresh();run=null;dirty=false;source=null;editor();});
+    const job=await api('/api/ai-design/jobs/current');if(!here()||token!==generation)return;
+    if(job){const card=element('section',null,'library-card');card.append(element('p','Running AI operation: '+job.message));action(card,'Follow running operation',guard(async()=>{const progress=element('p','', 'ai-job-state');card.append(progress);const result=await watchJob(job,progress);active=await api('/api/ai-design/tasks/'+job.task_id);inputs=structuredClone(active.inputs);dirty=false;run=result.run||await api(`/api/ai-design/tasks/${active.id}/runs/${result.run_id}`);if(here()){if(job.operation==='generate')generator.showPacket(result);else editor();}}));content.append(card);}
     for(const row of rows){const card=element('section',null,'library-card');content.append(card);card.append(element('h3',row.title),element('p',`${row.documents} documents · ${row.latest_run?.status||'Not analyzed'}${row.stale?' · inputs changed':''}`));action(card,'Open analysis',guard(async()=>{active=await api('/api/ai-design/tasks/'+row.id);inputs=structuredClone(active.inputs);dirty=false;source=null;run=active.latest_run?await api(`/api/ai-design/tasks/${row.id}/runs/${active.latest_run.id}`):null;if(here())editor();}));}
     if(!rows.length)content.append(element('p','No analyses yet. Start with a schematic and your engineering requirements.'));
   }
@@ -31,6 +49,7 @@ export function aiDesign(ctx,open){
     if(!$('workflow-dialog').open)open('AI Design · Hydraulic understanding');else if(!here())return;
     ++generation;open('AI Design · Hydraulic understanding');content.classList.add('ai-content');
     const nav=element('div',null,'action-row');content.append(nav);action(nav,'All analyses',library);
+    action(nav,'Provider settings',()=>settings().catch(e=>$('workflow-error').textContent=e.message));
     nav.append(element('span',dirty?'Inputs changed · save before analysis':active?'Saved locally':'New analysis · not saved','ai-save-state'));
     const inputPanel=element('section',null,'ai-inputs');content.append(inputPanel);
     field(inputPanel,'Analysis title',inputs.title,v=>{inputs.title=v;touched();});
@@ -45,13 +64,22 @@ export function aiDesign(ctx,open){
     if(get()?.schematics?.length)action(extras,'Use current project schematics',()=>{for(const a of get().schematics)addAsset(structuredClone(a));editor();});
     const label=element('label','Engineering requirements · original instruction','field'),requirements=element('textarea');requirements.rows=7;requirements.value=inputs.engineering_requirements;requirements.setAttribute('aria-label','Engineering requirements');requirements.placeholder='Use SUN cartridges where possible.\nP and T on bottom. A and B on left.\nMaximum block width 150 mm.\nWorking pressure 250 bar. Maximum flow 60 L/min.\nAdd selection, machining, access or interpretation requirements here.';requirements.oninput=()=>{inputs.engineering_requirements=requirements.value;touched();};label.append(requirements);inputPanel.append(label);
     inputPanel.append(element('p','Your original wording is preserved. Proposed interpretations are reviewed separately and are not applied to geometry.','property-note'));
-    field(inputPanel,'Analysis provider / model',provider,v=>provider=v,Object.fromEntries(providers.map(p=>[p.id,`${p.is_mock?'Local mock':'Provider'} · ${p.provider} / ${p.model}`])));
-    inputPanel.append(element('p','Local mock only: no files leave this computer and no OCR is performed. The example circuit is synthetic; unknown-safe keeps unrecognized schematic contents unresolved.','ai-mock-note'));
+    const providerNote=element('p','', 'ai-mock-note');
+    const explainProvider=()=>providerNote.textContent=providers.find(p=>p.id===provider)?.network_required?'Real provider: starting analysis sends the uploaded page images and original requirements to your configured endpoint. CAD and Library geometry stay local.':'Local mock: no network call or OCR. Example results are synthetic; use your configured multimodal provider for a real schematic.';
+    field(inputPanel,'Analysis provider / model',provider,v=>{provider=v;explainProvider();},Object.fromEntries(providers.map(p=>[p.id,`${p.is_mock?'Local mock':'Provider'} · ${p.provider} / ${p.model}`])));
+    explainProvider();inputPanel.append(providerNote);
     const buttons=element('div',null,'action-row');inputPanel.append(buttons);
     action(buttons,'Save analysis inputs',guard(async()=>{await save();if(here())editor();}));
-    action(buttons,'Analyze schematic + requirements',guard(async()=>{if(!inputs.documents.length)throw Error('Upload at least one schematic document.');await save();const result=await post(`/api/ai-design/tasks/${active.id}/analyze`,{expected_revision:active.revision,provider});active=result.task;run=result.run;source=null;if(here())editor();}));
+    const analyze=makeDraft=>guard(async()=>{if(!inputs.documents.length)throw Error('Upload at least one schematic document.');await save();const key=active.id;
+      const progress=element('p','Starting analysis…','ai-job-state');progress.setAttribute('role','status');inputPanel.append(progress);
+      const job=await post(`/api/ai-design/tasks/${key}/analyze-job`,{expected_revision:active.revision,provider});const result=await watchJob(job,progress);
+      if(active?.id!==key)return;active=result.task;run=result.run;source=null;if(here()){editor();if(makeDraft&&run.status==='completed')await generator.prepare(true);}});
+    action(buttons,'Analyze schematic + requirements',analyze(false));
+    action(buttons,'Analyze & create manifold draft',analyze(true)).classList.add('primary');
+    if(run?.status==='completed')action(buttons,'Create draft from this analysis',guard(()=>generator.prepare()));
     if(active){const link=element('a','Export analysis JSON','download');link.href=`/api/ai-design/tasks/${active.id}/export${run?'?run_id='+run.id:''}`;buttons.append(link);}
     if(active?.runs.length){field(inputPanel,'Analysis history',run?.id||'',async id=>{try{run=await api(`/api/ai-design/tasks/${active.id}/runs/${id}`);source=null;if(here())editor();}catch(e){$('workflow-error').textContent=e.message;}},Object.fromEntries(active.runs.map(r=>[r.id,`${r.created_at.slice(0,19)} · ${r.provider.model} · ${r.status}`])));}
+    for(const entry of active?.generations||[])action(inputPanel,'Open generated draft · '+entry.created_at.slice(0,19),guard(async()=>{const packet=await api(`/api/ai-design/tasks/${active.id}/generations/${entry.id}`);if(here())generator.showPacket(packet);}));
     const layout=element('div',null,'ai-results-layout'),results=element('section');results.id='ai-results';const sourcePane=element('aside');sourcePane.id='ai-source';layout.append(results,sourcePane);content.append(layout);
     if(!run)results.append(element('p','Save inputs and run a local mock to review the circuit, proposed requirements and unresolved questions.'));
     else renderResult(results);
@@ -64,7 +92,7 @@ export function aiDesign(ctx,open){
     const document=source.document;
     if(!document){pane.append(element('p',source.evidence?.explanation||'No document location was asserted.'));return;}
     const asset=document.asset,page=source.evidence?.page||1,link=element('a','Open original · '+asset.name);link.href='/api/assets/'+asset.sha256+'#page='+page;link.target='_blank';link.rel='noopener';pane.append(link,element('p','SHA-256 '+asset.sha256,'ai-hash'));
-    if(asset.media_type.startsWith('image/')){const wrapper=element('div',null,'ai-source-image'),img=element('img');img.src='/api/assets/'+asset.sha256;img.alt=asset.name;wrapper.append(img);if(source.evidence?.bbox){const [x,y,w,h]=source.evidence.bbox,box=element('span',null,'ai-source-box');box.style.cssText=`left:${100*x}%;top:${100*y}%;width:${100*w}%;height:${100*h}%`;box.setAttribute('aria-label','Referenced schematic region');wrapper.append(box);}pane.append(wrapper);}else pane.append(element('p',`PDF page ${page}. Open the original document to inspect this page. Page rendering and OCR are not performed by the mock.`));
+    if(asset.media_type.startsWith('image/')||run){const wrapper=element('div',null,'ai-source-image'),img=element('img');img.src=asset.media_type.startsWith('image/')?'/api/assets/'+asset.sha256:`/api/ai-design/tasks/${active.id}/runs/${run.id}/page?`+new URLSearchParams({document_id:document.id,page});img.alt=asset.name+' · page '+page;wrapper.append(img);if(source.evidence?.bbox){const [x,y,w,h]=source.evidence.bbox,box=element('span',null,'ai-source-box');box.style.cssText=`left:${100*x}%;top:${100*y}%;width:${100*w}%;height:${100*h}%`;box.setAttribute('aria-label','Referenced schematic region');wrapper.append(box);}pane.append(wrapper);}else pane.append(element('p',`PDF page ${page}. Open the original or run an analysis to view the rendered page.`));
     if(source.evidence)pane.append(element('p',source.evidence.quote||source.evidence.explanation));
   }
   function claimCard(claim,parent){

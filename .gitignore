@@ -14,3 +14,6 @@ projects/handoffs/
 /projects/library/
 /projects/saved/
 /projects/ai-design/
+/.pmc-local/
+.env
+.env.*

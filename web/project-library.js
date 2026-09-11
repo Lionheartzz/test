@@ -6,7 +6,7 @@ export function projectLibrary(ctx){
   async function show(){
     document.body.classList.add('home');
     home.replaceChildren();
-    const intro=element('div',null,'home-intro');intro.append(element('span','YOUR LOCAL ENGINEERING WORKSPACE','eyebrow'),element('h1','Manifold projects'),element('p','Start a new design or continue a saved project. Work stays on this computer.'));
+    const intro=element('div',null,'home-intro');intro.append(element('span','YOUR LOCAL ENGINEERING WORKSPACE','eyebrow'),element('h1','Manifold projects'),element('p','Start a new design or continue a saved project. Projects are saved on this computer. AI analysis sends selected documents and requirements to your configured provider.'));
     const controls=element('div',null,'action-row');intro.append(controls);
     action(controls,'New Manifold',()=>$('project-new').click());action(controls,'Import Project',()=>$('project-import').click());action(controls,'AI Design',()=>$('ai-design-open').click());
     if(hasProject())action(controls,'Return to current draft',()=>document.body.classList.remove('home'));

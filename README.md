@@ -1,6 +1,6 @@
 # PMC Manifold Studio
 
-本地优先的参数化液压阀块工程 MVP。Python / CadQuery / OCCT 生成真实 BRep 实体与 STEP；Three.js 显示同一实体离散化的审查模型及明确标记为未验证的编辑预览。无需登录、数据库、云服务或 AI API。
+本地优先的参数化液压阀块工程 MVP。Python / CadQuery / OCCT 生成真实 BRep 实体与 STEP；Three.js 显示同一实体离散化的审查模型及明确标记为未验证的编辑预览。手动 CAD 无需登录、数据库或云服务；AI Design 可选连接用户自行配置的多模态 API。
 
 ## Windows 启动
 
@@ -31,7 +31,7 @@ Windows CAD 依赖已固定版本；`manifold/cad.py` 会先加载 CasADi 再加
 ## 日常设计（新版默认英文界面）
 
 1. **New Manifold** 五步完成阀块、Metric/Inch 上下文、网络与油口、元件选择、放置与接口分配、复核。每个网络独立配置 0–8 个外部油口，每个油口可选择面、规格及已有 PMC/MDTools 加工定义，也可保留 Custom straight bore；名称使用 P/T/A/B 或 P1/P2。支持 Cartridge first 查询明确记录的兼容关系，也支持 Cavity first 后查看已知型号或保留未知兼容状态。可以暂不选孔型；新项目只包含本次选择的定义。工程坐标始终为 mm，界面保留完整编辑入口。**Import Project / Export Project** 是 AI 和人工设计的共同入口。导入 `.pmc.json` 后查看摘要并创建独立项目草稿；导出保留完整孔型版本、连接意图和复核决定，即使草稿还没有 PASS。项目 JSON 上限 8 MB，图纸二进制仍单独存放在本地 assets。
-2. **Schematic** 上传 PDF、PNG 或 JPEG。AI 提供者与模型信息属于可携带的项目来源字段；当前版本不调用 AI 服务。可选 Codex handoff 收在展开项中，通用 AI 交付格式见 [AI_PROJECT_CONTRACT.md](docs/AI_PROJECT_CONTRACT.md)。
+2. **Schematic** 上传 PDF、PNG 或 JPEG。AI 提供者与模型信息属于可携带的项目来源字段；AI Design 可调用用户配置的服务生成草稿。可选 Codex handoff 收在展开项中，通用 AI 交付格式见 [AI_PROJECT_CONTRACT.md](docs/AI_PROJECT_CONTRACT.md)。
 3. **Engineering Review** 管理假设、尺寸、选型和连接疑问。接受或解决事项必须填写决定；元件确认检查实际孔腔接口网络。对当前项目使用的孔型，可点 **Edit pinned definition** 修改并重新映射接口。
 4. **Cavity Library** 按单位、制造商、类型、螺纹和关键词分页查询完整 MDTools 转换库。原生记录和独立 footprint 关系保持结构化；可插入、编辑、复制、删除及恢复目录项。PMC 修订保存在 `projects/library/`，项目内固定定义不随目录更新。材料、加工规则及其他工程资源可查看并固定到项目。
 5. 元件支持 Duplicate、Replace、Suppress、Delete、换面、位置与网络编辑。六面孔口中心及附近均可开始拖动，悬停高亮、grab / grabbing 光标显示状态；完整安装包络限制边界，默认 1 mm 吸附、Alt 暂停。Undo / Redo 可撤销草稿操作。
@@ -44,11 +44,13 @@ Windows CAD 依赖已固定版本；`manifold/cad.py` 会先加载 CasADi 再加
 
 原生切削支持圆柱、锥面、显式环槽及旋转后的 footprint 偏移。Sun locating-shoulder 基准和不能自动应用的特殊槽等保留待复核状态；线程、容差、刀具和 `$STEP*` 配方保留完整数据，不伪装成已执行加工。演示孔腔仍是演示尺寸。多选、完整刀具执行和尺寸工程图边界见 [DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
-## V2.2 AI Design Layer · 基础阶段
+## AI Design · 原理图生成可编辑三维草稿
 
-从 Projects 首页或工具栏打开 **AI Design**，新建独立分析，上传多份 PDF / PNG / JPEG，并输入本次工程要求。**Save analysis inputs** 保存原文和文件身份；**Analyze schematic + requirements** 运行本地 mock，显示液压组件、端口、网络、参数、结构化要求与未解决项。Source 可追溯原文或图纸位置，Review 保留原始结果并记录人工修正。
+从 **AI Design → Provider settings** 自行填写 API 地址、多模态模型名和密钥，没有预设厂商或模型。上传 PDF / PNG / JPEG，输入工程要求，选择配置的模型并点击 **Analyze & create manifold draft**。确认未解决的孔腔选择和液压窗口映射后，系统使用已有库几何、自动布置/布线和精确校验生成草稿；通过 **Open draft in Manifold Studio** 进入普通项目编辑、保存和校验。
 
-当前提供 unknown-safe 和明确标识的 synthetic example 两种 mock，**不执行 OCR、不调用外部 AI**。可用 **Use synthetic sample schematic** 测试定位与审核。Knowledge Base 暂未接通时保留 unresolved；分析不会写入孔腔库、修改三维草稿或启动自动生成。分析 JSON 与 `.pmc.json` 设计文件是不同契约。架构、接口和后续边界见 [AI Design Layer](docs/AI_DESIGN_LAYER.md)。
+当前支持 Chat Completions 图像输入接口。所选图纸和要求会发送给你配置的服务；凭据仅存服务器本机忽略目录，不随项目导出。无需凭据也能使用明确标识的本地 mock 演示流程，但 mock 不代表真实识图效果。第一版最多 4 个插装阀，采用有限候选搜索；未知接口、兼容性和无法执行的要求保留人工审核。已测试本地模拟服务传输及实际孔腔 CAD 流程，未验证付费远端模型识别准确率。
+
+配置步骤、工程边界与失败恢复见 [AI Design 使用说明](docs/AI_DESIGN_LAYER.md)，验证证据见 [VERIFICATION](VERIFICATION.md)。
 
 ## 和 Codex 协作
 

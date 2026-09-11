@@ -303,10 +303,13 @@ class SchematicComponent(Strict):
 class DesignConstraints(Strict):
     preferred_wall_margin: float = Field(default=4, ge=0, le=50)
     envelope_max: tuple[Positive, Positive, Positive] | None = None
+    envelope_min: tuple[Positive, Positive, Positive] | None = None
+    required_feature_faces: dict[Identifier, Face] = Field(default_factory=dict, max_length=120)
     preferred_component_faces: list[Face] = Field(default_factory=lambda: ['top'])
     preferred_port_faces: dict[Circuit, Face] = Field(default_factory=dict)
     priority: Literal['compact', 'fewer_plugs', 'simple_machining', 'short_drills'] = 'fewer_plugs'
     standard_drills: list[Positive] = Field(default_factory=lambda: [4, 5, 6, 8, 10, 12, 16, 20])
+    forbidden_drilling_faces: list[Face] = Field(default_factory=list, max_length=6)
     notes: str = Field(default='', max_length=4000)
 
 
@@ -342,12 +345,22 @@ class EngineeringReview(Strict):
         return self
 
 
+class AITrace(Strict):
+    analysis_id: str = Field(pattern=r'^[0-9a-f]{32}$')
+    run_id: str = Field(pattern=r'^[0-9a-f]{32}$')
+    generation_id: str = Field(pattern=r'^[0-9a-f]{32}$')
+    input_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    result_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    original_requirements: str = Field(default='', max_length=20000)
+
+
 class DesignOrigin(Strict):
     author: str = Field(default='', max_length=120)
     method: Literal['manual', 'ai-assisted', 'drawing-import', 'unknown'] = 'unknown'
     provider: str = Field(default='', max_length=120)
     model: str = Field(default='', max_length=120)
     notes: str = Field(default='', max_length=2000)
+    ai_trace: AITrace | None = None
 
 
 class EngineeringLibraryResource(Strict):

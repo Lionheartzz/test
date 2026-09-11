@@ -186,8 +186,23 @@ def validate(design, g):
                    and (not component.cartridge_model or component.cartridge_model == f.cartridge_model))
         result('schematic_conformance', [component.id], matches, True, matches and component.status == 'confirmed', 'Confirmed schematic component must match a placed active cartridge and its port assignments.')
     if design.constraints.envelope_max:
-        dims = (b.length,b.width,b.height)
+        dims = (design.block.length,design.block.width,design.block.height)
         result('block_envelope', ['block'], str(dims), str(design.constraints.envelope_max), all(a <= limit for a,limit in zip(dims,design.constraints.envelope_max)), 'Block must fit requested maximum envelope.')
+    for feature in design.features:
+        if feature.kind == 'drilling' and not feature.suppressed and design.constraints.forbidden_drilling_faces:
+            result('drilling_face_constraint', [feature.id], feature.face, 'permitted drilling face',
+                   feature.face not in design.constraints.forbidden_drilling_faces,
+                   'Authored and generated drilling entries must respect the engineering face restriction.')
+    if design.constraints.envelope_min:
+        dims = (design.block.length,design.block.width,design.block.height)
+        result('block_minimum_envelope', ['block'], str(dims), str(design.constraints.envelope_min),
+               all(a >= limit for a,limit in zip(dims,design.constraints.envelope_min)),
+               'Block must respect requested minimum or exact dimensions.')
+    for feature_id, face in design.constraints.required_feature_faces.items():
+        feature = by_id.get(feature_id)
+        result('required_feature_face', [feature_id], feature.face if feature else 'missing', face,
+               feature is not None and not feature.suppressed and feature.face == face,
+               'A required placement face remains a deterministic design constraint.')
     for item in design.review_items:
         result('engineering_review', [item.id, item.subject or 'project'], item.status, 'accepted or resolved',
                item.status != 'open', item.description,

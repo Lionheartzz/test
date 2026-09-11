@@ -1,7 +1,8 @@
 export const axes = {top:[0,1,2,-1],bottom:[0,1,2,1],front:[0,2,1,1],back:[0,2,1,-1],left:[1,2,0,1],right:[1,2,0,-1]};
 export const sizes = b => [b.length,b.width,b.height];
 export function featureLabel(f,design){
-  if(f.kind!=='port')return f.id;
+  if(f.kind!=='port')return design.components?.find(c=>c.feature_id===f.id)?.label||f.id;
+  if(f.schematic_id)return f.schematic_id;
   const ports=design.features.filter(p=>p.kind==='port'&&p.circuit===f.circuit);
   return ports.length===1?f.circuit:f.circuit+(ports.findIndex(p=>p.id===f.id)+1);
 }

@@ -70,6 +70,8 @@ def propose(design, net, order, entry=None, detour='direct'):
         p = list(fixed); p.insert(axis,0)
         options = []
         for face in (neg,pos):
+            if face in design.constraints.forbidden_drilling_faces and any(x not in design.constraints.forbidden_drilling_faces for x in (neg,pos)):
+                continue
             u,v,_,sign = FACE_AXES[face]
             coaxial = any(f.kind == 'port' and not f.suppressed and f.circuit == net.id and f.face == face
                           and abs(f.u-p[u]) < 1e-6 and abs(f.v-p[v]) < 1e-6 and f.diameter >= net.diameter for f in design.features)
@@ -264,7 +266,10 @@ def route_options(design, net):
         seen.add(signature)
         risk = proximity_risk(design,net,route)
         options.append(dict(key=key,route=route,risk=risk,cost=route_cost(design,route)))
-    return sorted(options,key=lambda o:(o['cost']+o['risk'],o['cost'],o['key']))
+    permitted = [o for o in options if all(f.face not in design.constraints.forbidden_drilling_faces for f in o['route'])]
+    # Keep an explicitly failing proposal if the constraint makes every candidate impossible.
+    # The validator reports the conflict; never remove a required connection to hide it.
+    return sorted(permitted or options,key=lambda o:(o['cost']+o['risk'],o['cost'],o['key']))
 
 
 def _resolve_proposals(design):

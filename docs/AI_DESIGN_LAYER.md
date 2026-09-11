@@ -1,91 +1,46 @@
-# V2.2 AI Design Layer — foundation
+# AI Design: schematic to editable manifold draft
 
-The product goal is an editable, validated manifold proposal derived from a hydraulic schematic **and the engineer's requirements**. This delivery establishes hydraulic understanding and review. It does not select cartridges, size blocks, place components, drill holes, calculate cost or modify CAD.
+AI Design accepts PDF/PNG/JPEG schematics together with the original engineering requirements, interprets them through a configurable multimodal provider, and compiles the reviewed hydraulic representation into the existing schema-version-1 Design. Geometry, routing and validation remain deterministic PMC operations.
 
-## Working flow
+## First run
 
-Open **AI Design** from Projects or the design toolbar. Create an analysis, add one or more PDF/PNG/JPEG files, and enter engineering requirements. Existing project schematics can be reused without modifying that project. Save inputs, then run a local mock. No provider credentials or network access are required.
+1. Run PMC locally at `http://127.0.0.1:8765/`, open **AI Design**, then **Provider settings**.
+2. Enter your API base URL, multimodal model ID and API key. No vendor, endpoint or model is preset. The current transport is Chat Completions with inline image content; use a model/server supporting that contract. Enable the provider and save. HTTPS is required except for a loopback model server. Anonymous access is an explicit option for servers that need no key.
+3. Create an analysis, upload your schematic and enter requirements such as port faces, block dimensions, prohibited drilling faces, operating flow and pressure. Select the configured provider and **Analyze & create manifold draft**.
+4. Review source evidence, ambiguous connections and requirements. When a cavity cannot be resolved from existing evidence, choose an existing library cavity, map each source hydraulic window to one schematic component port and enter your engineering decision. A model number alone does not establish cavity compatibility.
+5. Generate the draft, inspect the attempted candidates and exact validation results, then **Open draft in Manifold Studio**. Save it as an ordinary project. Edit positions, reroute, undo/redo and Save & Validate through the normal Studio controls.
 
-- **mock-safe** interprets a deliberately small set of requirement patterns and leaves schematic contents unresolved. It performs no OCR.
-- **mock-example** returns an explicitly synthetic relief-valve circuit, with an unresolved SUN RDBA-LAN knowledge lookup. It is never presented as recognition of an arbitrary upload. The bundled sample has a known hash; only that sample receives its fixture's document location.
-- Review components, component/external ports, nets, proposed requirements, unresolved questions and knowledge lookups. Source buttons open exact instruction spans or document/page references. Image boxes use normalized page coordinates. PDF references open the original file at the indicated page; PDF rasterization/OCR is not implemented.
-- Confirm, correct or reject individual claims with a decision. The original model result and original user text remain unchanged. Export analysis JSON for inspection. This export is a `pmc-ai-analysis` packet, **not** a `.pmc.json` manifold Design.
+The two local mock providers remain available without credentials. `mock-safe` leaves unread schematic contents unknown; `mock-example` returns a clearly synthetic relief-valve fixture. Their success does not establish real-model recognition accuracy.
 
-## Boundaries and extension path
+## Provider and document boundary
 
-```mermaid
-flowchart LR
-  D[Documents + original requirements] --> C[Verified task context]
-  C --> P[Provider adapter]
-  P --> H[Hydraulic representation + proposed intent]
-  H --> K[Read-only knowledge resolver]
-  K --> R[Engineer review]
-  R -. future .-> S[Design strategies and candidate proposals]
-  S -. future .-> V[PMC geometry and deterministic validators]
-  V -. future feedback .-> S
-```
+Settings are server-side in ignored `.pmc-local/ai-provider.json`. The key is stored locally, is not encrypted by PMC, and is excluded from public settings, projects and exports. Changing the endpoint requires a new key; clearing the key disables the provider. Settings access requires the server's loopback interface. Selected documents and original requirements are sent to the provider when analysis runs; CAD and saved projects remain local.
 
-The AI package has no call to a geometry builder, route generator or library write function. Existing CAD and knowledge/library work remain authoritative for cavities, compatibility, standards, wall thickness, intersections and manufacturing checks. An LLM's proposed rating or cavity association is not an authoritative source.
+PDF pages are rasterized locally in an isolated renderer process; PNG/JPEG images are decoded and resized. Cached page images retain source SHA-256 and page identity. Default page budget is 12, configurable up to 24; exceeding it fails explicitly instead of silently dropping pages. Upload limits remain 20 files, 20 MB per file, 100 MB total. Original documents are hash-checked before analysis and generation. Source review supports rendered PDF pages and normalized region boxes.
 
-`AnalysisRequest` carries the operation, contract version, typed inputs, original requirements, verified document bytes, target result schema and an instruction boundary. A provider adapter translates this envelope into its vendor's request and translates the response back. Provider IDs, models, supported media and mock status are advertised by the backend; the UI discovers them. No vendor prompt syntax, API key, endpoint URL or response object enters the hydraulic domain model. Only local mocks are registered today; model names in this release make no claim about current vendor availability or pricing.
+The provider sees a bounded semantic extraction schema and untrusted source evidence, never CAD tools. PMC computes internal identities, validates claims, source references, original requirement quotes and topology, and rejects extra fields or invalid units/numbers. Remote failures use bounded classifications; raw response/error bodies and credentials are not stored in diagnostics. Transport tests use a local HTTP server. A paid external model and its recognition accuracy have not been tested in this delivery.
 
-The same context/schema boundary can support later operations such as design-strategy proposals or comparison of already validated candidates. Those stages need their own admission contracts; they must not bypass the deterministic Design/CAD APIs. A future agent may consume validator feedback and propose a revision, but the application must retain revision checks and engineering approval boundaries.
+## Generation and engineering authority
 
-## Hydraulic contract
+Generation is limited to four cartridges, forty hydraulic terminals and sixteen nets. Existing native/PMC/project definitions are read without modifying libraries and pinned by definition SHA. Automatic cavity resolution requires existing compatibility evidence or explicit source cavity identity with an exact interface mapping. Manual choices and topology/face overrides retain the engineer's decision. Demo definitions retain their demo status.
 
-`HydraulicRepresentation.schema_version = 1` is separate from the existing `Design.schema_version = 1`.
+Supported requirements include block min/max/exact dimensions, external-port and component mounting faces, forbidden cross-drilling faces, routing priorities, material metadata, flow screening and pressure metadata. Required faces and dimensional/drilling constraints persist into subsequent manual editing and validation. Unmatched target labels are left for review. Explicit, confirmed terminal operating flow/working-pressure claims with supported units can populate their net; component ratings, settings and AI-inferred loads are not treated as design loads. Pressure loss, valve sizing, thermal behavior and material/rating suitability are not computed.
 
-| Element | Purpose |
-|---|---|
-| Components | Stable semantic IDs, owned port IDs and attributed claims; no mandatory model, cavity or placement |
-| Ports | Component ports or external manifold terminals; labels/roles are claims, IDs remain independent |
-| Nets | Port membership and a connection claim that records the provenance and uncertainty of topology |
-| Claims | Subject, predicate, scalar value or null, unit, information kind, status, optional confidence, alternatives, explanation and evidence IDs |
-| Evidence | Source kind, document ID/page/normalized box, quote, exact original-instruction span, or versioned knowledge reference |
-| Design intent | Category, target labels, property, operator, strength and interpreted claim; explicit entity bindings remain empty until resolved |
-| Unresolved items | Missing, ambiguous, conflicting, unsupported and knowledge-unavailable information without forcing invented completeness |
-| Knowledge lookups | Component/model requests, resolution status and versioned source candidates |
+A bounded sequence of layouts uses the existing router and exact OCCT checks. Each attempted design, resolved route and validation report is retained. The selected result may still contain engineering failures or warnings and is labeled Draft. No buildable candidate produces a recoverable result; adjust the topology, library mapping or constraints and rerun. This is a finite candidate search, not a general layout optimizer.
 
-Component functional types, manufacturer/model, labels, pressure/flow, settings, orifices, coils, electrical values and additional engineering parameters are expressed as claims. This avoids a geometry-oriented component schema forcing premature choices. Units remain explicit; an extracted value is not silently converted or treated as a machining dimension.
+Unspecified external-port machining definitions become visibly provisional unthreaded bores requiring review. The generator never invents vendor cavities or implies machining/pressure certification. Unsupported requirements remain in the execution report and engineering-review items, including blocking review for unsupported hard requirements.
 
-Information kinds distinguish `schematic`, `user_requirement`, `knowledge_base`, `ai_inference`, `unknown` and the additional testing-only `mock_fixture`. Inference may cite schematic/user evidence while retaining inference provenance. Unknown claims use null, not a fabricated value. Confidence is nullable; the mocks do not invent a numeric confidence. Model statement status and engineer review status are separate.
+## Persistence and recovery
 
-Original engineering requirements are stored verbatim in each input snapshot. Interpreted intent is separately inspectable. For example, “Maximum block width 150 mm” becomes an envelope/width/maximum intent with a 150 mm claim and an exact span pointing back to the original sentence. Target labels such as P1/P2 are not implicitly bound to CAD IDs. Unsupported mock clauses remain unresolved and their original text is retained. This is a small test grammar, not a claim of general natural-language understanding.
+- Analyses: ignored `projects/ai-design/<id>.json`; immutable runs and generation attempts: `output/ai-design/<id>/`.
+- The compiler does not overwrite an existing project. Opening a generation creates an unsaved draft; normal project saving uses `projects/saved/<id>.json` and existing optimistic revisions.
+- Every draft carries `origin.ai_trace`, analysis/run/generation identities, input/result hashes and verbatim requirements. The generation record also retains engineer decisions, requirement dispositions and semantic-to-feature/terminal mappings.
+- Project export preserves the trace and requirements. Detailed analysis/generation records and uploaded source binaries are separate local artifacts; copying a project alone does not bundle them.
+- Stale analysis or changed library pins block generation. Concurrent revisions preserve completed evidence without replacing the newer workspace state. Failed analyses preserve the previous successful result.
+- One background AI operation runs at a time. Job progress is persisted under `output/ai-jobs/`; a service restart marks incomplete jobs interrupted and permits rerun. This is a local executor, not a durable distributed queue.
 
-## Validation and trust
+The original hydraulic schema remains distinct from Design. Claims preserve source kinds, unknowns, alternatives and engineer-review overlays. Reviewing a model name does not manufacture knowledge-base compatibility. The separate Knowledge Base has not been migrated or written by this feature.
 
-Pydantic forbids extra fields and non-finite numbers, bounds sizes, validates global entity identities, port ownership, net membership, connection provenance, claim references, source boxes and confidence. Context admission verifies source document IDs, known page bounds and exact requirement quotes/spans. Uploaded bytes are checked against their SHA-256 and media identity before every analysis. Limit: 20 documents, 20 MB each, 100 MB aggregate; result JSON is capped at 2 MB.
+## API map
 
-The model cannot declare Knowledge Base matches or supply knowledge-base claims. Only the resolver boundary may do so. The current resolver returns unresolved responses and never reads, copies, migrates or writes the separate Knowledge Base or converted libraries. A future resolver must return stable record IDs, revisions and hashes, preserve native identities, and define which fields are authoritative. A missing manufacturer/model remains a legal lookup; it does not stop circuit analysis.
-
-Documents are untrusted evidence rather than instructions to execute actions. The request carries this distinction, and the result contract contains no tool calls or CAD commands. Current providers have no network transport. Future adapters must keep credentials server-side and enforce media capabilities, timeouts, output limits and bounded error classification. Raw remote response/error bodies are not written to failure records or returned in errors. Token/cost metrics remain null unless reported; latency is measured locally. Accuracy and multimodal capability still need evaluation on real models.
-
-## Local persistence and API
-
-- Reuse the existing `/api/assets` upload and content-addressed asset store.
-- Analysis workspaces live under ignored `projects/ai-design/<id>.json`; optimistic revisions cover inputs, history pointers and engineer decisions. Input/history writes reuse the application's lock and atomic JSON writer.
-- Every attempt stores an immutable input/result envelope under ignored `output/ai-design/<task>/<run>.json`. The mutable workspace holds the last 100 run summaries and the latest successful pointer; immutable files and workspace history are retained.
-- A run uses a snapshot. If the workspace changes while it executes, its evidence is retained, but the API returns a conflict and leaves the newer workspace untouched. Failed runs preserve the previous successful result. Changed inputs mark prior results stale.
-- Reviews are per run and claim, use compare-and-swap, and record an engineer decision and timestamp. They overlay, rather than rewrite, extracted values. Reviewing a model number does not automatically resolve a new Knowledge Base match or silently close other questions.
-
-| API | Responsibility |
-|---|---|
-| `GET /api/ai-design/providers`, `/schema` | Capabilities and versioned result contract |
-| `GET/POST /api/ai-design/tasks` | List or create/update inputs |
-| `GET /api/ai-design/tasks/{id}` | Workspace/revision/staleness |
-| `POST /api/ai-design/tasks/{id}/analyze` | Run the selected registered adapter |
-| `GET /api/ai-design/tasks/{id}/runs/{run}` | Immutable result and input snapshot |
-| `POST .../runs/{run}/review` | Revision-checked engineer decisions |
-| `GET .../{id}/export` | Inspectable analysis packet; document binaries remain separate |
-
-These routes inherit the existing local/LAN host, same-origin, request-header and body-size controls. An optional linked project ID is metadata only. V1's schematic/component mapping, project import/export, builds and legacy Codex handoff remain available and separate.
-
-## Known debt and next step
-
-1. The current service is synchronous. Real adapters need transport timeouts; long analyses should move behind durable jobs/cancellation without changing the domain contract.
-2. PDF upload currently reuses the existing signature checks. Structural PDF validation, page rasterization, orientation transforms, OCR and PDF region overlays are future document-adapter work. Unknown page counts are not invented.
-3. The mock requirement grammar covers selected English examples; it does not understand general instructions. Unsupported text is retained and flagged. The UI supports claim review; graph/topology editing, ambiguity resolution and review-driven knowledge re-query are not implemented.
-4. Source claims are schema/context checked, not semantically proven. A provider can still misread a real image; human review and a labeled evaluation set are necessary. A typed, versioned predicate vocabulary can be added when real schematic samples establish it.
-5. Run JSON export is inspectable; cross-machine import/asset packaging, retention policies and richer analysis management remain future work. Existing full frontend bundle-size warnings remain.
-
-Recommended next V2.2 stage: build a small, labeled multi-page schematic evaluation set with expected source boxes and requirement interpretations; implement one document-capable adapter behind this interface; compare recognition, uncertainty calibration, structured-output failures, latency and reported cost. Integrate a read-only resolver when the separate Knowledge Base contract is ready. Do not start full automatic manifold generation in that stage.
+Existing task/run/review/export endpoints remain under `/api/ai-design`. New endpoints expose settings, rendered source pages, library searches, generation preflight, job start/status and immutable generation retrieval. Consult `manifold/ai_design/api.py` for the exact route contract. `remote.py` owns the current transport; `semantic.py` owns semantic admission; `generation.py` compiles into the existing CAD pipeline. Other providers can implement the same analysis adapter without changing Design or embedding vendor response syntax in hydraulic entities.
