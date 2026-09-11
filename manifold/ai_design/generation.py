@@ -86,12 +86,16 @@ def prepare(inputs, result, options):
     for component in result['components']:
         key = component['id']
         choices = library.candidates(inputs, result, component)
+        resolution = library.resolution_status(inputs, result, component, choices)
         selected = options.bindings.get(key)
         automatic = False
         if selected:
             definition = library.load(inputs, selected.definition_key, selected.definition_sha256)
             mapping = selected.zone_ports
             decision = selected.decision.strip()
+            resolution = {**resolution, 'code': 'manual_selection',
+                          'message': 'An existing cavity has been selected explicitly.',
+                          'action': 'Confirm the engineering decision and complete the hydraulic window mapping.'}
             if not decision:
                 blocked.append(f'{library.value(result,key,"label") or key}: confirm the selected cavity and interface mapping.')
         else:
@@ -104,7 +108,7 @@ def prepare(inputs, result, options):
                 decision = row['reason'] + '; exact port-number/window labels matched by PMC. Engineer review remains required.'
             else:
                 definition, mapping, decision = None, {}, ''
-                blocked.append(f'{library.value(result,key,"label") or key}: choose an existing cavity and map its source hydraulic windows.')
+                blocked.append(f'{library.value(result,key,"label") or key}: {resolution["message"]} {resolution["action"]}')
         if definition:
             if definition.usage_role != 'cartridge-cavity':
                 raise ValueError('An external-port definition cannot be used as a cartridge cavity')
@@ -114,7 +118,7 @@ def prepare(inputs, result, options):
                                model=library.identity_value(result,key,'model') or '',
                                function=library.value(result,key,'functional_type') or '',
                                choices=choices, definition=definition, mapping=dict(mapping or {}),
-                               automatic=automatic, decision=decision))
+                               automatic=automatic, decision=decision, resolution=resolution))
     external = []
     for port in result['ports']:
         if port['component_id'] is not None:

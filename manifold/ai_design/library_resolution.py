@@ -92,6 +92,39 @@ def identity_value(result, subject, predicate):
                  and c['predicate'] == predicate and usable_identity(c)), None)
 
 
+def resolution_status(inputs, result, component, choices):
+    """Explain each trusted-resolution boundary without inventing product associations."""
+    model = identity_value(result, component['id'], 'model')
+    cavity = identity_value(result, component['id'], 'cavity')
+    usable = [row for row in choices if row['geometry_status'] != 'draft-projection' and not row['demo_only']]
+    if not choices:
+        if not model and not cavity:
+            code = 'identity_needs_review'
+            message = 'No confirmed schematic or engineer-reviewed model/cavity identity is available.'
+            action = 'Review product identity, or choose an existing cavity with an explicit engineering decision.'
+        else:
+            code = 'relationship_missing'
+            message = f'No trusted model-to-cavity relationship or exact source cavity match was found in the current {inputs.project_context} Library.'
+            action = 'Provide a documented cartridge-to-cavity relationship, or select a verified existing cavity; then map each source hydraulic window. A model name alone does not identify machining geometry.'
+    elif not usable:
+        code = 'geometry_needs_review'
+        message = 'Matching definitions exist, but their geometry is demonstration-only or still requires mapping review.'
+        action = 'Review the existing definition and machining interpretation before selecting it; automatic generation cannot approve it.'
+    elif len(usable) > 1:
+        code = 'ambiguous_cavities'
+        message = f'{len(usable)} usable cavity candidates match; the relationship is not unique.'
+        action = 'Choose the appropriate candidate and confirm its hydraulic window mapping.'
+    elif matching_zones(result, component, usable[0]['zones']) is None:
+        code = 'window_mapping_required'
+        message = 'One usable cavity matches, but schematic port labels do not uniquely identify all Library windows.'
+        action = 'Use the candidate below and map each window from documented port numbering. Inlet/outlet roles alone do not establish numbered windows.'
+    else:
+        code = 'resolved'
+        message = 'One trusted cavity and an exact, complete port-label mapping were found.'
+        action = 'Ready for draft generation; existing engineer review and exact validation still apply.'
+    return dict(code=code, message=message, action=action, candidate_count=len(choices), usable_count=len(usable))
+
+
 def matching_zones(result, component, zones):
     ports = {p['id']: value(result, p['id'], 'label') for p in result['ports'] if p['component_id'] == component['id']}
     mapping = {}

@@ -60,16 +60,21 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
     if(autoGenerate&&plan.ready)await generate(task,run);
   }
 
-  function renderPlan(task,run,plan){
+  function renderPlan(task,run,plan,attempted=false){
     open('AI Design · Create manifold draft');content.classList.add('ai-content');
     action(content,'Back to hydraulic analysis',back);
     content.append(element('p',`${run.provider.is_mock?'MOCK analysis':'AI analysis'} · ${run.provider.id} / ${run.provider.model}. The result will open as an editable Draft, with exact checks and unresolved engineering decisions visible.`,'ai-mock-note'));
-    if(plan.blocked.length){const list=element('ul',null,'ai-blocked');for(const message of plan.blocked)list.append(element('li',message));content.append(list);}
+    if(plan.blocked.length){const summary=element('section',null,'ai-blocked');summary.setAttribute('role','alert');summary.tabIndex=-1;
+      summary.append(element('h3',attempted?`Draft not generated · ${plan.blocked.length} blockers remain`:`Draft generation needs ${plan.blocked.length} decisions`),element('p','Resolve the items below, then recheck or generate again. Your saved analysis is retained; no new AI call is needed.'));
+      const list=element('ul');for(const message of plan.blocked)list.append(element('li',message));summary.append(list);content.append(summary);
+      if(attempted){summary.focus();summary.scrollIntoView({block:'start'});}
+    }
     content.append(element('h3','Cartridges and hydraulic windows'));
     if(!plan.components.length)content.append(element('p','No cartridges in this circuit. A port/distribution block can be generated if the net topology is usable.'));
     for(const component of plan.components){
       const card=element('section',null,'library-card');content.append(card);card.append(element('h4',component.label+(component.model?' · '+component.model:'')));
       const binding=options.bindings[component.id],definition=component.definition;
+      if(component.resolution&&!binding){card.append(element('p',component.resolution.message),element('p',component.resolution.action,'property-note'));}
       if(definition){
         card.append(element('p',`${definition.label} · ${definition.unit} · ${definition.geometry_status}`));
         if(component.automatic)card.append(element('p','Source-backed candidate and matching numbered windows found. Draft generation keeps the component unconfirmed for engineer review.'));
@@ -127,10 +132,14 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
 
   async function generate(task,run){
     if(busy)return;busy=true;
+    const token=++screen;
     try{
+      content.querySelectorAll('button,input,select,textarea').forEach(e=>e.disabled=true);
+      const status=content.querySelector('.ai-job-state');if(status)status.textContent='Checking Library choices, hydraulic windows and requirements…';
       const payload={expected_revision:task.revision,run_id:run.id,options};
       const plan=await post(`/api/ai-design/tasks/${task.id}/generation/preflight`,payload);
-      if(!plan.ready){renderPlan(task,run,plan);return;}
+      if(token!==screen||!here()||$('workflow-title').textContent!=='AI Design · Create manifold draft')return;
+      if(!plan.ready){renderPlan(task,run,plan,true);return;}
       content.querySelectorAll('button,input,select,textarea').forEach(e=>e.disabled=true);
       const progress=content.querySelector('.ai-job-state')||content.appendChild(element('p','', 'ai-job-state'));
       const job=await post(`/api/ai-design/tasks/${task.id}/generation/jobs`,payload);
