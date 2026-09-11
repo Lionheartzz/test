@@ -1,3 +1,9 @@
+# V2.2 functional-type inference correction — 2026-09-11
+
+- Targeted functional-type, component-preference, validation-detail, provider, AI foundation and generation/store/API suites: **77 passed**, four upstream warnings, exit 0 (`output/tests-v13-functional-type-final.xml`, 39.35 s). Initial evidence is retained separately: three new test assertions incorrectly included the SUN design-intent claim among component identity claims; those assertion scopes were corrected before the final run.
+- Two non-null functional types without provenance now receive `ai_inference` and normalize to uncertain claims. Regressions cover absent/empty/unknown sources, immutable input dictionaries, an isolated HTTP provider response completing in one attempt, scalar/malformed/contradictory observations remaining rejected, and explicit schematic source/page validation. Manufacturer/model/cavity missing-provenance rejection and selection-preference separation still pass.
+- Prompt revision v4 directs symbol-based inference to use `ai_inference` / `uncertain`; explicitly documented types may retain schematic provenance. Canonical engineering and engineer-review code are unchanged. No UI or geometry changes were made, and no real Agnes call was made. Provider configuration SHA-256 matches the pre-change checkpoint exactly. The running service was not restarted in this delivery.
+
 # V2.2 component provenance / selection preference correction — 2026-09-11
 
 - Targeted component-preference, validation-detail, provider, AI foundation and generation/store/API suites: **69 passed**, four upstream warnings, exit 0 (`output/tests-v12-component-preferences.xml`, 50.01 s).

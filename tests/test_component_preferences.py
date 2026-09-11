@@ -49,7 +49,7 @@ def test_exact_two_component_scalar_manufacturer_case_stays_rejected():
     assert all(e['type'] == 'model_type' and e['action'] == 'rejected' for e in errors)
 
 
-@pytest.mark.parametrize('field', FIELDS)
+@pytest.mark.parametrize('field', ('manufacturer', 'model', 'cavity'))
 def test_identity_observations_still_require_provenance(field):
     raw = preference_reading()
     raw['components'][0][field] = dict(value='SUN', status='clear')

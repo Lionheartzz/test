@@ -1,7 +1,7 @@
 """Small model-facing contract. PMC owns IDs, references, hashes and text offsets."""
 import re
 from typing import Literal
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from ..schema import Strict
 from .models import Scalar, Text, HydraulicRepresentation, TaskInput
 
@@ -54,6 +54,19 @@ class ComponentReading(Strict):
     cavity: Observation = Field(default_factory=Observation)
     ports: list[PortReading] = Field(min_length=1, max_length=12)
     parameters: list[Parameter] = Field(default_factory=list, max_length=30)
+
+    @field_validator('functional_type', mode='before')
+    @classmethod
+    def infer_unattributed_function(cls, value):
+        # Symbol interpretation is an inference, never implicit schematic evidence.
+        # Copy input dictionaries; preserve malformed/explicit sources for validation.
+        if isinstance(value, dict) and value.get('value') is not None:
+            source = value.get('source', {})
+            if isinstance(source, dict) and source.get('kind', 'unknown') == 'unknown':
+                value = {**value, 'source': {**source, 'kind': 'ai_inference'}}
+                if value.get('status', 'uncertain') in ('clear', 'uncertain'):
+                    value['status'] = 'uncertain'
+        return value
 
 
 class RequirementReading(Strict):
@@ -115,6 +128,10 @@ component_selection, property manufacturer, operator prefer, strength preference
 component manufacturer unknown unless the schematic itself supports it; do not copy SUN from this preference.
 Apply the same distinction to requested models, cavities and functional types. Preserve actual observed
 products even when they differ from the requested selection preference.
+Functional types inferred from hydraulic symbols without an explicit text label must use
+source.kind = ai_inference and status = uncertain. Explicitly labelled/documented functional types
+may use schematic provenance with the actual document/page. Inference is not a confirmed schematic
+fact or engineer acceptance. This functional-type rule does not supply missing manufacturer/model/cavity provenance.
 Never invent cartridge compatibility, machining dimensions, thread standards, ratings or library matches.
 Source.document is the 1-based uploaded document number, Source.page its original 1-based page.
 Bbox is optional normalized [left, top, width, height] on the rendered full page. Use real source quotes.
