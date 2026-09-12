@@ -179,3 +179,19 @@ def test_source_port_ranking_uses_machining_profile_not_summary():
     # Changing the derived summary must not change the machining obstacle ranking.
     d.features[0].diameter=1;d.features[0].depth=1
     assert proximity_risk(d,net,[bore])==source_risk>0
+
+
+def test_exact_preview_never_searches_candidates_and_reports_resolution_reason(monkeypatch):
+    import manifold.validation as validation
+    import manifold.server as server
+    monkeypatch.setattr(validation,'validate',lambda *a,**k:pytest.fail('Preview performed exact route selection'))
+    client=TestClient(app);headers={'X-PMC-Request':'local-console'}
+    result=client.post('/api/preview-solid',json=automatic().model_dump(),headers=headers)
+    assert result.status_code==200,result.text[:500]
+    assert result.json()['route_selection']=='CURRENT_PROPOSAL_NOT_OPTIMIZED'
+    assert any(p['kind']=='hydraulic-net' for p in result.json()['model']['parts'])
+    def failure(*a,**k):raise ValueError('P: no legal current route proposal fits the stock')
+    monkeypatch.setattr(server,'resolve_design',failure)
+    for endpoint in ('preview','preview-solid'):
+        result=client.post('/api/'+endpoint,json=automatic().model_dump(),headers=headers)
+        assert result.status_code==422 and result.json()['detail']=='P: no legal current route proposal fits the stock'

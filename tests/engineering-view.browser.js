@@ -9,10 +9,10 @@ window.setupEngineeringView=(fixture)=>{
 window.assertEngineeringView=(mode)=>{
   const {viewer,fixture}=window.engineeringView;viewer.mode(mode);
   const state=viewer.inspection(),visible=state.parts.filter(p=>p.visible);
-  if(state.geometry!=='machined-brep'||state.xray||visible.some(p=>!p.depthTest||!p.depthWrite))throw Error('Exact view lost real depth');
+  if(state.geometry!=='machined-brep'||state.xray||visible.some(p=>!p.depthTest||p.kind!=='body'&&!p.depthWrite))throw Error('Exact view lost real depth');
   const expected=mode==='review'?'hydraulic-net':mode==='void'?'machined-void':'body';
   if(!visible.some(p=>p.kind===expected))throw Error('Missing exact layer '+expected);
-  if(mode==='review'&&visible.some(p=>!['hydraulic-net','collision'].includes(p.kind)))throw Error('Independent overlapping tubes shown in exact net view');
+  if(mode==='review'&&visible.some(p=>!['body','hydraulic-net','collision'].includes(p.kind)))throw Error('Independent overlapping tubes shown in exact net view');
   if(fixture.model.collisions.length&&!visible.some(p=>p.kind==='collision'))throw Error('Cross-net collision hidden');
   return {mode,visible:visible.map(p=>({id:p.id,kind:p.kind})),depth:true};
 };
@@ -42,4 +42,18 @@ window.assertEngineeringLayers=()=>{
   viewer.xray(false);
   if(viewer.inspection().parts.some(p=>p.visible&&p.kind==='hydraulic-net'))throw Error('Solid retained always-on hydraulic overlay');
   return {layers:true,sourcePort:before.some(p=>p.kind==='port-machining'),closure:before.some(p=>p.kind==='plug'),explicitXray:true};
+};
+
+window.assertStableStockTransition=()=>{
+ const {viewer,fixture}=window.engineeringView;
+ viewer.mode('review');viewer.opacity(.37);viewer.circuit('P',false);viewer.preview(fixture.design);viewer.fit('front');
+ const before=viewer.inspection();viewer.load(fixture.model,fixture.design.features);const after=viewer.inspection();
+ const body=after.parts.find(p=>p.kind==='body');
+ if(!body.visible||body.opacity!==.37||body.depthWrite||!body.depthTest)throw Error('Translucent stock context lost');
+ if(JSON.stringify(before.camera)!==JSON.stringify(after.camera)||before.mode!==after.mode||before.xray!==after.xray)throw Error('Transition moved camera/mode');
+ if(after.parts.some(p=>p.id==='net:P'&&p.visible))throw Error('Transition lost circuit visibility');
+ viewer.opacity(0);if(viewer.inspection().parts.find(p=>p.kind==='body').visible)throw Error('Stock cannot be hidden');
+ viewer.mode('solid');if(viewer.inspection().parts.find(p=>p.kind==='body').opacity!==1)throw Error('Solid must stay opaque');
+ viewer.mode('review');viewer.opacity(.22);viewer.circuit('P',true);
+ return {stockContext:true,opacityZero:true,cameraStable:true,circuitVisibilityStable:true};
 };

@@ -123,12 +123,12 @@ def preview(design: Design):
 def preview_solid(design: Design):
     from .geometry import build_geometry,review_model
     try:
-        resolved,_=resolve_design(design)
+        resolved,_=resolve_design(design,exact=False)
         geometry=build_geometry(resolved)
         return dict(model=review_model(resolved,geometry),features=[f.model_dump() for f in resolved.features],
-                    design_revision=revision(design),status='UNVALIDATED_EXACT_GEOMETRY')
+                    design_revision=revision(design),status='UNVALIDATED_EXACT_GEOMETRY',route_selection='CURRENT_PROPOSAL_NOT_OPTIMIZED')
     except (ValueError,RuntimeError) as exc:
-        raise HTTPException(422,'Exact draft geometry could not be constructed; review the dimensions and feature intersections.') from exc
+        raise HTTPException(422,str(exc) or type(exc).__name__) from exc
 
 
 @app.post('/api/adopt-routing')
@@ -176,7 +176,7 @@ def refine_route(payload:RefineRequest):
     from .validation import validate
     try:
         draft,adjusted,notes=refine(payload.design,payload.feature_id,payload.u,payload.v)
-        resolved,_=resolve_design(draft)
+        resolved,_=resolve_design(draft,exact=False)
         geometry=build_geometry(resolved);authorize_generated_contacts(resolved,geometry)
         report=validate(resolved,geometry)
         from datetime import datetime,timezone

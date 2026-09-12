@@ -20,7 +20,7 @@ try{
       await page.addScriptTag({path:${JSON.stringify(root+'/output/viewer-regression/engineering-view.iife.js')}});
       await page.addScriptTag({path:${JSON.stringify(root+'/output/v1-view-fixtures/'+name+'.js')}});
       await page.evaluate(()=>window.setupEngineeringView(window.currentFixture));
-      const results=[];
+      const results=[await page.evaluate(()=>window.assertStableStockTransition())];
       for(const mode of ['review','void','solid']){
         results.push(await page.evaluate(mode=>window.assertEngineeringView(mode),mode));
         await page.waitForTimeout(150);

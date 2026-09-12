@@ -65,13 +65,14 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
       else o.visible = mode==='solid' ? ['body','edge','collision'].includes(p.kind)||xray&&p.kind==='hydraulic-net'&&visible.circuits.has(p.circuit) :
         mode==='void' ? ['machined-void','collision'].includes(p.kind) :
         mode==='features' ? (['cavity','cavity-edge'].includes(p.kind)&&visible.cavities || p.kind==='port-machining'&&visible.ports || ['zone','zone-edge','port'].includes(p.kind)&&visible.zones || p.kind==='drilling-machining'&&visible.drillings || p.kind==='plug'&&visible.closures || p.kind==='collision') :
-        p.kind==='collision'||p.kind==='hydraulic-net'&&visible.drillings&&visible.circuits.has(p.circuit);
+        ['body','edge','collision'].includes(p.kind)||p.kind==='hydraulic-net'&&visible.drillings&&visible.circuits.has(p.circuit);
       if(exact&&collisionFocus)o.visible=p.kind==='collision';
-      if (p.kind==='body') {o.material.opacity=exact?1:opacity;o.material.transparent=!exact;o.material.depthWrite=exact||opacity>=.99;}
+      if(p.kind==='body'){const alpha=mode==='solid'?1:opacity;o.visible=o.visible&&alpha>0;o.material.opacity=alpha;o.material.transparent=alpha<1;o.material.depthWrite=alpha>=.99;o.material.depthTest=true;}
       else if(o.isMesh){o.material.depthTest=!xray;o.material.depthWrite=!xray;o.material.transparent=xray||['cavity','zone'].includes(p.kind);o.material.opacity=xray?.65:['cavity','zone'].includes(p.kind)?.38:1;}
+      if(p.kind==='edge'&&mode==='review'&&opacity===0)o.visible=false;
       if(p.kind==='collision'){o.material.depthTest=true;o.material.depthWrite=true;o.renderOrder=12;}
     });
-    container.dataset.xray=String(xray);container.dataset.viewMode=mode;
+    container.dataset.xray=String(xray);container.dataset.viewMode=mode;const stock=group.children.find(o=>o.userData.kind==='body');container.dataset.stockVisible=String(!!stock?.visible);container.dataset.stockOpacity=String(stock?.material.opacity??opacity);
     handles.children.forEach(o=>{const p=o.userData;o.visible=(p.kind!=='drilling'||visible.drillings)&&(!p.circuit||visible.circuits.has(p.circuit));});
     labelGroup.children.forEach(o => {
       const p = o.userData;
@@ -190,6 +191,6 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
   const resize = new ResizeObserver(() => {if(resizeViewport()&&pendingFit!==null)fit(pendingFit);});
   resize.observe(container);
   renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); labels.render(scene, camera); });
-  return { inspection(){return {geometry:machinedBody?'machined-brep':'parameter-preview',mode,xray,parts:group.children.filter(o=>o.isMesh).map(o=>({id:o.userData.id,kind:o.userData.kind,visible:o.visible,depthTest:o.material.depthTest,depthWrite:o.material.depthWrite,positions:Array.from(o.geometry.attributes.position.array)}))};}, load, fit, select, setDesign, preview, setReferences(value){references.reset(value);}, editing(value){editing=value;handles.visible=value;},xray(value) { xray=value;updateVisibility(); }, mode(value) { mode = value; updateVisibility(); }, opacity(value) { opacity = value; updateVisibility(); },
+  return { circuitVisible(id){return visible.circuits.has(id);}, inspection(){return {geometry:machinedBody?'machined-brep':'parameter-preview',mode,xray,opacity,camera:camera.position.toArray(),target:controls.target.toArray(),parts:group.children.filter(o=>o.isMesh).map(o=>({id:o.userData.id,kind:o.userData.kind,visible:o.visible,depthTest:o.material.depthTest,depthWrite:o.material.depthWrite,opacity:o.material.opacity,positions:Array.from(o.geometry.attributes.position.array)}))};}, load, fit, select, setDesign, preview, setReferences(value){references.reset(value);}, editing(value){editing=value;handles.visible=value;},xray(value) { xray=value;updateVisibility(); }, mode(value) { mode = value; updateVisibility(); }, opacity(value) { opacity = value; updateVisibility(); },
     toggle(key, value) { visible[key] = value; updateVisibility(); }, circuit(id, show) { show ? visible.circuits.add(id) : visible.circuits.delete(id); updateVisibility(); } };
 }
