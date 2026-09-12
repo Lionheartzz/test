@@ -96,7 +96,7 @@ def test_default_route_exact_selection_prefers_simple_valid_machining(tmp_path,m
         assert r['status']=='PASS',r
         store.atomic_json(tmp_path/(name+'.json'),r)
     # No explicit optimization request or routing_variant: exercise normal resolution.
-    resolved,metadata=resolve_design(d)
+    resolved,metadata=resolve_design(d,persist=True)
     assert len([f for f in resolved.features if f.route_net=='P'])==1
     g=build_geometry(resolved);authorize_generated_contacts(resolved,g)
     assert validate(resolved,g)['status']=='PASS'

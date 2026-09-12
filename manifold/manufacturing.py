@@ -7,16 +7,35 @@ from itertools import combinations
 
 def manufacturing_outputs(design, g, folder):
     rows = []
+    profiles = []
     lib = {d.id:d for d in design.library}
     for i,f in enumerate(design.features,1):
         if f.suppressed:
             continue
-        rows.append(dict(machining_id=f.machining_id or f'M{i:03}', feature=f.id, kind=f.kind, face=f.face,
+        definition=lib.get(f.definition)
+        steps=([s.model_dump() for s in definition.cutting_primitives] or
+               [dict(kind='cylinder',**s.model_dump()) for s in definition.stages]) if definition else []
+        profile=dict(feature=f.id,definition=f.definition,source=definition.source if definition else 'Explicit drilling parameters',
+                     cutting_steps=steps,hydraulic_interfaces=[z.model_dump() for z in definition.zones] if definition else [],
+                     cylinder_diameter_mm=None if definition else f.diameter,cylinder_depth_mm=None if definition else f.depth,
+                     tip_angle_degrees=None if definition else f.tip_angle,
+                     closure=dict(engagement_mm=f.plug_length,geometry='Declared cylindrical exclusion from hydraulic volume',
+                                  entry_machining_status='unresolved',
+                                  note='No mapped plug-entry machining profile is bound to this feature. Pinned raw plug/tool records are retained without inventing threads, counterbores or seats.') if f.plugged else None)
+        profiles.append(profile)
+        common=dict(machining_id=f.machining_id or f'M{i:03}', feature=f.id, kind=f.kind, face=f.face,
                          axis_x=g.placements[f.id]['direction'][0],axis_y=g.placements[f.id]['direction'][1],axis_z=g.placements[f.id]['direction'][2],
-                         u=f.u,v=f.v,diameter=f.diameter or '',depth=f.depth or lib[f.definition].stages[-1].end,
-                         plug_length=f.plug_length if f.plugged else '',tooling='; '.join(lib[f.definition].tooling) if f.definition else 'Drill selection requires review'))
+                         u=f.u,v=f.v,plug_length=f.plug_length if f.plugged else '',tooling='; '.join(definition.tooling) if definition else 'Drill selection requires review')
+        if definition:
+            for index,s in enumerate(steps,1):
+                rows.append(dict(**common,operation=index,profile=s['kind'],diameter=s['diameter'],depth=s['end'],start=s['start'],
+                                 end_diameter=s.get('end_diameter',''),inner_diameter=s.get('inner_diameter',''),
+                                 offset_u=s.get('offset_u',0),offset_v=s.get('offset_v',0),tip_angle='',source=definition.source))
+        else:
+            rows.append(dict(**common,operation=1,profile='explicit-drilling',diameter=f.diameter,depth=f.depth,start=0,
+                             end_diameter='',inner_diameter='',offset_u=0,offset_v=0,tip_angle=f.tip_angle,source='Explicit parameters; cylinder depth excludes drill point'))
     with (folder/'drill-chart.csv').open('w',newline='',encoding='utf-8-sig') as handle:
-        writer=csv.DictWriter(handle,fieldnames=['machining_id','feature','kind','face','axis_x','axis_y','axis_z','u','v','diameter','depth','plug_length','tooling'])
+        writer=csv.DictWriter(handle,fieldnames=['machining_id','feature','kind','face','axis_x','axis_y','axis_z','u','v','operation','profile','diameter','start','depth','end_diameter','inner_diameter','offset_u','offset_v','tip_angle','plug_length','tooling','source'])
         writer.writeheader(); writer.writerows(rows)
     meets=[]
     for a,b in combinations(g.nodes,2):
@@ -46,4 +65,4 @@ def manufacturing_outputs(design, g, folder):
                                       related_records=native.related_records,
                                       note='Legacy operands and tool codes are preserved, not executed or silently certified.'))
     (folder/'manufacturing.json').write_text(json.dumps(dict(status='ENGINEERING_REVIEW_REQUIRED',drill_chart=rows,meet_list=meets,velocity_screen=flows,
-                                                           native_recipes=native_recipes,pinned_resources=[r.model_dump() for r in design.library_resources]),indent=2),encoding='utf-8')
+                                                           machining_profiles=profiles,native_recipes=native_recipes,pinned_resources=[r.model_dump() for r in design.library_resources]),indent=2),encoding='utf-8')

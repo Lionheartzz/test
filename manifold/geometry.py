@@ -117,7 +117,9 @@ def build_geometry(design: Design):
 
 
 def mesh(shape):
-    vertices, triangles = shape.tessellate(0.12, 0.15)
+    # OCCT attaches triangulations to a shape and can enlarge subsequent bounds.
+    # Rendering must not mutate solids that will be used again by exact validation.
+    vertices, triangles = shape.copy(mesh=False).tessellate(0.12, 0.15)
     return dict(vertices=[round(v, 6) for p in vertices for v in p.toTuple()], triangles=[i for t in triangles for i in t])
 
 
@@ -126,14 +128,36 @@ def review_model(design,g):
     from .schema import COLORS
     features={f.id:f for f in design.features}
     parts=[dict(id='block',kind='body',color='#9ba9b9',**mesh(g.production))]
+    # Boolean the authoritative solids before tessellation. Meshes never define connectivity.
+    void = g.block.cut(g.production).clean()
+    if void.Volume() > 1e-6:
+        parts.append(dict(id='machined-void',kind='machined-void',color='#b6c9da',volume_mm3=void.Volume(),**mesh(void)))
+    unions = {}
+    for circuit in sorted(set(g.circuits.values())):
+        members=[key for key in g.nodes if g.circuits[key]==circuit]
+        shapes=[g.nodes[key].intersect(g.block) for key in members]
+        shape=(shapes[0].fuse(*shapes[1:]) if len(shapes)>1 else shapes[0]).clean()
+        unions[circuit]=shape
+        color=next((n.color for n in design.nets if n.id==circuit and n.color),COLORS.get(circuit,'#b08bea'))
+        parts.append(dict(id='net:'+circuit,kind='hydraulic-net',circuit=circuit,color=color,members=members,
+                          volume_mm3=shape.Volume(),solid_count=len(shape.Solids()),**mesh(shape)))
+    from itertools import combinations
+    collisions=[]
+    for a,b in combinations(unions,2):
+        common=unions[a].intersect(unions[b]).clean()
+        if common.Volume()>1e-6:
+            collisions.append(dict(nets=[a,b],volume_mm3=common.Volume()))
+            parts.append(dict(id=f'collision:{a}:{b}',kind='collision',color='#ff163e',nets=[a,b],**mesh(common)))
     for key,cut in g.cuts.items():
-        if features[key].kind=='cavity':
-            parts.append(dict(id=key,owner=key,kind='cavity',color='#bbc7d4',**mesh(cut)))
+        f=features[key]
+        parts.append(dict(id=key+':machining',owner=key,kind='cavity' if f.kind=='cavity' else 'port-machining' if f.kind=='port' else 'drilling-machining',
+                          color='#bbc7d4',definition=f.definition,volume_mm3=cut.Volume(),**mesh(cut)))
     for key,shape in g.nodes.items():
         owner=key.split(':')[0];f=features[owner]
         color=next((n.color for n in design.nets if n.id==g.circuits[key] and n.color),COLORS.get(g.circuits[key],'#b08bea'))
         parts.append(dict(id=key,owner=owner,kind='zone' if ':' in key else f.kind,circuit=g.circuits[key],color=color,**mesh(shape)))
     for key,shape in g.plugs.items():
-        parts.append(dict(id=key+':plug',owner=key,kind='plug',color='#d5dee9',**mesh(shape)))
+        parts.append(dict(id=key+':plug',owner=key,kind='plug',color='#d5dee9',entry_machining_status='unresolved',**mesh(shape)))
     return dict(block=design.block.model_dump(),parts=parts,placements=g.placements,
-                volume_mm3=round(g.production.Volume(),3),colors=COLORS,geometry_kind='machined-brep')
+                volume_mm3=round(g.production.Volume(),3),colors=COLORS,geometry_kind='machined-brep',
+                collisions=collisions,semantics='Machined void is stock minus production; hydraulic nets are separate exact unions of flow nodes after closures. Interface parts remain separate inspection layers.')

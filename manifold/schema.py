@@ -243,6 +243,10 @@ class Feature(Strict):
 
     @model_validator(mode='after')
     def fields_for_kind(self):
+        if self.route_net or self.frozen_net:
+            owner = self.route_net or self.frozen_net
+            if self.kind != 'drilling' or self.circuit != owner or self.route_net and self.frozen_net:
+                raise ValueError('Route circuit must match its single owner net; reroute or explicitly detach before changing hydraulic intent')
         if self.direction is not None:
             import math
             from .kinematics import FACE_AXES
@@ -456,6 +460,9 @@ class Design(Strict):
         if not self.nets:
             self.nets = [HydraulicNet(id=n, members=sorted(k for k, v in terminals.items() if v == n))
                          for n in sorted(set(terminals.values()))]
+        for f in self.features:
+            if f.frozen_net and not any(n.id == f.frozen_net and n.routing == 'manual' for n in self.nets):
+                raise ValueError('Frozen drilling requires its existing manual owner net; use Reroute to change route intent')
         declared = {}
         for net in self.nets:
             if len(set(net.members)) != len(net.members):

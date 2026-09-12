@@ -131,7 +131,7 @@ def validate(design, g):
         outside = max(0.0, shape.Volume() - shape.intersect(g.block).Volume())
         result('external_face_entry', [f.id], outside, 0, outside <= EPS,
                'Cut starts on its declared external face and remains within stock.', unit='mm³')
-        if f.kind != 'cavity':
+        if f.kind != 'cavity' and not f.definition:
             result('drill_reach', [f.id], (f.depth + tip_depth(f)) / f.diameter,
                    design.rules.max_depth_diameter_ratio,
                    (f.depth + tip_depth(f)) / f.diameter <= design.rules.max_depth_diameter_ratio,
@@ -245,14 +245,17 @@ def validate(design, g):
            EPS < g.production.Volume() < g.block.Volume(), 'Production solid must contain actual subtractive geometry.', unit='mm³')
     counts = {s: sum(c['status'] == s for c in checks) for s in ['PASS', 'WARNING', 'FAIL']}
     unresolved_machining = [d.id for d in design.library if d.id in active_definitions and d.native and d.native.machining_status != 'engineer-reviewed']
+    unresolved_plug_entries = [f.id for f in design.features if f.plugged and not f.suppressed]
     return dict(status='FAIL' if counts['FAIL'] else 'WARNING' if counts['WARNING'] else 'PASS', counts=counts,
-                manufacturing_ready=not unresolved_machining and not counts['FAIL'] and not counts['WARNING'],
+                manufacturing_ready=not unresolved_machining and not unresolved_plug_entries and not counts['FAIL'] and not counts['WARNING'],
                 unresolved_machining=unresolved_machining,
+                unresolved_plug_entries=unresolved_plug_entries,
                 checks=checks, graph={n: sorted(v) for n, v in graph.items()},
                 scope='Geometric and declared installed-interface checks only; no pressure, fatigue, flow or vendor certification.',
                 limitations=['Library demo cavities and straight-bore ports are illustrative and not manufacturer machining specifications.',
                              'Cartridge zones assume an installed sealing cartridge; valve-state flow is not simulated.',
                              'Threads are metadata; helical threads, tolerances, finishes and seals are not modeled.',
+                             'Plug volumes represent declared engagement exclusions. No source plug-entry machining profile is bound; counterbores, seats and threads remain unresolved.',
                              'Access uses declared cylindrical envelopes and sourced mounting/body/service boundaries; missing tool, valve-body and fixture geometry remains unverified.',
                              'Straight orthogonal and inward angled drillings use exact cuts; complete tooling, setups and machining instructions require review.',
                              'Opening screen uses exact common sections at overlap centroid, not a proven minimum throat or CFD model. Without stated net flow, hydraulic adequacy is undetermined.'])

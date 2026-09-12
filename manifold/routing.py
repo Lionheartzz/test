@@ -183,20 +183,30 @@ def proximity_risk(design, net, route):
         for other in design.features:
             if other.suppressed or other.route_net == net.id:
                 continue
-            if other.kind == 'cavity':
+            if other.definition:
                 definition = lib[other.definition]
-                allowed = [z for z in definition.zones if other.circuits[z.id] == net.id and f'{other.id}:{z.id}' in net.members]
-                for stage in definition.stages:
-                    breaks = sorted({stage.start,stage.end,*[v for z in allowed for v in (z.start,z.end) if stage.start < v < stage.end]})
+                allowed = [z for z in definition.zones
+                           if (other.circuits[z.id] if other.kind=='cavity' else other.circuit) == net.id
+                           and (f'{other.id}:{z.id}' if other.kind=='cavity' else other.id) in net.members]
+                # Rank complete mapped machining, not the port's hydraulic summary.
+                # Cones/annuli use conservative outer cylinders in this proxy only.
+                for stage in definition.cutting_primitives or definition.stages:
+                    offset_u,offset_v=getattr(stage,'offset_u',0),getattr(stage,'offset_v',0)
+                    angle=math.radians(other.rotation)
+                    positioned=other.model_copy(update=dict(u=other.u+offset_u*math.cos(angle)-offset_v*math.sin(angle),
+                                                           v=other.v+offset_u*math.sin(angle)+offset_v*math.cos(angle)))
+                    diameter=max(stage.diameter,getattr(stage,'end_diameter',0))
+                    windows=[z for z in allowed if abs(z.offset_u-offset_u)<1e-6 and abs(z.offset_v-offset_v)<1e-6]
+                    breaks = sorted({stage.start,stage.end,*[v for z in windows for v in (z.start,z.end) if stage.start < v < stage.end]})
                     for start,end in zip(breaks,breaks[1:]):
-                        if any(z.start <= start and end <= z.end for z in allowed):
+                        if any(z.start <= start and end <= z.end for z in windows):
                             continue
-                        c,d = segment(other,design.block,start,end)
-                        clearance = segment_distance(a,b,c,d)-radius-stage.diameter/2
-                        if allowed:
+                        c,d = segment(positioned,design.block,start,end)
+                        clearance = segment_distance(a,b,c,d)-radius-diameter/2
+                        if windows:
                             # Flat axial interval bounds avoid falsely extending a sealing land as a spherical cap.
                             rb = cylinder_bounds(bore,design.block,0,bore.depth,bore.diameter)
-                            cb = cylinder_bounds(other,design.block,start,end,stage.diameter)
+                            cb = cylinder_bounds(positioned,design.block,start,end,diameter)
                             penetration = min(min(x[1],y[1])-max(x[0],y[0]) for x,y in zip(rb,cb))
                             risk += max(0,penetration)*8
                         else:
@@ -309,10 +319,10 @@ def _resolve_proposals(design):
     return resolved, candidates
 
 
-def resolve_design(design, *, exact=True):
+def resolve_design(design, *, exact=True, persist=False):
     """Resolve explicit choices and compare up to six default proposals exactly.
 
-    The interactive parameter preview can opt out; build/validation never does.
+    Exact selection is pure unless an explicit build/engineering decision opts into evidence.
     Proxy risk schedules proposals only. Exact failures, warnings, then machining
     cost determine selection, with the complete multi-net design as context.
     """
@@ -324,7 +334,7 @@ def resolve_design(design, *, exact=True):
     from .validation import validate
     from . import store
     import uuid
-    folder = store.OUTPUT/'route-selections'/uuid.uuid4().hex
+    folder = store.OUTPUT/'route-selections'/uuid.uuid4().hex if persist else None
     attempts=[]
     skipped=[]
     def evaluate(candidate, reason):
@@ -340,8 +350,9 @@ def resolve_design(design, *, exact=True):
         cost=route_cost(resolved,[f for f in resolved.features if f.kind=='drilling' and not f.suppressed])
         index=len(attempts)
         score=(failed,report['counts']['WARNING'],cost)
-        store.atomic_json(folder/f'attempt-{index:02}'/'resolved_design.json',resolved.model_dump())
-        store.atomic_json(folder/f'attempt-{index:02}'/'validation.json',report)
+        if folder:
+            store.atomic_json(folder/f'attempt-{index:02}'/'resolved_design.json',resolved.model_dump())
+            store.atomic_json(folder/f'attempt-{index:02}'/'validation.json',report)
         attempts.append(dict(reason=reason,score=score,routes=metadata))
         return score,resolved,metadata,index
     best=design.model_copy(deep=True)
@@ -373,9 +384,11 @@ def resolve_design(design, *, exact=True):
             continue
         trial,new_target,new_routes,index=evaluate(candidate,net_id+': '+variant)
         if trial<score:best,score,target,routes,chosen=candidate,trial,new_target,new_routes,index
-    store.atomic_json(folder/'summary.json',dict(selected_attempt=chosen,attempts=attempts,skipped=skipped))
+    if folder:
+        store.atomic_json(folder/'summary.json',dict(selected_attempt=chosen,attempts=attempts,skipped=skipped))
     for route in routes:
-        route['selection_evidence']=folder.name
+        if folder:route['selection_evidence']=folder.name
+        route['exact_attempts']=len(attempts)
         route['status']='EXACT_CANDIDATE_CHECKED_REQUIRES_FINAL_VALIDATION'
     return target,routes
 

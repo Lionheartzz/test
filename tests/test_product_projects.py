@@ -96,7 +96,8 @@ def test_refining_route_extends_connected_branch_preserving_intent():
     d=blank();d.features=[
         Feature(id='TRUNK',kind='drilling',face='left',u=50,v=50,circuit='P',diameter=8,depth=70,plugged=True,frozen_net='P',connects_to=['BRANCH']),
         Feature(id='BRANCH',kind='drilling',face='front',u=50,v=50,circuit='P',diameter=8,depth=54,plugged=True,frozen_net='P',connects_to=['TRUNK'])]
-    d.nets=[]
+    from manifold.schema import HydraulicNet
+    d.nets=[HydraulicNet(id='P',members=[],routing='manual')]
     result,changed,notes=refine(d,'TRUNK',60,50)
     assert changed==['BRANCH'] and result.features[1].depth==64
     assert d.features[1].depth==54
@@ -105,7 +106,9 @@ def test_refining_route_extends_connected_branch_preserving_intent():
     from manifold.geometry import build_geometry
     from manifold.validation import validate
     report=validate(result,build_geometry(result))
-    assert not [c for c in report['checks'] if c['rule']=='required_connection' and c['status']=='FAIL']
+    for rule, count in [('expected_connection',1),('connected_interface',2),('circuit_connectivity',1)]:
+        checks=[c for c in report['checks'] if c['rule']==rule]
+        assert len(checks)==count and all(c['status']=='PASS' for c in checks), checks
 
 def test_freeze_changes_only_selected_automatic_net():
     d=adopt_routes(demo());before=d.model_dump()

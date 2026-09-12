@@ -8,6 +8,8 @@ from .kinematics import resolve_parents
 
 
 def optimize_routes(design, expected_revision, max_attempts=6, project_id=None):
+    if not 1 <= max_attempts <= 12:
+        raise ValueError('max_attempts must be between 1 and 12, including the baseline')
     def saved_revision():
         if project_id:
             from .projects import snapshot,read
@@ -20,7 +22,8 @@ def optimize_routes(design, expected_revision, max_attempts=6, project_id=None):
         attempts = []
 
         def evaluate(candidate, reason):
-            target, routes = resolve_design(candidate)
+            # This outer search owns the exact-attempt budget. Resolve one proposal only.
+            target, routes = resolve_design(candidate,exact=False)
             index = len(attempts)
             attempt = folder/f'attempt-{index:02}'
             store.atomic_json(attempt/'design.json',candidate.model_dump())
@@ -44,6 +47,9 @@ def optimize_routes(design, expected_revision, max_attempts=6, project_id=None):
 
         best = design.model_copy(deep=True)
         score,target,routes,index = evaluate(best,'Baseline')
+        for net in best.nets:
+            if net.routing == 'automatic':
+                net.routing_variant = next(r['variant'] for r in routes if r['net'] == net.id)
         chosen = index
         # Try the most promising alternatives for one net at a time; accept only lexicographic improvements.
         net_ids = [n.id for n in best.nets if n.routing == 'automatic']

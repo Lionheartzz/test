@@ -28,7 +28,7 @@ def snapshot(record):
     pointer=record.get('build')
     return dict(project_id=record['id'],design=design.model_dump(),revision=revision,build=pointer,network=endpoints(),
                 updated_at=record['updated_at'],archived=record.get('archived',False),
-                stale=not pointer or pointer['design_revision']!=revision or pointer.get('engine_revision')!=store.engine_revision())
+                stale=not pointer or pointer['design_revision']!=revision or pointer.get('engine_revision')!=store.engine_revision() or not store.engine_current())
 
 def write(record):
     record['updated_at']=datetime.now(timezone.utc).isoformat()

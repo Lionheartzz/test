@@ -45,7 +45,7 @@ def test_auto_route_reproduces_demo_and_follows_terminals(tmp_path):
     assert any(c['rule']=='circuit_connectivity' and c['message'].startswith('A:') and c['status']=='PASS' for c in moved_report['checks'])
     assert next(f for f in before.features if f.id=='XD-P').u==pytest.approx(67.5)
     manufacture=json.loads((tmp_path/'pass'/'manufacturing.json').read_text())
-    assert manufacture['meet_list'] and len(manufacture['drill_chart'])==12
+    assert manufacture['meet_list'] and len({row['feature'] for row in manufacture['drill_chart']})==12
     assert (tmp_path/'pass'/'resolved_design.json').exists()
 
 

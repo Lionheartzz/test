@@ -37,14 +37,15 @@ def main():
     elif args.command == 'validate':
         from .geometry import build_geometry
         from .validation import validate
+        from .routing import resolve_design,authorize_generated_contacts
         if args.project_id:
             from .projects import read
             from .schema import Design
-            from .routing import resolve_design,authorize_generated_contacts
-            design,_=resolve_design(Design.model_validate(read(args.project_id)['design']))
+            design=Design.model_validate(read(args.project_id)['design'])
         else:design = read_design(args.project or PROJECT)
+        design,_=resolve_design(design)
         geometry=build_geometry(design)
-        if args.project_id:authorize_generated_contacts(design,geometry)
+        authorize_generated_contacts(design,geometry)
         report = validate(design, geometry)
         print(json.dumps(report, indent=2))
         raise SystemExit(1 if report['status'] == 'FAIL' else 0)

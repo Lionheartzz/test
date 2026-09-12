@@ -2,7 +2,7 @@
 
 ## Scope — 2026-09-09
 
-The original `.mdb` / `.accdb` files are **not present in the supplied Manifold directory**. The import manifest points to `PMC_MDTools_Library/MDTools Library`, but that directory currently contains importer scripts and documentation only. The original database location has been requested. Direct inspection of the original databases is therefore **pending**, not completed.
+The historical converted-library inventory and raw export were produced by **direct ODBC extraction of the original MDB snapshot**. The original `.mdb` / `.accdb` files are **not currently present in the supplied repository/runtime**. The import manifest points to `PMC_MDTools_Library/MDTools Library`, but that directory currently contains importer scripts and documentation only. A new direct audit cannot be rerun until the original database files are available; this does not mean the historical databases were never inspected.
 
 The available historical extraction was inspected separately: `reports/inventory.json` and the complete raw table JSONL files, rather than only normalized PMC cavity records. The inventory covers **8 databases, 367 tables and 9,969 rows**, extracted on 2026-09-08. Evidence: `output/mdtools-export-audit-v6.json`. The report explicitly labels its mode `historical-raw-export-only`; recorded MDB SHA values are historical identities, not current file verification.
 

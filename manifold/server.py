@@ -9,6 +9,7 @@ from .routing import resolve_design, adopt_routes
 from .workflow import save_asset, save_library, library_entries, prepare_handoff, asset_path, set_library_deleted
 from .interchange import inspect_project
 from .store import ROOT, OUTPUT, read_design, revision, current, rebuild, engine_revision
+from .engine import engine_current
 from .network import host_allowed, same_origin, endpoints
 
 app = FastAPI(title='PMC Manifold', docs_url=None, redoc_url=None, openapi_url=None)
@@ -66,7 +67,7 @@ def state():
         raise HTTPException(422, 'Project JSON is invalid or missing. Correct projects/demo.json before rebuilding.')
     pointer = current()
     return dict(design=design.model_dump(), revision=rev, build=pointer, network=endpoints(),
-                stale=not pointer or pointer['design_revision'] != rev or pointer.get('engine_revision') != engine_revision())
+                stale=not pointer or pointer['design_revision'] != rev or pointer.get('engine_revision') != engine_revision() or not engine_current())
 
 
 @app.post('/api/build')
