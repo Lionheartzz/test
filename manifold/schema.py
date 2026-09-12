@@ -290,7 +290,7 @@ class HydraulicNet(Strict):
     flow_lpm: float | None = Field(default=None, gt=0, le=10000)
     pressure_bar: float | None = Field(default=None, gt=0, le=2000)
     velocity_limit: float = Field(default=6, gt=0, le=100)
-    routing_variant: str | None = Field(default=None, pattern=r'^([xyz]{3}:(nearest|positive|negative):(direct|offset_[xyz]_[pm])|simple_[0-9]+)$')
+    routing_variant: str | None = Field(default=None, pattern=r'^([xyz]{3}:(nearest|positive|negative):(direct|offset_[xyz]_[pm]2?)|simple_[0-9]+)$')
 
 
 class SchematicComponent(Strict):

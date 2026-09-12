@@ -45,7 +45,7 @@ def propose(design, net, order, entry=None, detour='direct'):
         if detour != 'direct':
             _,name,side = detour.split('_')
             axis = 'xyz'.index(name)
-            offset = (net.diameter + design.rules.minimum_wall) * (1 if side == 'p' else -1)
+            offset = (net.diameter + design.rules.minimum_wall) * (1 if side[0] == 'p' else -1) * (2 if side.endswith('2') else 1)
             coordinate = (a[axis] + b[axis])/2 + offset
             margin = max(12, net.diameter/2 + design.rules.minimum_wall)
             coordinate = max(margin,min(dimensions(design.block)[axis]-margin,coordinate))
@@ -258,7 +258,44 @@ def route_cost(design, route):
                  + route_margin(design,route)['margin_penalty'],6)
 
 
-def route_options(design, net):
+def route_obstructions(design, net, route):
+    """Cheap, sufficient evidence of hard failure, never a feasibility certificate.
+
+    Capsules INSIDE straight cylindrical cuts prove contact/insufficient wall without
+    treating the usual outer capsule proxy (especially its end caps) as exact geometry.
+    Source profiles, tips, hydraulic openings and connectivity still need OCCT.
+    """
+    failures = set()
+    obstacles=[f for f in design.features if f.route_net!=net.id]+route
+    for bore in route:
+        if route_margin(design,[bore])['estimated_min_wall_mm'] < design.rules.minimum_wall-1e-6:
+            failures.add(('external_wall',bore.id))
+        radius=bore.diameter/2
+        if bore.depth < 2*radius:continue
+        a,b=segment(bore,design.block,radius,bore.depth-radius)
+        for other in obstacles:
+            if other.suppressed or other.definition or other.id==bore.id:
+                continue
+            if other.circuit==net.id:
+                # Same-net intersections are intentional, but separated cuts still
+                # owe a minimum wall. Outer bounds prove separation before applying
+                # the inner-capsule upper bound on their distance.
+                bounds=[]
+                for f in (bore,other):
+                    tip=0 if f.tip_angle==180 else f.diameter/2/math.tan(math.radians(f.tip_angle/2))
+                    bounds.append(cylinder_bounds(f,design.block,0,f.depth+tip,f.diameter))
+                if not any(x[1]<y[0]-1e-6 or y[1]<x[0]-1e-6 for x,y in zip(*bounds)):
+                    continue
+            r=other.diameter/2
+            if other.depth < 2*r:continue
+            c,d=segment(other,design.block,r,other.depth-r)
+            clearance=segment_distance(a,b,c,d)-radius-r
+            if clearance < design.rules.minimum_wall-1e-6:
+                failures.add(('feature_wall' if other.circuit==net.id else 'cross_net_wall',*sorted((bore.id,other.id))))
+    return failures
+
+
+def route_options(design, net, *, expanded=False):
     orders = list(itertools.permutations(range(3)))
     if net.preferred_axis != 'auto':
         orders = [o for o in orders if o[0] == 'xyz'.index(net.preferred_axis)]
@@ -266,7 +303,8 @@ def route_options(design, net):
     options, seen = [],set()
     for i,route in enumerate(simple_routes(design,net)):
         options.append(dict(key=f'simple_{i}',route=route,risk=proximity_risk(design,net,route),cost=route_cost(design,route)))
-    detours = ['direct'] + [f'offset_{axis}_{side}' for axis in 'xyz' for side in 'pm']
+    sides=('p','m','p2','m2') if expanded else ('p','m')
+    detours = ['direct'] + [f'offset_{axis}_{side}' for axis in 'xyz' for side in sides]
     for order,entry,detour in itertools.product(orders,entries,detours):
         key = ''.join('xyz'[i] for i in order)+':'+entry+':'+detour
         route = propose(design,net,order,entry,detour)
@@ -279,7 +317,11 @@ def route_options(design, net):
     permitted = [o for o in options if all(f.face not in design.constraints.forbidden_drilling_faces for f in o['route'])]
     # Keep an explicitly failing proposal if the constraint makes every candidate impossible.
     # The validator reports the conflict; never remove a required connection to hide it.
-    return sorted(permitted or options,key=lambda o:(o['cost']+o['risk'],o['cost'],o['key']))
+    for option in options:
+        option['hard_failures']=len(route_obstructions(design,net,option['route']))
+    if not expanded and all(o['hard_failures'] for o in (permitted or options)):
+        return route_options(design,net,expanded=True)
+    return sorted(permitted or options,key=lambda o:(o['hard_failures'],o['cost']+o['risk'],o['cost'],o['key']))
 
 
 def _resolve_proposals(design):
@@ -287,14 +329,19 @@ def _resolve_proposals(design):
     automatic = {n.id for n in resolved.nets if n.routing == 'automatic'}
     resolved.features = [f for f in resolved.features if f.route_net not in automatic]
     candidates = []
-    for net in resolved.nets:
+    for net in sorted(resolved.nets,key=lambda n:n.id):
         if net.routing != 'automatic':
             continue
-        choices = route_options(resolved,net)
+        # Pinned candidates are materialized directly; enumerating their entire
+        # neighbourhood again would multiply the cost of each exact attempt.
+        choices = [] if net.routing_variant else route_options(resolved,net)
         if net.routing_variant:
             if net.routing_variant.startswith('simple_'):
+                choices=[dict(key=f'simple_{i}',route=r,risk=proximity_risk(resolved,net,r),cost=route_cost(resolved,r))
+                         for i,r in enumerate(simple_routes(resolved,net))]
                 selected=next((o for o in choices if o['key']==net.routing_variant),None)
                 if selected is None:
+                    choices=route_options(resolved,net)
                     selected=choices[0]  # Moved/reassigned terminals invalidate the old proposal.
                 route=selected['route']
             else:
@@ -311,23 +358,96 @@ def _resolve_proposals(design):
             raise ValueError('Generated design exceeds 120 physical features; reduce routing complexity')
         candidates.append(dict(net=net.id, axis_order=selected['key'].split(':')[0], variant=selected['key'], proximity_risk=selected['risk'],
                                **route_margin(design,route),
-                               candidates=len(choices), drillings=len(route), plugs=sum(f.plugged for f in route),
+                               candidates=max(1,len(choices)), drillings=len(route), plugs=sum(f.plugged for f in route),
                                length_mm=round(sum(f.depth for f in route),2), status='PROPOSAL_REQUIRES_EXACT_VALIDATION'))
+    # One bounded repair sweep revisits BOTH sides of observed inter-net obstacles.
+    # Explicit variants/frozen geometry are preserved. No CAD or exact search here.
+    for net in sorted(resolved.nets,key=lambda n:n.id):
+        if net.routing!='automatic' or net.routing_variant:continue
+        current=[f for f in resolved.features if f.route_net==net.id]
+        failures=route_obstructions(resolved,net,current)
+        if not failures:continue
+        context=resolved.model_copy(deep=True)
+        context.features=[f for f in context.features if f.route_net!=net.id]
+        option=route_options(context,net)[0]
+        if option['hard_failures']>=len(failures) or len(context.features)+len(option['route'])>120:continue
+        resolved.features=context.features+option['route']
+        metadata=next(r for r in candidates if r['net']==net.id)
+        metadata.update(variant=option['key'],axis_order=option['key'].split(':')[0],proximity_risk=option['risk'],
+                        drillings=len(option['route']),plugs=sum(f.plugged for f in option['route']),
+                        length_mm=round(sum(f.depth for f in option['route']),2),**route_margin(design,option['route']))
     active = {f.id for f in resolved.features if not f.suppressed}
     for f in resolved.features:
         f.connects_to = [t for t in f.connects_to if t.split(':')[0] in active]
     return resolved, candidates
 
 
+def alternative_proposals(best, target, routes, report, eligible, inspected):
+    """Conflict-directed bounded neighbourhood, shared by save and optimization.
+
+    Reconsider either implicated net, plus paired moves to escape a one-net local
+    minimum. Screening allocates exact work; only exact FAIL/WARNING/cost selects.
+    """
+    selected={r['net']:r['variant'] for r in routes}
+    by_id={f.id:f for f in target.features}
+    conflicts=set(); affected=set()
+    for check in report['checks']:
+        if check['status']!='FAIL':continue
+        owners=set()
+        for item in check.get('items',[]):
+            f=by_id.get(item.split(':')[0])
+            if f:
+                owners.update(({f.route_net,f.circuit}|set(f.circuits.values())) & set(eligible))
+        affected.update(owners)
+        conflicts.update(itertools.combinations(sorted(owners),2))
+    net_ids=sorted(affected or eligible)
+    pools={}; moves=[]
+    for net_id in net_ids:
+        context=target.model_copy(deep=True)
+        context.features=[f for f in context.features if f.route_net!=net_id]
+        net=next(n for n in context.nets if n.id==net_id)
+        options=[o for o in route_options(context,net,expanded=bool(report['counts']['FAIL'])) if o['key']!=selected[net_id]]
+        screened=sorted(options,key=lambda o:(o['hard_failures'],o['risk'],o['cost'],o['key']))
+        economical=sorted(options,key=lambda o:(o['cost'],o['key']))
+        pool={o['key']:o for o in screened[:3]+economical[:3]}
+        pools[net_id]=screened[:2]
+        moves.extend({net_id:o} for o in pool.values())
+    for a,b in sorted(conflicts):
+        moves.extend({a:x,b:y} for x,y in itertools.product(pools[a],pools[b]))
+    proposals=[]
+    for move in moves:
+        variants=tuple(sorted({**selected,**{n:o['key'] for n,o in move.items()}}.items()))
+        if variants in inspected:continue
+        proposal=target.model_copy(deep=True)
+        proposal.features=[f for f in proposal.features if f.route_net not in move]
+        proposal.features.extend(f for o in move.values() for f in o['route'])
+        if len(proposal.features)>120:continue
+        failures=set();risk=0
+        for net in proposal.nets:
+            if net.routing!='automatic':continue
+            route=[f for f in proposal.features if f.route_net==net.id]
+            failures.update(route_obstructions(proposal,net,route))
+            risk+=proximity_risk(proposal,net,route)
+        cost=route_cost(proposal,[f for f in proposal.features if f.kind=='drilling' and not f.suppressed])
+        ranking=(len(failures),risk,cost,variants) if report['counts']['FAIL'] else (cost,len(failures),risk,variants)
+        candidate=best.model_copy(deep=True)
+        for net in candidate.nets:
+            if net.id in move:net.routing_variant=move[net.id]['key']
+        proposals.append((ranking,candidate,variants,', '.join(f'{n}: {o["key"]}' for n,o in sorted(move.items()))))
+    return sorted(proposals,key=lambda p:p[0])
+
+
 def resolve_design(design, *, exact=True, persist=False):
-    """Resolve explicit choices and compare up to six default proposals exactly.
+    """Compare up to six automatic proposals exactly, preserving frozen/manual cuts.
 
     Exact selection is pure unless an explicit build/engineering decision opts into evidence.
     Proxy risk schedules proposals only. Exact failures, warnings, then machining
     cost determine selection, with the complete multi-net design as context.
     """
     target, routes = _resolve_proposals(design)
-    pending = [n for n in design.nets if n.routing == 'automatic' and not n.routing_variant]
+    # A stored automatic variant is a proposal, not a frozen engineering route.
+    # Moving terminals can invalidate it; Save & Validate must reconsider it too.
+    pending = [n for n in design.nets if n.routing == 'automatic']
     if not exact or not pending:
         return target, routes
     from .geometry import build_geometry
@@ -354,36 +474,27 @@ def resolve_design(design, *, exact=True, persist=False):
             store.atomic_json(folder/f'attempt-{index:02}'/'resolved_design.json',resolved.model_dump())
             store.atomic_json(folder/f'attempt-{index:02}'/'validation.json',report)
         attempts.append(dict(reason=reason,score=score,routes=metadata))
-        return score,resolved,metadata,index
+        return score,resolved,metadata,index,report
     best=design.model_copy(deep=True)
     # Pin the baseline before varying one net, avoiding implicit nested searches.
     for net in best.nets:
         if net.routing=='automatic':net.routing_variant=next(r['variant'] for r in routes if r['net']==net.id)
-    score,target,routes,chosen=evaluate(best,'Default baseline')
-    proposals=[]
-    for original in pending:
-        context=target.model_copy(deep=True)
-        context.features=[f for f in context.features if f.route_net!=original.id]
-        net=next(n for n in context.nets if n.id==original.id)
-        options=route_options(context,net)
-        # Include both economical and low-proxy-risk routes in the bounded pool.
-        pool=sorted(options,key=lambda o:(o['cost'],o['risk'],o['key']))[:3]
-        pool+=sorted(options,key=lambda o:(o['risk'],o['cost'],o['key']))[:2]
-        seen=set()
-        for option in pool:
-            if option['key']==net.routing_variant or option['key'] in seen:continue
-            seen.add(option['key']);proposals.append((option['cost']+option['risk'],original.id,option['key']))
-    for _,net_id,variant in sorted(proposals)[:5]:
-        candidate=best.model_copy(deep=True)
-        next(n for n in candidate.nets if n.id==net_id).routing_variant=variant
+    score,target,routes,chosen,report=evaluate(best,'Default baseline')
+    inspected={tuple(sorted((r['net'],r['variant']) for r in routes))}
+    eligible={n.id for n in pending}
+    while len(attempts)<6:
+        proposals=alternative_proposals(best,target,routes,report,eligible,inspected)
+        if not proposals:break
+        _,candidate,signature,reason=proposals[0]
+        inspected.add(signature)
         proposal,_=_resolve_proposals(candidate)
         cost=route_cost(proposal,[f for f in proposal.features if f.kind=='drilling' and not f.suppressed])
         if score[:2]==(0,0) and cost>=score[2]:
-            # No outcome can improve zero failures/warnings at equal or higher cost.
-            skipped.append(dict(net=net_id,variant=variant,cost=cost,reason='Cannot improve exact PASS at lower machining cost'))
-            continue
-        trial,new_target,new_routes,index=evaluate(candidate,net_id+': '+variant)
-        if trial<score:best,score,target,routes,chosen=candidate,trial,new_target,new_routes,index
+            skipped.append(dict(variants=signature,cost=cost,reason='Cannot improve exact PASS at lower machining cost'))
+            break
+        trial,new_target,new_routes,index,new_report=evaluate(candidate,reason)
+        if trial<score:
+            best,score,target,routes,chosen,report=candidate,trial,new_target,new_routes,index,new_report
     if folder:
         store.atomic_json(folder/'summary.json',dict(selected_attempt=chosen,attempts=attempts,skipped=skipped))
     for route in routes:

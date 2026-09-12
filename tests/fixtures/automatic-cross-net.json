@@ -1,0 +1,73 @@
+{
+  "name": "QA two automatic nets: feasibility before fewer plugs",
+  "block": {
+    "length": 120.0,
+    "width": 120.0,
+    "height": 100.0,
+    "material": "QA"
+  },
+  "features": [
+    {
+      "id": "P1",
+      "kind": "port",
+      "face": "left",
+      "u": 60.0,
+      "v": 50.0,
+      "circuit": "P",
+      "diameter": 12.0,
+      "depth": 16.0,
+      "tip_angle": 180.0
+    },
+    {
+      "id": "P2",
+      "kind": "port",
+      "face": "right",
+      "u": 60.0,
+      "v": 50.0,
+      "circuit": "P",
+      "diameter": 12.0,
+      "depth": 16.0,
+      "tip_angle": 180.0
+    },
+    {
+      "id": "T1",
+      "kind": "port",
+      "face": "front",
+      "u": 60.0,
+      "v": 50.0,
+      "circuit": "T",
+      "diameter": 12.0,
+      "depth": 16.0,
+      "tip_angle": 180.0
+    },
+    {
+      "id": "T2",
+      "kind": "port",
+      "face": "back",
+      "u": 60.0,
+      "v": 50.0,
+      "circuit": "T",
+      "diameter": 12.0,
+      "depth": 16.0,
+      "tip_angle": 180.0
+    }
+  ],
+  "nets": [
+    {
+      "id": "P",
+      "members": [
+        "P1",
+        "P2"
+      ],
+      "routing": "automatic"
+    },
+    {
+      "id": "T",
+      "members": [
+        "T1",
+        "T2"
+      ],
+      "routing": "automatic"
+    }
+  ]
+}
