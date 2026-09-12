@@ -4,10 +4,22 @@ from .geometry import build_geometry
 from .kinematics import FACE_AXES,pose
 from .schema import Design
 
-def freeze(design,net_id):
+def freeze(design,net_id,proposal=None):
     if not any(n.id==net_id and n.routing=='automatic' for n in design.nets):
         raise ValueError('Choose an automatic hydraulic net')
-    resolved,_=resolve_design(design)
+    if proposal is None:
+        # Compatibility for non-viewer callers: one current proposal, never search.
+        resolved,_=resolve_design(design,exact=False)
+    else:
+        from .kinematics import resolve_parents
+        base=resolve_parents(design)
+        if proposal.block!=base.block or proposal.library!=base.library or [f for f in proposal.features if not f.route_net]!=[f for f in base.features if not f.route_net]:
+            raise ValueError('Displayed proposal is stale: refresh the preview before refining.')
+        if [(n.id,n.members) for n in proposal.nets]!=[(n.id,n.members) for n in base.nets]:
+            raise ValueError('Displayed proposal has different hydraulic ownership; refresh the preview.')
+        resolved=proposal.model_copy(deep=True)
+    if not any(f.route_net==net_id for f in resolved.features):
+        raise ValueError('The displayed net has no generated segments to refine.')
     geometry=build_geometry(resolved)
     authorize_generated_contacts(resolved,geometry)
     result=design.model_copy(deep=True)
@@ -17,7 +29,8 @@ def freeze(design,net_id):
             f.route_net=None;f.frozen_net=net_id
             result.features.append(f)
     net=next(n for n in result.nets if n.id==net_id)
-    net.routing='manual';net.construction_access=[]
+    net.routing='manual';net.diameter_mode='manual';net.routing_variant=None;net.construction_access=[]
+    net.diameter=next(f.diameter for f in result.features if f.frozen_net==net_id)
     return Design.model_validate(result.model_dump())
 
 def refine(design,feature_id,u,v):

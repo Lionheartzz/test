@@ -152,13 +152,14 @@ def optimize(payload: OptimizeRequest):
 class FreezeRequest(Strict):
     design: Design
     net: str
+    proposal: Design | None = None
 
 
 @app.post('/api/freeze-net')
 def freeze_net(payload: FreezeRequest):
     from .route_edit import freeze
-    try:return freeze(payload.design,payload.net).model_dump()
-    except ValueError as exc:raise HTTPException(422,str(exc))
+    try:return freeze(payload.design,payload.net,payload.proposal).model_dump()
+    except (ValueError,RuntimeError) as exc:raise HTTPException(422,str(exc))
 
 
 class RefineRequest(Strict):

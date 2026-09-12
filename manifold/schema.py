@@ -283,6 +283,16 @@ class HydraulicNet(Strict):
     routing: Literal['manual', 'automatic'] = 'manual'
     drilling_mode: Literal['orthogonal','allow-angled','simplest'] = 'orthogonal'
     diameter: Positive = 8
+    diameter_mode: Literal['automatic','manual'] = 'automatic'
+
+    @model_validator(mode='before')
+    @classmethod
+    def legacy_diameter(cls, value):
+        # V1 serialized its unsized 8 mm default everywhere. Preserve other legacy
+        # diameter choices; new explicit overrides (including 8) carry their mode.
+        if isinstance(value,dict) and 'diameter_mode' not in value and value.get('diameter',8)!=8:
+            value={**value,'diameter_mode':'manual'}
+        return value
     preferred_axis: Literal['auto', 'x', 'y', 'z'] = 'auto'
     entry_preference: Literal['nearest', 'positive', 'negative'] = 'nearest'
     construction_access: list[ConstructionAccess] = Field(default_factory=list, max_length=8)

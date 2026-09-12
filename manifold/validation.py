@@ -24,6 +24,17 @@ def validate(design, g):
         return overlaps[key]
 
     expected = {tuple(sorted((f.id, t))) for f in design.features if not f.suppressed for t in f.connects_to}
+    from .flow import required_area,opening_area
+    # Check each actual flow node as well as its intersections. Frozen/overridden
+    # bores and immutable source windows remain subject to the same flow demand.
+    for node,shape in g.nodes.items():
+        net=next((n for n in design.nets if n.id==g.circuits[node]),None)
+        if not net or not net.flow_lpm:continue
+        f=by_id[node.split(':')[0]]
+        area=opening_area(shape,shape,[g.placements[f.id]['direction']])
+        required=required_area(net.flow_lpm,net.velocity_limit)
+        result('hydraulic_passage_area',[node],area,required,area+EPS>=required,
+               'Declared flow requires sufficient passage area. Source interfaces and frozen/manual geometry are not resized automatically.',unit='mm²')
     # Only installed hydraulic zones are nodes; never connect zones through an empty cartridge bore.
     for a, b in combinations(g.nodes, 2):
         if a.split(':')[0] == b.split(':')[0]:
@@ -90,7 +101,8 @@ def validate(design, g):
                        and other.diameter <= min(z.diameter,port.diameter) and other.circuit == port.circuit
                        and all(abs(x-y)<EPS for x,y in zip(g.placements[port.id]['direction'],g.placements[other.id]['direction']))
                        and tuple(sorted((port.id,other.id))) in expected)
-            intrusion = g.cuts[port.id].cut(window).intersect(g.cuts[other.id]).Volume()
+            protected = g.cuts[port.id].cut(window)
+            intrusion = protected.intersect(g.cuts[other.id]).Volume() if protected.Volume()>EPS else 0
             result('port_protected_region',[port.id,other.id],intrusion,0,coaxial or intrusion<=EPS,
                    'Lateral cuts may enter only the declared hydraulic window, never the spotface, seal or thread region.',unit='mm³')
         both_cavities = fa.kind == fb.kind == 'cavity'

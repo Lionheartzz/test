@@ -326,6 +326,10 @@ def route_options(design, net, *, expanded=False):
 
 def _resolve_proposals(design):
     resolved = resolve_parents(design)
+    from .sizing import route_sizing
+    sizing={n.id:route_sizing(n,resolved.constraints.standard_drills) for n in resolved.nets}
+    for net in resolved.nets:
+        if net.routing=='automatic':net.diameter=sizing[net.id]['diameter_mm']
     automatic = {n.id for n in resolved.nets if n.routing == 'automatic'}
     resolved.features = [f for f in resolved.features if f.route_net not in automatic]
     candidates = []
@@ -357,6 +361,7 @@ def _resolve_proposals(design):
         if len(resolved.features) > 120:
             raise ValueError('Generated design exceeds 120 physical features; reduce routing complexity')
         candidates.append(dict(net=net.id, axis_order=selected['key'].split(':')[0], variant=selected['key'], proximity_risk=selected['risk'],
+                               sizing=sizing[net.id],
                                **route_margin(design,route),
                                candidates=max(1,len(choices)), drillings=len(route), plugs=sum(f.plugged for f in route),
                                length_mm=round(sum(f.depth for f in route),2), status='PROPOSAL_REQUIRES_EXACT_VALIDATION'))
