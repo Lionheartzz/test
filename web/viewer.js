@@ -64,7 +64,7 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
       if(!exact) o.visible=(!p.circuit||visible.circuits.has(p.circuit))&&(!['drilling','plug'].includes(p.kind)||visible.drillings)&&(!['cavity','cavity-edge'].includes(p.kind)||visible.cavities)&&(!['zone','zone-edge'].includes(p.kind)||visible.zones);
       else o.visible = mode==='solid' ? ['body','edge','collision'].includes(p.kind)||xray&&p.kind==='hydraulic-net'&&visible.circuits.has(p.circuit) :
         mode==='void' ? ['machined-void','collision'].includes(p.kind) :
-        mode==='features' ? (['cavity','cavity-edge'].includes(p.kind)&&visible.cavities || p.kind==='port-machining'&&visible.ports || ['zone','zone-edge','port'].includes(p.kind)&&visible.zones || p.kind==='drilling-machining'&&visible.drillings || p.kind==='plug'&&visible.closures || p.kind==='collision') :
+        mode==='features' ? (['cavity','cavity-edge'].includes(p.kind)&&visible.cavities || p.kind==='port-machining'&&visible.ports || ['zone','zone-edge','port'].includes(p.kind)&&visible.zones || ['drilling-machining','mounting-machining'].includes(p.kind)&&visible.drillings || p.kind==='plug'&&visible.closures || p.kind==='collision') :
         ['body','edge','collision'].includes(p.kind)||p.kind==='hydraulic-net'&&visible.drillings&&visible.circuits.has(p.circuit);
       if(exact&&collisionFocus)o.visible=p.kind==='collision';
       if(p.kind==='body'){const alpha=mode==='solid'?1:opacity;o.visible=o.visible&&alpha>0;o.material.opacity=alpha;o.material.transparent=alpha<1;o.material.depthWrite=alpha>=.99;o.material.depthTest=true;}

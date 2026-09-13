@@ -10,7 +10,7 @@ def terminal_points(design):
     lib = {d.id: d for d in design.library}
     points = {}
     for f in design.features:
-        if f.suppressed or f.kind == 'drilling':
+        if f.suppressed or f.kind in ('drilling','mounting'):
             continue
         p, axis = pose(f, design.block)
         if f.kind == 'cavity':

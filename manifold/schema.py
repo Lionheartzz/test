@@ -213,7 +213,7 @@ class CavityDefinition(Strict):
 
 class Feature(Strict):
     id: Identifier
-    kind: Literal['cavity', 'port', 'drilling']
+    kind: Literal['cavity', 'port', 'drilling', 'mounting']
     face: Face
     u: Coordinate
     v: Coordinate
@@ -240,9 +240,18 @@ class Feature(Strict):
     machining_id: str = Field(default='', max_length=60)
     parent_id: Identifier | None = None
     local_offset: tuple[float, float] = (0, 0)
+    through: bool = False
+
+    @model_serializer(mode='wrap')
+    def preserve_legacy_shape(self,handler):
+        value=handler(self)
+        if self.kind!='mounting':value.pop('through',None)
+        return value
 
     @model_validator(mode='after')
     def fields_for_kind(self):
+        if self.through and self.kind!='mounting':
+            raise ValueError('Only an explicit non-hydraulic mounting hole may declare an opposite-face exit')
         if self.route_net or self.frozen_net:
             owner = self.route_net or self.frozen_net
             if self.kind != 'drilling' or self.circuit != owner or self.route_net and self.frozen_net:
@@ -255,7 +264,12 @@ class Feature(Strict):
             if self.kind!='drilling' or length<1e-6 or self.direction[axis]*sign/length<0.25:
                 raise ValueError('Angled direction requires an inward drilling axis with entry cosine >= 0.25')
             self.direction=tuple(x/length for x in self.direction)
-        if self.kind == 'cavity':
+        if self.kind=='mounting':
+            if self.circuit is not None or self.circuits or self.connects_to or self.definition or self.plugged or self.diameter is None or self.depth is None:
+                raise ValueError('Mounting hole requires explicit diameter/depth and no hydraulic identity, library cavity, closure or contacts')
+            if self.through and self.tip_angle!=180:
+                raise ValueError('Through mounting geometry uses an explicit flat-ended cut at the exit face')
+        elif self.kind == 'cavity':
             if not self.definition or self.circuit is not None or self.diameter is not None or self.depth is not None or self.plugged:
                 raise ValueError('Cavity uses definition and circuits, not bore fields')
         elif self.kind=='port' and self.definition:
@@ -433,8 +447,12 @@ class Design(Strict):
                 if set(f.circuits) != {z.id for z in lib[f.definition].zones}:
                     raise ValueError(f'{f.id}: assign a circuit to every hydraulic zone')
                 nodes.update(f'{f.id}:{z}' for z in f.circuits)
-            else:
+            elif f.kind!='mounting':
                 nodes.add(f.id)
+            if f.kind=='mounting' and f.through:
+                from .kinematics import FACE_AXES,dimensions
+                if abs(f.depth-dimensions(self.block)[FACE_AXES[f.face][2]])>1e-6:
+                    raise ValueError(f'{f.id}: through mounting depth must equal the block thickness on its declared axis')
         for f in self.features:
             if len(set(f.connects_to)) != len(f.connects_to):
                 raise ValueError(f'{f.id}: duplicate connection')

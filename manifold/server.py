@@ -17,6 +17,8 @@ from .projects import router as project_router
 app.include_router(project_router)
 from .ai_design.api import router as ai_design_router
 app.include_router(ai_design_router)
+from .drawing.api import router as drawing_router
+app.include_router(drawing_router)
 
 
 @app.middleware('http')

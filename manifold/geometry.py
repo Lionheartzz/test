@@ -102,6 +102,8 @@ def build_geometry(design: Design):
                 half=cq.Workplane(plane).box(12000,12000,6000,centered=(True,True,False)).val()
                 cut=cut.intersect(half).clean()
             cuts[f.id] = cut
+            if f.kind=='mounting':
+                continue # Real stock removal, deliberately absent from hydraulic nodes/circuits.
             if f.plugged:
                 plugs[f.id] = cylinder(origin, direction, f.diameter, -extension, f.plug_length)
                 if f.direction:
@@ -150,7 +152,7 @@ def review_model(design,g):
             parts.append(dict(id=f'collision:{a}:{b}',kind='collision',color='#ff163e',nets=[a,b],**mesh(common)))
     for key,cut in g.cuts.items():
         f=features[key]
-        parts.append(dict(id=key+':machining',owner=key,kind='cavity' if f.kind=='cavity' else 'port-machining' if f.kind=='port' else 'drilling-machining',
+        parts.append(dict(id=key+':machining',owner=key,kind='cavity' if f.kind=='cavity' else 'port-machining' if f.kind=='port' else 'mounting-machining' if f.kind=='mounting' else 'drilling-machining',
                           color='#bbc7d4',definition=f.definition,volume_mm3=cut.Volume(),**mesh(cut)))
     for key,shape in g.nodes.items():
         owner=key.split(':')[0];f=features[owner]

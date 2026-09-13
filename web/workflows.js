@@ -59,6 +59,16 @@ const library=libraryUI(ctx,{open,editor,insert});
 projectUI({...ctx,editDefinition:def=>editor(def,true)});
 guided(ctx,open,library,nets);
 $('library-open').onclick=guard(library);
+$('add-mounting').onclick=()=>{
+  let face='top',diameter=12,depth=20,through=false;
+  open('Add plain mounting hole');field(content,'Face',face,v=>face=v,{top:'Top',bottom:'Bottom',front:'Front',back:'Back',left:'Left',right:'Right'});
+  field(content,'Diameter / mm',diameter,v=>diameter=v,null,true);field(content,'Blind cylinder depth / mm',depth,v=>depth=v,null,true);field(content,'Hole termination',String(through),v=>through=v==='true',{false:'Blind',true:'Through block'});
+  content.append(element('p','Creates an explicit non-hydraulic plain bore. Position and verify it in the manifold before drawing. Thread geometry and fastener compatibility are not supplied.'));
+  action(content,'Add mounting hole',guard(async()=>{const baseline=JSON.stringify(get()),d=structuredClone(get()),dims=[d.block.length,d.block.width,d.block.height],axes={top:[0,1,2],bottom:[0,1,2],front:[0,2,1],back:[0,2,1],left:[1,2,0],right:[1,2,0]}[face],id='MNT_'+crypto.randomUUID().replaceAll('-','');
+    d.features.push({id,kind:'mounting',face,u:dims[axes[0]]/2,v:dims[axes[1]]/2,diameter,depth:through?dims[axes[2]]:depth,through,tip_angle:through?180:118});
+    const checked=await post('/api/check-design',d);if(JSON.stringify(get())!==baseline)throw Error('Draft changed while adding mounting hole. Retry.');if(change(()=>set(checked))){select(id);dialog.close();notice('Mounting hole added. Position it and Save & Validate before drawing.');}
+  }));
+};
 $('add-port').onclick=()=>{
   const p=customPort();let net=get().nets[0]?.id||'P';
   const render=()=>{open('Add external port');field(content,'Hydraulic net',net,v=>{net=v;render();},Object.fromEntries(get().nets.map(n=>[n.id,n.id])));portSetup(ctx,content,p,net,render);

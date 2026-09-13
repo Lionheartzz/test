@@ -89,6 +89,11 @@ def validate(design, g):
         sa, sb = g.cuts[a], g.cuts[b]
         fa, fb = by_id[a], by_id[b]
         volume = sa.intersect(sb).Volume()
+        if fa.kind=='mounting' or fb.kind=='mounting':
+            distance=sa.distance(sb)
+            result('mounting_separation',[a,b],distance,wall,volume<=EPS and distance+EPS>=wall,
+                   'Non-hydraulic mounting cuts must retain the minimum wall to every other cut; hydraulic contact cannot authorize them.',unit='mm')
+            continue
         for port, other in ((fa,fb),(fb,fa)):
             if port.kind != 'port' or not port.definition or volume <= EPS:
                 continue
@@ -133,11 +138,17 @@ def validate(design, g):
         if f.suppressed:
             continue
         shape = g.cuts[f.id]
+        if f.kind=='mounting' and f.through:
+            from .kinematics import FACE_AXES,dimensions
+            thickness=dimensions(design.block)[FACE_AXES[f.face][2]]
+            result('mounting_through_extent',[f.id],f.depth,thickness,abs(f.depth-thickness)<=EPS,
+                   'A resolved through mounting cut must reach exactly the opposite stock face, including after parent/face changes.',unit='mm')
         bb = shape.BoundingBox()
         margins = dict(left=bb.xmin, right=b.length - bb.xmax, front=bb.ymin,
                        back=b.width - bb.ymax, bottom=bb.zmin, top=b.height - bb.zmax)
         for face, margin in margins.items():
-            if face != f.face:
+            exit_face={'top':'bottom','bottom':'top','front':'back','back':'front','left':'right','right':'left'}[f.face] if f.kind=='mounting' and f.through else None
+            if face != f.face and face!=exit_face:
                 result('external_wall', [f.id, face], margin, wall, margin + EPS >= wall,
                        'Remaining stock to a non-entry face (includes drill tip).', unit='mm')
         outside = max(0.0, shape.Volume() - shape.intersect(g.block).Volume())

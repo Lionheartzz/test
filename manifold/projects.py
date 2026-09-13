@@ -85,6 +85,8 @@ def delete_project(key:str,payload:DeleteRequest):
                 raise ValueError('Type the exact project name to confirm permanent deletion')
             # Fixed, validated ID under the project store; never follow directory links.
             root=folder().resolve();target=path(key);history=root/'history'/key
+            from .drawing.storage import deletion_files
+            drawing_files,drawing_dirs=deletion_files(key)
             if target.is_symlink() or target.resolve().parent!=root:
                 raise ValueError('Linked project files cannot be deleted here')
             if history.exists():
@@ -95,8 +97,10 @@ def delete_project(key:str,payload:DeleteRequest):
                     raise ValueError('Unexpected history contents; project retained')
                 for p in files:p.unlink()
                 history.rmdir()
+            for p in drawing_files:p.unlink()
+            for p in drawing_dirs:p.rmdir()
             target.unlink()
-            return dict(deleted=key,scope='Project and revision history deleted. Shared library, assets and immutable builds retained.')
+            return dict(deleted=key,scope='Project, drawings and revision history deleted. Shared library, assets and immutable builds retained.')
     except (ValueError,RuntimeError) as exc:raise HTTPException(409,str(exc))
     except FileNotFoundError:raise HTTPException(404,'Project not found')
 

@@ -54,6 +54,12 @@ Windows CAD 依赖已固定版本；`manifold/cad.py` 会先加载 CasADi 再加
 
 真实模型测试可在 Provider settings 控制 reasoning、按任务覆盖、可选 streaming 和契约重试。Max Tokens 无 PMC 上限，留空使用 provider 默认值。失败记录可直接查看耗时、阶段和 token 明细；详细说明见 [Provider diagnostics](docs/PROVIDER_DIAGNOSTICS.md)。
 
+## Drawing Workspace · V2.3
+
+在已保存的 Project 内完成 **Save & Validate → Drawings → Create Drawing**，选择客户图或制造图。两类图纸使用同一个视觉编辑器：精确实体投影、关联尺寸、说明与引出线、视图与基本剖面、表格、PMC 标题栏、模板、撤销重做和矢量 PDF。图纸独立保存于 Project，可重开、检测源变化、预览更新、创建修订和发行不可变 PDF。制造图复用已有 Library / Manifold 数据；新增的普通安装孔是实际非液压切削特征，仍经过实体校验。
+
+操作说明见 [Drawing Workspace](docs/DRAWING_WORKSPACE.md)，实际交付范围、验收证据与参考文件缺口见 [V2.3 验收记录](docs/V23_ACCEPTANCE.md)。图纸状态不会修改工程校验或制造就绪结果。Drawing 及其历史保存在本机，现有 `.pmc.json` 导出仍以 Manifold 数据为范围。
+
 ## 和 Codex 协作
 
 当前打开项目的权威记录为 **`projects/saved/<id>.json`**，包含独立 design、更新时间、归档标记与构建指针。**Save Project** 保存未通过校验的工作进度；**Save & Validate** 保存并构建。Projects 可搜索、重命名、复制、归档和恢复项目。Delete permanently 要求输入完整项目名，删除该项目记录及修订历史；共享库、源记录、assets 与不可变构建证据保留。每次启动先展示项目库，不自动打开 demo。`projects/demo.json` 与 `manifold.demo` 只用于开发、旧 CLI 与工程证明，不自动进入用户项目库。孔腔库的固定版本内嵌在项目中，命名 nets 表达液压意图，自动钻孔保存在构建的 resolved_design.json；构建无需隐藏 CAD 脚本状态。可以直接告诉 Codex：
