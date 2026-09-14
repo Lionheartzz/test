@@ -31,6 +31,8 @@ SOURCE_ROOT=store.ROOT
 
 @pytest.fixture
 def client(tmp_path,monkeypatch):
+    from mock_ai_provider import MockProvider
+    monkeypatch.setattr(service,'available_providers',lambda:{mode:MockProvider(mode) for mode in ('mock-safe','mock-example')})
     monkeypatch.setattr(store,'PROJECT',tmp_path/'projects'/'demo.json')
     monkeypatch.setattr(store,'OUTPUT',tmp_path/'output')
     monkeypatch.setattr(config,'path',lambda:tmp_path/'private'/'ai-provider.json')
@@ -38,7 +40,7 @@ def client(tmp_path,monkeypatch):
 
 
 def inputs(client,requirements='P on left. T on right. Maximum block width 150 mm.'):
-    data=(SOURCE_ROOT/'public'/'ai-demo.png').read_bytes()
+    data=(Path(__file__).parent/'fixtures'/'ai-demo.png').read_bytes()
     response=client.post('/api/assets',content=data,headers={**HEADERS,'Content-Type':'image/png','X-File-Name':'test.png'})
     assert response.status_code==200
     return dict(title='Generation QA',engineering_requirements=requirements,documents=[dict(id='DOC1',asset=response.json())])

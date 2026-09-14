@@ -33,3 +33,8 @@ Density PDF: **`output/pmc3069-review/dense-manufacturing.pdf`**. Existing 120-h
 Additional source-schematic integration evidence: `output/pmc3069-review/schematic-manufacturing.pdf`, from a task-owned copy of the existing AI workflow fixture. It repeats that Project's synthetic schematic on all three sheets and preserves its uncertain material/review status. It is not a new Agnes analysis or an approved production drawing.
 
 Original Projects and immutable build snapshots were retained. No Agnes call or provider-setting change was performed for this correction. The user authorized committing and pushing this correction to GitHub on 2026-09-14. The generated PDFs are ready for the user's visual review.
+
+
+## Local cleanup (2026-09-15)
+
+The user requested deletion of generated test drawings and mock/sample data. The local review PDFs, test drawing documents, QA projects and acceptance template described above have been removed. The verification results above are historical; those example download paths are no longer available. Production drawing templates and automated regression coverage remain.

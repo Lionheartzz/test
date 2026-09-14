@@ -3,7 +3,7 @@ import {attemptStatus,runDiagnostics} from './ai-diagnostics.js';
 // Understanding and generation stay traceable; opening a generated draft is an explicit Studio handoff.
 export function aiDesign(ctx,open){
   const {$,element,field,action,api,post,get,state}=ctx,content=$('workflow-content');
-  let active=null,inputs=null,run=null,dirty=false,pending=false,provider='mock-safe',source=null,providers=[],generation=0;
+  let active=null,inputs=null,run=null,dirty=false,pending=false,provider='configured',source=null,providers=[],generation=0;
   const fresh=()=>({title:'New hydraulic analysis',documents:[],engineering_requirements:'',project_context:get()?.project_context||'metric',linked_project_id:state()?.project_id||null});
   const here=()=>$('workflow-dialog').open&&$('workflow-title').textContent.startsWith('AI Design');
   const guard=fn=>async()=>{if(pending)return;pending=true;content.querySelectorAll('button,input,select,textarea').forEach(x=>x.disabled=true);$('workflow-error').textContent='';try{await fn();}catch(e){$('workflow-error').textContent=e.message;}finally{pending=false;if(here())content.querySelectorAll('button,input,select,textarea').forEach(x=>x.disabled=false);}};
@@ -20,7 +20,7 @@ export function aiDesign(ctx,open){
     if(status.status!=='completed'&&!status.result?.run)throw Error(status.message);
     return status.result;
   }
-  async function settings(){await generator.settings(async config=>{providers=await api('/api/ai-design/providers');if(config.ready)provider='configured';else if(!providers.some(p=>p.id===provider))provider='mock-safe';});}
+  async function settings(){await generator.settings(async()=>{providers=await api('/api/ai-design/providers');provider='configured';});}
   async function save(){
     const signature=JSON.stringify(inputs),result=await post('/api/ai-design/tasks',{inputs,task_id:active?.id||null,expected_revision:active?.revision||null});
     active=result;if(JSON.stringify(inputs)===signature){inputs=structuredClone(result.inputs);dirty=false;}
@@ -62,17 +62,16 @@ export function aiDesign(ctx,open){
     const documents=element('div',null,'ai-document-list');inputPanel.append(documents);
     for(const document of inputs.documents){const row=element('div',null,'action-row');row.append(element('span',document.asset.name+' · '+(document.asset.size/1024).toFixed(1)+' KB'));action(row,'View '+document.asset.name,()=>{source={document};renderSource();});action(row,'Remove '+document.asset.name,()=>{inputs.documents=inputs.documents.filter(d=>d.id!==document.id);touched();editor();});documents.append(row);}
     const extras=element('div',null,'action-row');inputPanel.append(extras);
-    action(extras,'Use synthetic sample schematic',guard(async()=>{const response=await fetch('/ai-demo.png');if(!response.ok)throw Error('Sample schematic is unavailable.');await upload(new File([await response.blob()],'PMC synthetic example.png',{type:'image/png'}));provider='mock-example';if(here())editor();}));
     if(get()?.schematics?.length)action(extras,'Use current project schematics',()=>{for(const a of get().schematics)addAsset(structuredClone(a));editor();});
     const label=element('label','Engineering requirements · original instruction','field'),requirements=element('textarea');requirements.rows=7;requirements.value=inputs.engineering_requirements;requirements.setAttribute('aria-label','Engineering requirements');requirements.placeholder='Use SUN cartridges where possible.\nP and T on bottom. A and B on left.\nMaximum block width 150 mm.\nWorking pressure 250 bar. Maximum flow 60 L/min.\nAdd selection, machining, access or interpretation requirements here.';requirements.oninput=()=>{inputs.engineering_requirements=requirements.value;touched();};label.append(requirements);inputPanel.append(label);
     inputPanel.append(element('p','Your original wording is preserved. Reviewed interpretations and supported requirements participate in draft generation.','property-note'));
-    const providerNote=element('p','', 'ai-mock-note');
-    const explainProvider=()=>providerNote.textContent=providers.find(p=>p.id===provider)?.network_required?'Real provider: starting analysis sends the uploaded page images and original requirements to your configured endpoint. CAD and Library geometry stay local.':'Local mock: no network call or OCR. Example results are synthetic; use your configured multimodal provider for a real schematic.';
-    field(inputPanel,'Analysis provider / model',provider,v=>{provider=v;explainProvider();},Object.fromEntries(providers.map(p=>[p.id,`${p.is_mock?'Local mock':'Provider'} · ${p.provider} / ${p.model}`])));
+    const providerNote=element('p','', 'ai-provider-note');
+    const explainProvider=()=>providerNote.textContent=providers.find(p=>p.id===provider)?.network_required?'Real provider: starting analysis sends the uploaded page images and original requirements to your configured endpoint. CAD and Library geometry stay local.':'Configure your multimodal provider in Provider settings before starting analysis.';
+    field(inputPanel,'Analysis provider / model',provider,v=>{provider=v;explainProvider();},Object.fromEntries(providers.map(p=>[p.id,`Provider · ${p.provider} / ${p.model}`])));
     explainProvider();inputPanel.append(providerNote);
     const buttons=element('div',null,'action-row');inputPanel.append(buttons);
     action(buttons,'Save analysis inputs',guard(async()=>{await save();if(here())editor();}));
-    const analyze=makeDraft=>guard(async()=>{if(!inputs.documents.length)throw Error('Upload at least one schematic document.');await save();const key=active.id;
+    const analyze=makeDraft=>guard(async()=>{if(!providers.some(p=>p.id===provider))throw Error('Configure your multimodal provider in Provider settings before starting analysis.');if(!inputs.documents.length)throw Error('Upload at least one schematic document.');await save();const key=active.id;
       const progress=element('p','Starting analysis…','ai-job-state');progress.setAttribute('role','status');inputPanel.append(progress);
       const job=await post(`/api/ai-design/tasks/${key}/analyze-job`,{expected_revision:active.revision,provider});const result=await watchJob(job,progress);
       if(active?.id!==key)return;active=result.task;run=result.run;source=null;if(here()){editor();if(makeDraft&&run.status==='completed')await generator.prepare(true);}});
@@ -83,7 +82,7 @@ export function aiDesign(ctx,open){
     if(active?.runs.length){field(inputPanel,'Analysis history',run?.id||'',async id=>{try{run=await api(`/api/ai-design/tasks/${active.id}/runs/${id}`);source=null;if(here())editor();}catch(e){$('workflow-error').textContent=e.message;}},Object.fromEntries(active.runs.map(r=>[r.id,`${r.created_at.slice(0,19)} · ${r.provider.model} · ${r.status}`])));}
     for(const entry of active?.generations||[])action(inputPanel,'Open generated draft · '+entry.created_at.slice(0,19),guard(async()=>{const packet=await api(`/api/ai-design/tasks/${active.id}/generations/${entry.id}`);if(here())generator.showPacket(packet);}));
     const layout=element('div',null,'ai-results-layout'),results=element('section');results.id='ai-results';const sourcePane=element('aside');sourcePane.id='ai-source';layout.append(results,sourcePane);content.append(layout);
-    if(!run)results.append(element('p','Save inputs and run a local mock to review the circuit, proposed requirements and unresolved questions.'));
+    if(!run)results.append(element('p','Save inputs and analyze your schematic with the configured provider to review the circuit, proposed requirements and unresolved questions.'));
     else renderResult(results);
     renderSource();
   }
@@ -117,7 +116,7 @@ export function aiDesign(ctx,open){
     const stale=dirty||JSON.stringify(run.inputs)!==JSON.stringify(inputs);if(stale)parent.append(element('p','These results belong to an earlier input snapshot. Save and analyze again to use changed documents or requirements.','ai-stale'));
     if(run.status!=='completed'){parent.append(element('p','Analysis failed: '+run.error+'. Inputs and earlier successful results are retained.'));return;}
     const result=run.result,claims=Object.fromEntries(result.claims.map(c=>[c.id,c]));
-    for(const warning of result.warnings)parent.append(element('p',warning,'ai-mock-note'));
+    for(const warning of result.warnings)parent.append(element('p',warning,'ai-provider-note'));
     parent.append(element('p',`${result.components.length} components · ${result.ports.length} ports · ${result.nets.length} nets · ${result.design_intent.length} proposed requirements · ${result.unresolved.length} unresolved`,'ai-summary'));
     for(const [title,rows]of [['Components',result.components],['Hydraulic ports',result.ports],['Hydraulic nets',result.nets]]){
       const section=element('details');section.open=title==='Components';section.append(element('summary',title+' · '+rows.length));parent.append(section);

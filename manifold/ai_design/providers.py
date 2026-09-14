@@ -61,10 +61,9 @@ class ProviderFailure(Exception):
 
 
 def available_providers():
-    from .mock import MockProvider
     from . import config
     from .remote import MultimodalProvider
-    providers = {mode:MockProvider(mode) for mode in ('mock-safe','mock-example')}
+    providers = {}
     try:
         settings = config.read()
     except ValueError:

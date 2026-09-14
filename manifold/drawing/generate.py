@@ -9,7 +9,7 @@ from ..schema import Design
 from ..kinematics import pose, dimensions, FACE_AXES
 from ..cad import cq
 from .projection import project, projected, CAD_LOCK
-from .schema import Edit, Metadata, Sheet, View, Annotation, Table, Schematic
+from .schema import Edit, Metadata, Sheet, Annotation, Table
 
 PAPER = {'A4': (210, 297), 'A3': (297, 420), 'A2': (420, 594), 'A1': (594, 841), 'A0': (841, 1189)}
 
@@ -160,28 +160,21 @@ def geometry_for(source, solid, views, progress=lambda *_: None):
 
 def initial_edit(source, kind, number=''):
     d = Design.model_validate(source['resolved'])
-    scale = next((s for s in (1, .5, .25, .2, .1, .05) if max(dimensions(d.block))*s <= 108
-                  and max(148,65+d.block.width*s)+(d.block.height+d.block.width)*s+52<359), .025)
     meta = Metadata(number=number.strip() or d.name[:100], title=d.name,
                     date=datetime.now(timezone.utc).date().isoformat(), unit='inch' if d.project_context=='inch' else 'mm')
     edit = Edit(metadata=meta, sheets=[Sheet(id='overview', title='Customer reference' if kind=='customer' else 'Manufacturing overview')])
     if kind=='manufacturing':
         from .pmc3069 import configure
         return configure(source,edit)
-    positions = {'top': (159, 35), 'left': (38, 148), 'front': (159, 148), 'right': (280, 148), 'back': (400, 148), 'bottom': (159, 266), 'iso': (421, 35)}
-    front_y=max(148,65+d.block.width*scale)
-    for face in ('left','front','right','back'):positions[face]=(positions[face][0],front_y)
-    positions['bottom']=(159,front_y+d.block.height*scale+38)
-    for name, position in positions.items():
-        edit.views.append(View(id=name, sheet='overview', projection=name, position=position, scale=scale, title=name.upper()))
-    edit.tables.append(Table(id='porting', sheet='overview', kind='porting', position=(290, 266), width=285, count=10))
-    if d.schematics:
-        edit.schematics.append(Schematic(id='schematic', sheet='overview', asset=d.schematics[0].sha256, position=(20, 30), width=110, height=95))
-    return edit
+    from .pmc3092 import configure
+    return configure(source,edit)
 
 
 def auto_annotations(source, edit):
     data, rows, operations = anchors(source)
+    if edit.template.layout=='pmc3092':
+        from .pmc3092 import annotations
+        return annotations(source,edit,data,rows)
     if edit.template.layout=='pmc3069':
         from .pmc3069 import annotations
         return annotations(source,edit,data,rows)
@@ -223,8 +216,8 @@ def auto_annotations(source, edit):
 def add_tables(source, edit, kind):
     from .render import fitting_rows,table_rows
     _, rows, operations = anchors(source)
-    if edit.template.layout=='pmc3069':
-        from .pmc3069 import add_overflow
+    if edit.template.is_pmc:
+        from .pmc_portings import add_overflow
         return add_overflow(source,edit,rows)
     first=edit.tables[0]
     first.count=max(1,fitting_rows(first,table_rows(first,rows,operations),90))

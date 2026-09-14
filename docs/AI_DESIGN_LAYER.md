@@ -10,7 +10,7 @@ AI Design accepts PDF/PNG/JPEG schematics together with the original engineering
 4. Review source evidence, ambiguous connections and requirements. When a cavity cannot be resolved from existing evidence, choose an existing library cavity, map each source hydraulic window to one schematic component port and enter your engineering decision. A model number alone does not establish cavity compatibility.
 5. Generate the draft, inspect the attempted candidates and exact validation results, then **Open draft in Manifold Studio**. Save it as an ordinary project. Edit positions, reroute, undo/redo and Save & Validate through the normal Studio controls.
 
-The two local mock providers remain available without credentials. `mock-safe` leaves unread schematic contents unknown; `mock-example` returns a clearly synthetic relief-valve fixture. Their success does not establish real-model recognition accuracy.
+The application exposes only the configured real multimodal provider. Without a ready configuration, analysis requires Provider settings; there is no mock fallback or synthetic-schematic action. Deterministic provider fixtures live under tests only and are injected explicitly by regression tests.
 
 ## Provider and document boundary
 

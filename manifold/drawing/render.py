@@ -122,8 +122,8 @@ def check_drawing(doc,layouts=True):
     displayed=set()
     for table in edit.tables:
         if table.visible and table.kind=='porting':
-            if table.presentation=='pmc-portings':
-                from .pmc3069 import porting_groups
+            if table.presentation in ('pmc-portings','pmc-customer-portings'):
+                from .pmc_portings import porting_groups
                 displayed.update(key for r in porting_groups(rows,table) for key in r['ids'])
             else:displayed.update(r['id'] for r in table_rows(table,rows,operations))
     if any(r['id'] not in displayed for r in rows):
@@ -131,7 +131,7 @@ def check_drawing(doc,layouts=True):
     if doc['kind']=='manufacturing':
         covered={r['id'] for t in edit.tables if t.visible and t.kind=='machining' for r in table_rows(t,rows,operations)}
         if any(r['id'] not in covered for r in operations):
-            issues.append(issue('machining-coverage','Verify machining information is complete in the referenced cavity specifications and the dimensioned views; add sourced detail dimensions or a supplemental schedule where needed.' if edit.template.layout=='pmc3069' else 'Some machining operations are missing from the visible schedules. Add a continued table.'))
+            issues.append(issue('machining-coverage','Verify machining information is complete in the referenced cavity specifications and the dimensioned views; add sourced detail dimensions or a supplemental schedule where needed.' if edit.template.is_pmc else 'Some machining operations are missing from the visible schedules. Add a continued table.'))
     for schematic in edit.schematics:
         if not schematic.visible:continue
         try: asset_image(doc,schematic)
@@ -230,7 +230,7 @@ def scene(doc,sheet_id):
     group='paper'
     def poly(points,color='#161b22',stroke=.25,dash=False,fill=None):
         primitives.append(dict(kind='polyline',points=points,color=color,stroke=stroke,dash=dash,group=group,fill=fill,
-                               dash_pattern=[.8,.4] if edit.template.layout=='pmc3069' else [2,1]))
+                               dash_pattern=[.8,.4] if edit.template.is_pmc else [2,1]))
     def rect(x,y,w,h,color='#161b22'):
         poly([[x,y],[x+w,y],[x+w,y+h],[x,y+h],[x,y]],color)
     def text(x,y,value,size=3,align='left',color='#161b22',max_width=None,rotation=0):
@@ -241,13 +241,13 @@ def scene(doc,sheet_id):
         if length<1e-8:return
         ux,uy=dx/length,dy/length
         points=[[p[0]+ux*2-uy*.7,p[1]+uy*2+ux*.7],p,[p[0]+ux*2+uy*.7,p[1]+uy*2-ux*.7]]
-        if edit.template.layout=='pmc3069':points.append(points[0])
-        poly(points,stroke=.15 if edit.template.layout=='pmc3069' else .2,fill='#161b22' if edit.template.layout=='pmc3069' else None)
-    pmc=edit.template.layout=='pmc3069'
+        if edit.template.is_pmc:points.append(points[0])
+        poly(points,stroke=.15 if edit.template.is_pmc else .2,fill='#161b22' if edit.template.is_pmc else None)
+    pmc=edit.template.is_pmc
     title_y=383 if pmc else height-59
     margin=2 if pmc else 8
     if pmc:
-        from .pmc3069 import furniture
+        from .pmc_standard import furniture
         def logo(x,y,w,h):
             data=(Path(__file__).parent/'assets'/'pmc-logo.png').read_bytes()
             primitives.append(dict(kind='image',x=x,y=y,width=w,height=h,data=base64.b64encode(data).decode(),group='paper',schematic=None))
@@ -293,6 +293,12 @@ def scene(doc,sheet_id):
         if doc.get('release',{}):
             exceptions=doc['release'].get('exceptions',{})
             if exceptions:text(14,25,'RELEASED WITH RECORDED EXCEPTIONS — see release notes',3,color='#9a2d28')
+    if edit.template.is_pmc and edit.metadata.notes:
+        group='drawing-notes'
+        if edit.template.layout=='pmc3092':text(24,287,edit.metadata.notes,4,max_width=130)
+        else:text(5,374,edit.metadata.notes,3,max_width=110)
+    if edit.template.layout=='pmc3092' and edit.metadata.customer:
+        group='customer-name';text(24,279,'CUSTOMER: '+edit.metadata.customer,3.5,max_width=130)
     for view in edit.views:
         if view.sheet!=sheet_id or not view.visible:continue
         group=view.id
@@ -381,17 +387,19 @@ def scene(doc,sheet_id):
     for table in edit.tables:
         if table.sheet!=sheet_id or not table.visible:continue
         group=table.id
-        if table.presentation=='pmc-portings':
-            from .pmc3069 import table_layout,MAGENTA
-            x,y=table.position;cw=table.width/6
-            rect(x,y,table.width,5.5,MAGENTA);text(x+table.width/2,y+4.3,'PORTINGS',3.6,align='center',color=MAGENTA)
-            y+=5.5
+        if table.presentation in ('pmc-portings','pmc-customer-portings'):
+            from .pmc_portings import table_layout, column_pairs
+            from .pmc_standard import MAGENTA
+            x,y=table.position;cw=table.width/(2*column_pairs(table));header=9 if table.presentation=='pmc-customer-portings' else 5.5
+            rect(x,y,table.width,header,MAGENTA);text(x+table.width/2,y+header-1.2,'PORTINGS',4 if column_pairs(table)==1 else 3.6,align='center',color=MAGENTA)
+            y+=header
             for row in table_layout(table,rows):
                 for i,lines in enumerate(row['cells']):
                     rect(x+i*cw,y,cw,row['height'],MAGENTA)
                     for j,line in enumerate(lines):text(x+(i+.5)*cw,y+table.height+j*table.height*1.15,line,table.height,align='center',color=MAGENTA)
                 y+=row['height']
-            if y>364.1 and table.position==(313,247):render_issues.append(issue('table-bounds:'+table.id,'PORTINGS overlaps the PMC company block. Reduce the row range or add a continuation sheet.',table.id,'error'))
+            if x+table.width>450 and x<592 and y>364.1 and table.position[1]<383:
+                render_issues.append(issue('table-bounds:'+table.id,'PORTINGS overlaps the PMC company block. Move the table, reduce the row range or add a continuation sheet.',table.id,'error'))
             continue
         selected=table_rows(table,rows,operations)
         x,y=table.position

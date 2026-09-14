@@ -41,7 +41,7 @@ class Metadata(Strict):
 
 
 class Template(Strict):
-    layout: Literal['legacy', 'pmc3069'] = 'legacy'
+    layout: Literal['legacy', 'pmc3069', 'pmc3092'] = 'legacy'
     name: str = Field(default='PMC', max_length=100)
     company: str = Field(default='POWER & MOTION CONTROL PTE. LTD.', max_length=160)
     address: str = Field(default='14 Tuas South Link 3, Singapore 638814', max_length=200)
@@ -54,6 +54,11 @@ class Template(Strict):
     fax: str = Field(default='6265 7789', max_length=100)
     email: str = Field(default='pmcont@singnet.com.sg', max_length=100)
     linear_tolerances: list[Annotated[str,Field(max_length=20)]] = Field(default_factory=lambda:['±0.1','±0.2','±0.3','±0.5','±0.8','±1.2','±2.0'], min_length=7, max_length=7)
+
+
+    @property
+    def is_pmc(self):
+        return self.layout in ('pmc3069','pmc3092')
 
 
 class View(Strict):
@@ -115,7 +120,7 @@ class Table(Strict):
     order: list[Key] = Field(default_factory=list, max_length=500)
     remarks: dict[Key, Annotated[str, Field(max_length=240)]] = Field(default_factory=dict, max_length=500)
     visible: bool = True
-    presentation: Literal['standard','pmc-portings'] = 'standard'
+    presentation: Literal['standard','pmc-portings','pmc-customer-portings'] = 'standard'
 
 
 class Schematic(Strict):
@@ -149,9 +154,9 @@ class Edit(Strict):
 
     @model_validator(mode='after')
     def references(self):
-        if self.template.layout=='pmc3069':
+        if self.template.is_pmc:
             if self.metadata.unit!='mm' or any(s.size!='A2' or not s.landscape for s in self.sheets):
-                raise ValueError('The PMC26-3069 template uses A2 landscape sheets and millimetre dimensions/tolerances')
+                raise ValueError('PMC standard templates use A2 landscape sheets and millimetre dimensions/tolerances')
         sheets = {s.id for s in self.sheets}
         views = {v.id: v for v in self.views}
         ids = [s.id for s in self.sheets]

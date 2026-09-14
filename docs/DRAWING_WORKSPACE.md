@@ -67,3 +67,11 @@ New manufacturing drawings use three A2 landscape sheets: overview, six machinin
 PMC26-3069 dimensions/tolerance bands are mm. Title block properties include quantity and design/drawn/checked/approved names. Ordinate dimensions can be repositioned or switched to ordinary X/Y presentation, with values still computed from their anchors. Diagnostic build/source information remains in the application, not on normal manufacturing paper. Existing legacy drawings retain their template; create a new manufacturing document to use this default.
 
 See [the template correction and visual evidence](PMC3069_MANUFACTURING_TEMPLATE.md).
+
+## Common PMC title block and Customer layout
+
+New Customer drawings use PMC26-3092 page 1 for their layout: six compact orthographic views, ISO above/right, the associated Project schematic upper-left, and a two-column PORTINGS table lower-right. Customer notes and **FOR CUSTOMER REFERENCE ONLY** are in the drawing area above the title block. No sample-product identity, engraving instruction or schematic is copied into a different Project.
+
+Customer and Manufacturing now call the same `pmc_standard.py` furniture renderer for the border, stock summary, company/logo, general-tolerance grid, alteration/revision area and design/drawn/checked/approved/title cells. Layout-specific arrangement remains in `pmc3092.py` and `pmc3069.py`; the PORTINGS grouping/pagination implementation is shared. Both PMC defaults use A2 landscape and mm, and keep internal diagnostics off the normal engineering sheet.
+
+Use **Create Drawing → PMC Customer Drawing** for this default. Existing saved layouts and issued PDFs retain their presentation; opening or updating an old document does not silently rearrange the engineer's work. The shared title block changes presentation only: source traceability, computed dimensions, canonical checks, review requirements and the current isolated CAD execution remain in force.

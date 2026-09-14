@@ -63,7 +63,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
   function renderPlan(task,run,plan,attempted=false){
     open('AI Design · Create manifold draft');content.classList.add('ai-content');
     action(content,'Back to hydraulic analysis',back);
-    content.append(element('p',`${run.provider.is_mock?'MOCK analysis':'AI analysis'} · ${run.provider.id} / ${run.provider.model}. The result will open as an editable Draft, with exact checks and unresolved engineering decisions visible.`,'ai-mock-note'));
+    content.append(element('p',`${run.provider.is_mock?'MOCK analysis':'AI analysis'} · ${run.provider.id} / ${run.provider.model}. The result will open as an editable Draft, with exact checks and unresolved engineering decisions visible.`,'ai-provider-note'));
     if(plan.blocked.length){const summary=element('section',null,'ai-blocked');summary.setAttribute('role','alert');summary.tabIndex=-1;
       summary.append(element('h3',attempted?`Draft not generated · ${plan.blocked.length} blockers remain`:`Draft generation needs ${plan.blocked.length} decisions`),element('p','Resolve the items below, then recheck or generate again. Your saved analysis is retained; no new AI call is needed.'));
       const list=element('ul');for(const message of plan.blocked)list.append(element('li',message));summary.append(list);content.append(summary);
@@ -154,7 +154,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
     content.append(element('h3',packet.status==='draft'?'Your editable manifold draft':'Generation needs review'),element('p',packet.message||packet.status));
     if(packet.status==='draft'){
       content.append(element('p',`Exact report: ${packet.validation.counts.PASS} PASS · ${packet.validation.counts.WARNING} WARNING · ${packet.validation.counts.FAIL} FAIL. Geometry failures: ${packet.geometry_failures}.`,'ai-summary'));
-      content.append(element('p','The draft preserves all failed checks and open engineering decisions. Opening it does not mark it approved. Move, replace, reroute, save and validate in the normal Studio.','ai-mock-note'));
+      content.append(element('p','The draft preserves all failed checks and open engineering decisions. Opening it does not mark it approved. Move, replace, reroute, save and validate in the normal Studio.','ai-provider-note'));
       action(content,'Open draft in Manifold Studio',()=>{if(newProject(packet.design)){$('workflow-dialog').close();ctx.notice('AI Draft opened. Review the linked analysis and engineering decisions, then Save Project or Save & Validate.');}}).classList.add('primary');
       const a=element('a','Download draft project JSON');a.href=`/api/ai-design/tasks/${packet.task_id}/generations/${packet.id}/project`;a.className='download';content.append(a);
       for(const attempt of packet.attempts){content.append(element('p',`Candidate ${attempt.index+1}: ${attempt.error||`${attempt.geometry_failures} geometry failures · ${attempt.counts.FAIL} total FAIL · ${(attempt.failed_rules||[]).join(', ')||'no failed rules'}`}`));}

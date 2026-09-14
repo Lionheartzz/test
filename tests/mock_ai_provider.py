@@ -2,7 +2,7 @@
 import hashlib
 import re
 from pathlib import Path
-from .providers import ProviderResponse
+from manifold.ai_design.providers import ProviderResponse
 
 
 def interpret_requirements(text):
@@ -62,7 +62,7 @@ class MockProvider:
             for index,document in enumerate(request.inputs.documents):
                 result['unresolved'].append(dict(id=f'DOC_UNKNOWN_{index+1}',reason='unsupported',description=f'{document.asset.name}: schematic contents have not been interpreted.',question='Use a future document-capable provider or review manually.'))
             return ProviderResponse(result)
-        sample=Path(__file__).resolve().parents[2]/'public'/'ai-demo.png'
+        sample=Path(__file__).parent/'fixtures'/'ai-demo.png'
         sample_sha=hashlib.sha256(sample.read_bytes()).hexdigest() if sample.exists() else None
         document=next((d for d in request.inputs.documents if d.asset.sha256==sample_sha),None)
         source=dict(id='MOCK_EXAMPLE',kind='mock_fixture',quote='Synthetic workflow fixture: RV1 / SUN RDBA-LAN / P to T',explanation='Canned example, not recognition of an uploaded schematic.')

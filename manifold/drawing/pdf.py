@@ -15,7 +15,7 @@ def export_pdf(doc):
     canvas=Canvas(buffer,pageCompression=1,invariant=1)
     canvas.setTitle(edit.metadata.number+' · '+edit.metadata.title)
     canvas.setAuthor(edit.template.company)
-    canvas.setSubject('PMC engineering drawing' if edit.template.layout=='pmc3069' else f'{doc["kind"]}; {doc["status"]}; source {doc["source"]["design_revision"]}; build {doc["source"]["build_id"]}')
+    canvas.setSubject('PMC engineering drawing' if edit.template.is_pmc else f'{doc["kind"]}; {doc["status"]}; source {doc["source"]["design_revision"]}; build {doc["source"]["build_id"]}')
     overlays=[]
     for sheet in edit.sheets:
         current=scene(doc,sheet.id)
@@ -89,6 +89,6 @@ def export_pdf(doc):
                            .translate(item['position'][0]*mm,(h-item['position'][1]-item['height'])*mm))
                 page.merge_transformed_page(original,transform,over=False,expand=False)
     writer.add_metadata({'/Title':edit.metadata.number+' '+edit.metadata.title,'/Author':edit.template.company,
-                         '/Subject':'PMC engineering drawing' if edit.template.layout=='pmc3069' else f'Source {doc["source"]["design_revision"]}; build {doc["source"]["build_id"]}; {doc["status"]}'})
+                         '/Subject':'PMC engineering drawing' if edit.template.is_pmc else f'Source {doc["source"]["design_revision"]}; build {doc["source"]["build_id"]}; {doc["status"]}'})
     output=io.BytesIO();writer.write(output)
     return output.getvalue()

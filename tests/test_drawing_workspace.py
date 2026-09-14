@@ -76,7 +76,7 @@ def test_pdf_is_vector_correct_sheet_size_and_contains_real_values(drawing):
     assert float(page.mediabox.width)==pytest.approx(594*72/25.4,abs=.001)
     text=page.extract_text()
     assert 'PMC-TEST' in text and 'S50C' in text and '100.00' in text
-    assert 'DRAFT' in text
+    assert 'FOR CUSTOMER REFERENCE ONLY' in text and 'DRAFT' not in text
     assert b' l' in page.get_contents().get_data()
     assert any('/FontDescriptor' in f.get_object() or '/DescendantFonts' in f.get_object() for f in page['/Resources']['/Font'].values())
 
@@ -133,7 +133,8 @@ def test_update_preserves_layout_suppression_and_broken_refs_until_rebind(drawin
     p,doc=drawing
     client=TestClient(app);url=f'/api/drawings/{p["project_id"]}/{doc["id"]}'
     edit=Edit.model_validate(doc['edit']);edit.views[0].position=(170,45)
-    removed=edit.annotations.pop(0).id
+    removed=next(a.id for a in edit.annotations if a.kind=='dimension')
+    edit.annotations=[a for a in edit.annotations if a.id!=removed]
     edit.annotations.append(Annotation(id='note',kind='text',sheet='overview',position=(20,25),text='Keep my note'))
     d=Design.model_validate(p['design']);d.features[0].face='bottom'
     p=projects.save(d,p['project_id'],p['revision']);p=projects.build(p['project_id'],p['revision'])
@@ -243,7 +244,6 @@ def test_template_reuses_only_presentation_and_project_deletes_owned_drawings(dr
 def test_original_schematic_pdf_is_vector_and_crop_preserves_aspect(drawing,kind):
     from reportlab.pdfgen.canvas import Canvas
     from manifold.workflow import save_asset
-    from manifold.drawing.schema import Schematic
     from manifold.drawing.generate import digest
     p,doc=drawing
     original=io.BytesIO();c=Canvas(original,pagesize=(400,200));c.drawString(40,100,'VECTOR-CIRCUIT-P1-P2');c.line(20,90,380,90)
@@ -253,7 +253,9 @@ def test_original_schematic_pdf_is_vector_and_crop_preserves_aspect(drawing,kind
     doc['source']['authored']['schematics']=[asset.model_dump()]
     doc['source']['sha256']=digest({k:v for k,v in doc['source'].items() if k!='sha256'})
     edit=initial_edit(doc['source'],kind)
-    if kind=='customer':edit.schematics=[Schematic(id='circuit',sheet='overview',asset=asset.sha256,position=(20,25),width=100,height=100,crop=(0,0,1,1))]
+    if kind=='customer':
+        assert edit.schematics[0].position==(20,16)
+        assert edit.schematics[0].asset==asset.sha256
     doc['edit']=edit.model_dump()
     current=scene(doc,'overview');image=next(p for p in current['primitives'] if p['kind']=='image' and p.get('schematic'))
     assert image['width']/image['height']==pytest.approx(2)
@@ -282,7 +284,7 @@ def test_pmc3069_api_layout_dimensions_and_pdf_are_source_linked(drawing):
     assert not any(v.hidden for v in edit.views if v.sheet=='overview')
     assert not [i for i in check_drawing(doc) if i['severity']=='error']
     data,rows,_=anchors(doc['source'])
-    from manifold.drawing.pmc3069 import porting_groups
+    from manifold.drawing.pmc_portings import porting_groups
     porting_text=' '.join(r['labels'] for r in porting_groups(rows,edit.tables[0]))
     assert all(r['label'] in porting_text and r['machining_label'] in porting_text for r in rows)
     dimensions={a.id:a for a in edit.annotations if a.kind=='dimension'}
@@ -322,7 +324,8 @@ def test_pmc3069_api_layout_dimensions_and_pdf_are_source_linked(drawing):
 
 
 def test_pmc_portings_overflow_preserves_every_source_identifier():
-    from manifold.drawing.pmc3069 import add_overflow,porting_groups,table_layout,configure
+    from manifold.drawing.pmc_portings import add_overflow,porting_groups,table_layout
+    from manifold.drawing.pmc3069 import configure
     source=dict(resolved=dict(block=dict(length=187,width=228.6,height=228.6)),authored={})
     edit=configure(source,Edit(metadata=dict(number='INCH-CONTEXT',title='Table test',unit='inch'),sheets=[dict(id='overview')]))
     assert edit.metadata.unit=='mm'
@@ -351,6 +354,78 @@ def test_pmc_portings_overflow_preserves_every_source_identifier():
     mixed=[dict(id=f'F{i}',label=f'F{i}',kind='cavity',specification=f'Cavity {i} / explicit engineering source specification with wrapped thread information') for i in range(5)]
     add_overflow(source,compact,mixed)
     assert len(compact.sheets)==3
+
+
+def test_customer_pmc3092_api_and_shared_title_block(drawing):
+    p,old=drawing;client=TestClient(app)
+    before=projects.path(p['project_id']).read_bytes()
+    result=completed(client,p['project_id'],client.post('/api/drawings/'+p['project_id'],headers=HEADERS,
+        json=dict(expected_source=p['revision'],kind='customer',template_id='pmc-customer',number='PMC-CUSTOMER-42')))
+    doc=storage.read(p['project_id'],result['drawing_id']);edit=Edit.model_validate(doc['edit'])
+    assert edit.template.layout=='pmc3092' and len(edit.sheets)==1 and len(edit.views)==7
+    views={v.id:v for v in edit.views}
+    assert views['top'].position[0]==views['front'].position[0]==views['bottom'].position[0]
+    assert {views[face].position[1] for face in ('left','front','right','back')}=={135}
+    assert edit.tables[0].presentation=='pmc-customer-portings' and edit.tables[0].position==(459,250)
+    edit.metadata.customer='Customer example';edit.metadata.notes='Customer note from this Project only.'
+    edit.metadata.designed_by='Designer';edit.metadata.approved_by='Reviewer';edit.metadata.quantity=7
+    edit.metadata.revision_note='Customer approval issue'
+    edit.views[0].position=(edit.views[0].position[0]+3,edit.views[0].position[1])
+    url=f'/api/drawings/{p["project_id"]}/{doc["id"]}'
+    saved=client.post(url+'/save',headers=HEADERS,json=dict(expected_revision=storage.revision(doc),edit=edit.model_dump()))
+    assert saved.status_code==200,saved.text
+    doc=storage.read(p['project_id'],doc['id'])
+    assert Edit.model_validate(client.get(url).json()['edit'])==edit
+    assert projects.path(p['project_id']).read_bytes()==before
+    assert not [i for i in check_drawing(doc) if i['severity']=='error']
+    customer_scene=scene(doc,'overview')
+    furniture=[p for p in customer_scene['primitives'] if p['group']=='paper']
+    # Same source/title values and sheet scale/count produce exactly the same
+    # furniture in both layouts, including the logo and tolerance/signoff grids.
+    manufacture=deepcopy(doc)
+    me=initial_edit(doc['source'],'manufacturing')
+    me.metadata=edit.metadata.model_copy(deep=True)
+    me.sheets=me.sheets[:1];me.views=[v for v in me.views if v.sheet=='overview']
+    me.tables=[t for t in me.tables if t.sheet=='overview']
+    manufacture['edit']=me.model_dump();manufacture['kind']='manufacturing'
+    assert [p for p in scene(manufacture,'overview')['primitives'] if p['group']=='paper']==furniture
+    body=[p for p in customer_scene['primitives'] if p['kind']=='text' and p['group']!='paper']
+    for content in ('FOR CUSTOMER REFERENCE ONLY','Customer note from this Project only.','CUSTOMER: Customer example','PORTINGS'):
+        assert any(p['text']==content and p['y']<383 for p in body)
+        assert not any(p.get('text')==content for p in furniture)
+    pdf=PdfReader(io.BytesIO(client.get(url+'/pdf').content))
+    text=pdf.pages[0].extract_text()
+    assert all(t in text for t in ('GENERAL TOLERANCE','ALTERATION','DESIGN','DRAWN','CHECKED','APPROVED','PMC-CUSTOMER-42','L100XW80XH60'))
+    assert not any(t in text for t in ('SOURCE','BUILD','DRAFT','3069','3092'))
+    assert pdf.metadata.subject=='PMC engineering drawing'
+    # Manual table placement is constrained by actual furniture, not its
+    # default lower-right slot. Lower-left remains available for finishing.
+    moved=deepcopy(doc);moved['edit']['tables'][0]['position']=[20,340]
+    assert not [i for i in scene(moved,'overview')['issues'] if i['severity']=='error']
+    moved['edit']['tables'][0]['position']=[459,355]
+    assert any(i['code']=='table-bounds:porting' and i['severity']=='error' for i in scene(moved,'overview')['issues'])
+    invalid=edit.model_dump();invalid['metadata']['unit']='inch'
+    assert client.post(url+'/render',headers=HEADERS,json=dict(edit=invalid,sheet='overview')).status_code==422
+    # A custom finishing template may have removed the front view. Generating
+    # annotations must still work and must not recreate the deleted view.
+    edit.views=[v for v in edit.views if v.id!='front']
+    edit.annotations=[]
+    assert auto_annotations(doc['source'],edit)
+
+
+def test_customer_portings_continue_without_losing_source_rows_or_notice():
+    from manifold.drawing.pmc3092 import configure
+    from manifold.drawing.pmc_portings import add_overflow,porting_groups,table_layout,table_height
+    source=dict(resolved=dict(block=dict(length=250,width=130,height=250)),authored={})
+    edit=configure(source,Edit(metadata=dict(number='CUSTOMER',title='Customer'),sheets=[dict(id='overview')]))
+    rows=[dict(id=f'P{i}',label=f'P{i}',kind='port',specification=f'G{i+1}/4 source thread') for i in range(25)]
+    add_overflow(source,edit,rows)
+    assert len(edit.sheets)>1
+    assert {key for t in edit.tables for r in porting_groups(rows,t) for key in r['ids']}=={r['id'] for r in rows}
+    for table in edit.tables:
+        assert all(len(row['cells'])==2 for row in table_layout(table,rows))
+        assert table_height(table,rows)<=105.001
+    assert {a.sheet for a in edit.annotations if a.text=='FOR CUSTOMER REFERENCE ONLY'}=={s.id for s in edit.sheets[1:]}
 
 
 def test_pinned_operations_offsets_angles_and_uncertain_identity():

@@ -15,12 +15,14 @@ HEADERS={'X-PMC-Request':'local-console'}
 
 @pytest.fixture
 def client(tmp_path,monkeypatch):
+    from mock_ai_provider import MockProvider
+    monkeypatch.setattr(service,'available_providers',lambda:{mode:MockProvider(mode) for mode in ('mock-safe','mock-example')})
     monkeypatch.setattr(store,'PROJECT',tmp_path/'projects'/'demo.json')
     monkeypatch.setattr(store,'OUTPUT',tmp_path/'output')
     return TestClient(app)
 
 def upload(client,data=None,name='schematic.png',media='image/png'):
-    if data is None:data=(store.ROOT/'public'/'ai-demo.png').read_bytes()
+    if data is None:data=(Path(__file__).parent/'fixtures'/'ai-demo.png').read_bytes()
     response=client.post('/api/assets',content=data,headers={**HEADERS,'Content-Type':media,'X-File-Name':name})
     assert response.status_code==200,response.text
     return response.json()
