@@ -1,4 +1,4 @@
-"""Single local drawing worker, cancellable between exact projections and before commit."""
+"""Drawing coordinator; isolated native projections can be terminated on cancellation."""
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from threading import RLock
@@ -40,7 +40,7 @@ def start(project_id,operation):
                 JOBS[key].update(state='completed',message='Completed',result=result)
         except InterruptedError as exc:
             with LOCK:JOBS[key].update(state='cancelled',message=str(exc))
-        except (ValueError,FileNotFoundError) as exc:
+        except (ValueError,FileNotFoundError,RuntimeError) as exc:
             with LOCK:JOBS[key].update(state='failed',message=str(exc))
         except Exception:
             import logging

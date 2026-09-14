@@ -63,7 +63,7 @@ def main():
         os.environ['PMC_LAN']='1' if args.lan else '0'
         from .network import endpoints
         print(json.dumps(endpoints()),flush=True)
-        uvicorn.run('manifold.server:app', host='0.0.0.0' if args.lan else '127.0.0.1', port=8765, workers=1,proxy_headers=False)
+        uvicorn.run('manifold.server:app', host='0.0.0.0' if args.lan else '127.0.0.1', port=8765, workers=1,proxy_headers=False,timeout_graceful_shutdown=3)
 
 
 if __name__ == '__main__':

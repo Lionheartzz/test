@@ -8,10 +8,10 @@ from fastapi.responses import Response, FileResponse
 from pydantic import Field
 from ..schema import Strict
 from .. import store, projects
-from ..cad import cq
+from ..engineering import calculate_sync
 from . import storage, jobs, templates
 from .schema import Create, Save, Regenerate, Revision, Release, Edit, ID, Digest, Key
-from .generate import snapshot, initial_edit, auto_annotations, add_tables, geometry_for, regenerate_edit, anchors, digest
+from .generate import snapshot, initial_edit, auto_annotations, add_tables, regenerate_edit, anchors, digest
 from .render import scene, svg, check_drawing, font_path
 from .pdf import export_pdf
 
@@ -38,14 +38,21 @@ def list_templates():return guarded(templates.listing)
 def listing(project_id:ID):return guarded(storage.listing,project_id)
 
 
+def isolated_geometry(source,views,progress):
+    result=calculate_sync('drawing-geometry',dict(project_id=source['project_id'],expected=source['design_revision'],views=[v.model_dump() for v in views]),progress)
+    if result['source']['sha256']!=source['sha256']:
+        raise ValueError('Source build changed during drawing generation. Refresh and retry; existing drawing retained.')
+    return result['geometry']
+
+
 @router.post('/{project_id}')
 def create(project_id:ID,payload:Create):
     def operation(progress):
-        source,solid=snapshot(project_id,payload.expected_source)
+        source,solid=snapshot(project_id,payload.expected_source,load_solid=False)
         edit=templates.apply(payload.template_id,payload.kind,initial_edit(source,payload.kind,payload.number))
         edit.annotations=auto_annotations(source,edit)
         if not payload.template_id or payload.template_id.startswith('pmc-'):add_tables(source,edit,payload.kind)
-        geometry=geometry_for(source,solid,edit.views,progress)
+        geometry=isolated_geometry(source,edit.views,progress)
         progress('Saving drawing')
         doc=progress.commit(lambda:storage.save_new(project_id,source,edit,geometry,payload.kind,expected_project=payload.expected_source))
         return dict(drawing_id=doc['id'])
@@ -93,7 +100,7 @@ def update(project_id:ID,drawing_id:ID,payload:Regenerate):
     guarded(storage.check,original,payload.expected_revision)
     guarded(storage.editable_project,project_id)
     def operation(progress):
-        source,solid=snapshot(project_id,payload.expected_source)
+        source,solid=snapshot(project_id,payload.expected_source,load_solid=False)
         previous=payload.edit.model_copy(deep=True)
         ids={a.id for a in previous.annotations}
         previous.suppressed=list(dict.fromkeys([*previous.suppressed,*[a['id'] for a in original['edit']['annotations'] if a['automatic'] and a['id'] not in ids]]))
@@ -108,7 +115,7 @@ def update(project_id:ID,drawing_id:ID,payload:Regenerate):
                 if key not in after or key in before and before[key]['signature']!=after[key]['signature']:
                     broken[item.id]='Feature removed, replaced, or moved to another face; rebind explicitly.'
         candidate=deepcopy(original)
-        candidate.update(source=source,edit=edit.model_dump(),geometry=geometry_for(source,solid,edit.views,progress),broken=broken)
+        candidate.update(source=source,edit=edit.model_dump(),geometry=isolated_geometry(source,edit.views,progress),broken=broken)
         progress('Preparing update preview')
         token=uuid.uuid4().hex
         progress.commit(lambda:store.atomic_json(storage.folder(project_id,drawing_id)/'candidates'/(token+'.json'),dict(expected=payload.expected_revision,document=candidate)))

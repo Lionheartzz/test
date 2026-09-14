@@ -1,3 +1,4 @@
+from .timing import timed,phase
 """Deterministic orthogonal route proposals. Only the BRep validator grants PASS."""
 import hashlib
 import itertools
@@ -324,6 +325,7 @@ def route_options(design, net, *, expanded=False):
     return sorted(permitted or options,key=lambda o:(o['hard_failures'],o['cost']+o['risk'],o['cost'],o['key']))
 
 
+@timed('route.proposal')
 def _resolve_proposals(design):
     resolved = resolve_parents(design)
     from .sizing import route_sizing
@@ -442,7 +444,8 @@ def alternative_proposals(best, target, routes, report, eligible, inspected):
     return sorted(proposals,key=lambda p:p[0])
 
 
-def resolve_design(design, *, exact=True, persist=False):
+@timed('route.resolution')
+def resolve_design(design, *, exact=True, persist=False, prepared=False):
     """Compare up to six automatic proposals exactly, preserving frozen/manual cuts.
 
     Exact selection is pure unless an explicit build/engineering decision opts into evidence.
@@ -453,7 +456,7 @@ def resolve_design(design, *, exact=True, persist=False):
     # A stored automatic variant is a proposal, not a frozen engineering route.
     # Moving terminals can invalidate it; Save & Validate must reconsider it too.
     pending = [n for n in design.nets if n.routing == 'automatic']
-    if not exact or not pending:
+    if not exact or not pending and not prepared:
         return target, routes
     from .geometry import build_geometry
     from .validation import validate
@@ -464,14 +467,16 @@ def resolve_design(design, *, exact=True, persist=False):
     skipped=[]
     def evaluate(candidate, reason):
         resolved, metadata = _resolve_proposals(candidate)
+        geometry=None
         try:
             geometry=build_geometry(resolved)
             authorize_generated_contacts(resolved,geometry)
             report=validate(resolved,geometry)
             failed=report['counts']['FAIL']
         except Exception as exc:
+            geometry=None
             failed=1_000_000
-            report=dict(counts=dict(FAIL=1,WARNING=0),checks=[dict(rule='cad_candidate_error',status='FAIL',error=type(exc).__name__)])
+            report=dict(counts=dict(FAIL=1,WARNING=0),checks=[dict(rule='cad_candidate_error',status='FAIL',error=type(exc).__name__,message=str(exc)[:2000])])
         cost=route_cost(resolved,[f for f in resolved.features if f.kind=='drilling' and not f.suppressed])
         index=len(attempts)
         score=(failed,report['counts']['WARNING'],cost)
@@ -479,15 +484,15 @@ def resolve_design(design, *, exact=True, persist=False):
             store.atomic_json(folder/f'attempt-{index:02}'/'resolved_design.json',resolved.model_dump())
             store.atomic_json(folder/f'attempt-{index:02}'/'validation.json',report)
         attempts.append(dict(reason=reason,score=score,routes=metadata))
-        return score,resolved,metadata,index,report
+        return score,resolved,metadata,index,report,geometry
     best=design.model_copy(deep=True)
     # Pin the baseline before varying one net, avoiding implicit nested searches.
     for net in best.nets:
         if net.routing=='automatic':net.routing_variant=next(r['variant'] for r in routes if r['net']==net.id)
-    score,target,routes,chosen,report=evaluate(best,'Default baseline')
+    score,target,routes,chosen,report,geometry=evaluate(best,'Default baseline')
     inspected={tuple(sorted((r['net'],r['variant']) for r in routes))}
     eligible={n.id for n in pending}
-    while len(attempts)<6:
+    while len(attempts)<6 and not (prepared and score[0]==0):
         proposals=alternative_proposals(best,target,routes,report,eligible,inspected)
         if not proposals:break
         _,candidate,signature,reason=proposals[0]
@@ -497,18 +502,22 @@ def resolve_design(design, *, exact=True, persist=False):
         if score[:2]==(0,0) and cost>=score[2]:
             skipped.append(dict(variants=signature,cost=cost,reason='Cannot improve exact PASS at lower machining cost'))
             break
-        trial,new_target,new_routes,index,new_report=evaluate(candidate,reason)
+        trial,new_target,new_routes,index,new_report,new_geometry=evaluate(candidate,reason)
         if trial<score:
-            best,score,target,routes,chosen,report=candidate,trial,new_target,new_routes,index,new_report
+            best,score,target,routes,chosen,report,geometry=candidate,trial,new_target,new_routes,index,new_report,new_geometry
     if folder:
         store.atomic_json(folder/'summary.json',dict(selected_attempt=chosen,attempts=attempts,skipped=skipped))
     for route in routes:
         if folder:route['selection_evidence']=folder.name
         route['exact_attempts']=len(attempts)
         route['status']='EXACT_CANDIDATE_CHECKED_REQUIRES_FINAL_VALIDATION'
+    if prepared:
+        if geometry is None:raise RuntimeError('No usable exact solid was produced; '+report['checks'][0].get('message','inspect candidate failure evidence.'))
+        return target,routes,geometry,report
     return target,routes
 
 
+@timed('hydraulic.contacts')
 def authorize_generated_contacts(design, geometry):
     """Authorize only declared net members and generated bores of that net; retain all other rules."""
     nets = {n.id:set(n.members) for n in design.nets}

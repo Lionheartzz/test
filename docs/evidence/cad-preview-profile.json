@@ -1,0 +1,170 @@
+[
+  {
+    "features": 3,
+    "nets": 2,
+    "health_s": {
+      "count": 21,
+      "max": 0.065
+    },
+    "projects_s": {
+      "count": 21,
+      "max": 0.0198
+    },
+    "save_s": {
+      "count": 1,
+      "max": 0.0147
+    },
+    "preview_http": 200,
+    "elapsed_s": 4.684,
+    "execution": {
+      "elapsed_s": 4.312,
+      "phase": "completed",
+      "operations": {
+        "boolean.clean": {
+          "count": 16,
+          "seconds": 0.032
+        },
+        "boolean.cut": {
+          "count": 5,
+          "seconds": 0.141
+        },
+        "boolean.fuse": {
+          "count": 8,
+          "seconds": 0.155
+        },
+        "boolean.intersect": {
+          "count": 12,
+          "seconds": 0.032
+        },
+        "geometry.construction": {
+          "count": 1,
+          "seconds": 0.172
+        },
+        "hydraulic.cross_net_geometry": {
+          "count": 1,
+          "seconds": 0.0
+        },
+        "hydraulic.net_geometry": {
+          "count": 1,
+          "seconds": 0.375
+        },
+        "operation.preview-solid": {
+          "count": 1,
+          "seconds": 1.266
+        },
+        "result.serialization": {
+          "count": 1,
+          "seconds": 0.047
+        },
+        "review.generation": {
+          "count": 1,
+          "seconds": 1.078
+        },
+        "route.proposal": {
+          "count": 1,
+          "seconds": 0.016
+        },
+        "route.resolution": {
+          "count": 1,
+          "seconds": 0.016
+        },
+        "tessellation": {
+          "count": 24,
+          "seconds": 0.859
+        },
+        "worker.startup": {
+          "count": 1,
+          "seconds": 2.156
+        }
+      },
+      "cpu_s": 4.6875,
+      "peak_memory_mb": 225.74,
+      "operation": "preview-solid",
+      "limit_s": 15,
+      "exit_code": 0,
+      "state": "completed"
+    }
+  },
+  {
+    "features": 120,
+    "nets": 0,
+    "health_s": {
+      "count": 46,
+      "max": 0.0047
+    },
+    "projects_s": {
+      "count": 46,
+      "max": 0.016
+    },
+    "save_s": {
+      "count": 1,
+      "max": 0.0095
+    },
+    "preview_http": 200,
+    "elapsed_s": 10.061,
+    "execution": {
+      "elapsed_s": 9.953,
+      "phase": "completed",
+      "operations": {
+        "boolean.clean": {
+          "count": 122,
+          "seconds": 0.032
+        },
+        "boolean.cut": {
+          "count": 2,
+          "seconds": 0.171
+        },
+        "boolean.fuse": {
+          "count": 120,
+          "seconds": 0.235
+        },
+        "geometry.construction": {
+          "count": 1,
+          "seconds": 0.36
+        },
+        "hydraulic.cross_net_geometry": {
+          "count": 1,
+          "seconds": 0.0
+        },
+        "hydraulic.net_geometry": {
+          "count": 1,
+          "seconds": 0.0
+        },
+        "operation.preview-solid": {
+          "count": 1,
+          "seconds": 6.719
+        },
+        "result.serialization": {
+          "count": 1,
+          "seconds": 0.25
+        },
+        "review.generation": {
+          "count": 1,
+          "seconds": 6.344
+        },
+        "route.proposal": {
+          "count": 1,
+          "seconds": 0.0
+        },
+        "route.resolution": {
+          "count": 1,
+          "seconds": 0.0
+        },
+        "tessellation": {
+          "count": 122,
+          "seconds": 6.012
+        },
+        "worker.startup": {
+          "count": 1,
+          "seconds": 2.14
+        }
+      },
+      "cpu_s": 9.9844,
+      "peak_memory_mb": 277.74,
+      "operation": "preview-solid",
+      "limit_s": 15,
+      "exit_code": 0,
+      "state": "completed"
+    }
+  }
+]

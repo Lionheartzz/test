@@ -36,7 +36,9 @@ def test_exact_draft_solid_is_machined_without_committing(monkeypatch,tmp_path):
     body=next(p for p in result['model']['parts'] if p['kind']=='body')
     assert len(body['triangles'])>36 # Not the twelve triangles of an unmachined box.
     assert 0<result['model']['volume_mm3']<d.block.length*d.block.width*d.block.height
-    assert store.PROJECT.read_bytes()==before and not store.OUTPUT.exists()
+    assert store.PROJECT.read_bytes()==before
+    files=[p for p in store.OUTPUT.rglob('*') if p.is_file()]
+    assert files and all(p.parent.name=='cad-diagnostics' and p.suffix=='.json' for p in files)
 
 
 def test_pmc_interpretation_keeps_original_import_and_related_records():

@@ -120,7 +120,9 @@ def test_automatic_transient_preview_freeze_refine_does_not_write(tmp_path,monke
     feature=next(f for f in frozen.json()['features'] if f.get('frozen_net'))
     result=client.post('/api/refine-route',json=dict(design=frozen.json(),feature_id=feature['id'],u=feature['u'],v=feature['v']),headers=headers)
     assert result.status_code==200,result.text[:500]
-    assert not list(tmp_path.rglob('*'))
+    # Transient diagnostics may persist, but never engineering/route evidence.
+    files=[p for p in tmp_path.rglob('*') if p.is_file()]
+    assert files and all(p.parent.name=='cad-diagnostics' and p.suffix=='.json' for p in files)
 
 
 def test_explicit_optimization_budget_is_total_exact_evaluations(tmp_path,monkeypatch):
@@ -183,15 +185,16 @@ def test_source_port_ranking_uses_machining_profile_not_summary():
 
 def test_exact_preview_never_searches_candidates_and_reports_resolution_reason(monkeypatch):
     import manifold.validation as validation
-    import manifold.server as server
+    from manifold.cad_worker import dispatch
     monkeypatch.setattr(validation,'validate',lambda *a,**k:pytest.fail('Preview performed exact route selection'))
+    # Instrument the worker entrypoint itself, not an unused parent-process import.
+    assert dispatch('preview-solid',automatic().model_dump())['route_selection']=='CURRENT_PROPOSAL_NOT_OPTIMIZED'
     client=TestClient(app);headers={'X-PMC-Request':'local-console'}
     result=client.post('/api/preview-solid',json=automatic().model_dump(),headers=headers)
     assert result.status_code==200,result.text[:500]
     assert result.json()['route_selection']=='CURRENT_PROPOSAL_NOT_OPTIMIZED'
     assert any(p['kind']=='hydraulic-net' for p in result.json()['model']['parts'])
-    def failure(*a,**k):raise ValueError('P: no legal current route proposal fits the stock')
-    monkeypatch.setattr(server,'resolve_design',failure)
+    invalid=automatic();invalid.nets[0].flow_lpm=1000;invalid.nets[0].diameter_mode='automatic';invalid.constraints.standard_drills=[4]
     for endpoint in ('preview','preview-solid'):
-        result=client.post('/api/'+endpoint,json=automatic().model_dump(),headers=headers)
-        assert result.status_code==422 and result.json()['detail']=='P: no legal current route proposal fits the stock'
+        result=client.post('/api/'+endpoint,json=invalid.model_dump(),headers=headers)
+        assert result.status_code==422 and 'hydraulic sizing unresolved' in result.json()['detail'] and 'no available standard drill' in result.json()['detail']

@@ -1,8 +1,10 @@
+from .timing import timed,phase
 """Geometric connection screen, not a pressure-drop or CFD calculation."""
 import math
 from .cad import cq
 
 
+@timed('hydraulic.opening')
 def opening_area(a, b, directions):
     """Minimum exact common-section area on the two flow axes at overlap centroid.
 

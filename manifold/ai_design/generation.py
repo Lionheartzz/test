@@ -13,9 +13,8 @@ import uuid
 from .. import store
 from ..schema import Design, Feature, CavityDefinition
 from ..kinematics import FACE_AXES, dimensions, clamp_placement, pose
-from ..routing import terminal_points, resolve_design, authorize_generated_contacts, route_cost
-from ..geometry import build_geometry
-from ..validation import validate
+from ..routing import terminal_points, route_cost
+from ..engineering import calculate_sync,CalculationError
 from . import service, library_resolution as library
 from .models import TaskInput
 from .intent import effective_result, interpret, parameter_for
@@ -354,11 +353,8 @@ def generate(key, request, progress=lambda message:None):
                 ai_trace=AITrace(analysis_id=key,run_id=run['id'],generation_id=generation_id,input_sha256=run['input_revision'],
                                  result_sha256=service.digest(run['result']),original_requirements=inputs.engineering_requirements))
             review_items(plan,design,feature_map)
-            with store.project_lock():
-                resolved,routes=resolve_design(design)
-                geometry=build_geometry(resolved)
-                authorize_generated_contacts(resolved,geometry)
-                report=validate(resolved,geometry)
+            checked=calculate_sync('validate',design.model_dump(),progress)
+            resolved=Design.model_validate(checked['design']);routes=checked['routes'];report=checked['report']
             # Retain resolved routing choices in the authored draft so preview matches the evaluated proposal.
             for net in design.nets:
                 net.routing_variant=next(n.routing_variant for n in resolved.nets if n.id==net.id)
@@ -372,6 +368,10 @@ def generate(key, request, progress=lambda message:None):
             if best is None or ranking<best[0]:best=(ranking,design,report,index,feature_map,terminal_map)
             if ranking[0]==0:
                 break
+        except CalculationError:
+            # A deadline/busy/native-worker failure needs explicit recovery, not
+            # another expensive placement attempt hiding the execution failure.
+            raise
         except (ValueError,RuntimeError) as exc:
             # Model/user content and arbitrary CAD exception bodies are not diagnostic output.
             attempts.append(dict(index=index,error=type(exc).__name__,message='Candidate could not be built; expanding/rearranging within requested bounds.'))

@@ -1,0 +1,104 @@
+{
+  "preview_cpu_delta_s": 0.5938,
+  "/api/health": 0.0,
+  "/api/projects": 0.015,
+  "/api/engineering/status": 0.0,
+  "save": 0.032,
+  "build": 3.89,
+  "execution": {
+    "elapsed_s": 3.75,
+    "phase": "completed",
+    "operations": {
+      "boolean.clean": {
+        "count": 4,
+        "seconds": 0.0
+      },
+      "boolean.cut": {
+        "count": 2,
+        "seconds": 0.03
+      },
+      "boolean.distance": {
+        "count": 2,
+        "seconds": 0.062
+      },
+      "boolean.fuse": {
+        "count": 2,
+        "seconds": 0.015
+      },
+      "boolean.intersect": {
+        "count": 35,
+        "seconds": 0.031
+      },
+      "build": {
+        "count": 1,
+        "seconds": 0.5
+      },
+      "geometry.construction": {
+        "count": 1,
+        "seconds": 0.015
+      },
+      "hydraulic.contacts": {
+        "count": 1,
+        "seconds": 0.0
+      },
+      "hydraulic.cross_net_geometry": {
+        "count": 1,
+        "seconds": 0.0
+      },
+      "hydraulic.net_geometry": {
+        "count": 1,
+        "seconds": 0.031
+      },
+      "hydraulic.opening": {
+        "count": 7,
+        "seconds": 0.063
+      },
+      "operation.build": {
+        "count": 1,
+        "seconds": 0.5
+      },
+      "result.serialization": {
+        "count": 1,
+        "seconds": 0.016
+      },
+      "review.generation": {
+        "count": 1,
+        "seconds": 0.187
+      },
+      "route.proposal": {
+        "count": 2,
+        "seconds": 0.016
+      },
+      "route.resolution": {
+        "count": 1,
+        "seconds": 0.156
+      },
+      "step.export": {
+        "count": 1,
+        "seconds": 0.0
+      },
+      "step.round_trip": {
+        "count": 1,
+        "seconds": 0.016
+      },
+      "tessellation": {
+        "count": 9,
+        "seconds": 0.141
+      },
+      "validation": {
+        "count": 1,
+        "seconds": 0.11
+      },
+      "worker.startup": {
+        "count": 1,
+        "seconds": 2.421
+      }
+    },
+    "cpu_s": 3.5156,
+    "peak_memory_mb": 197.73,
+    "operation": "build",
+    "limit_s": 300,
+    "exit_code": 0,
+    "state": "completed"
+  }
+}

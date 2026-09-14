@@ -1,3 +1,4 @@
+from .timing import timed,phase
 """Deterministic BRep checks. No mesh or colour is used for validation."""
 from itertools import combinations
 from .geometry import tip_depth
@@ -5,6 +6,7 @@ from .geometry import tip_depth
 EPS = 1e-6
 
 
+@timed('validation')
 def validate(design, g):
     checks = []
     threshold = design.rules.minimum_overlap_volume

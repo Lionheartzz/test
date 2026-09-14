@@ -1,3 +1,4 @@
+from .timing import timed,phase
 import hashlib
 import json
 import os
@@ -66,23 +67,23 @@ def project_lock():
                 fcntl.flock(handle, fcntl.LOCK_UN)
 
 
+@timed('build')
 def build_outputs(design, folder):
     assert_engine_current()
     folder.mkdir(parents=True, exist_ok=False)
     authored = design
-    design, routes = resolve_design(authored,persist=True)
-    g = build_geometry(design)
-    authorize_generated_contacts(design, g)
-    report = validate(design, g)
+    design, routes, g, report = resolve_design(authored,persist=True,prepared=True)
     rev = revision(authored)
     report['route_proposals'] = routes
     report.update(design_revision=rev, generated_at=datetime.now(timezone.utc).isoformat(),
                   cadquery_version=cq.__version__, rules_version='pmc-intent-2', engine_revision=engine_revision(), engine=engine_evidence())
-    cq.exporters.export(g.production, str(folder / 'production.step'))
+    with phase('step.export'):
+        cq.exporters.export(g.production, str(folder / 'production.step'))
     # Round trip tests actual serialized CAD, not merely in-memory validity.
-    imported = cq.importers.importStep(str(folder / 'production.step')).val()
-    error = abs(imported.Volume() - g.production.Volume())
-    passed = imported.isValid() and len(imported.Solids()) == 1 and error < 0.01
+    with phase('step.round_trip'):
+        imported = cq.importers.importStep(str(folder / 'production.step')).val()
+        error = abs(imported.Volume() - g.production.Volume())
+        passed = imported.isValid() and len(imported.Solids()) == 1 and error < 0.01
     report['checks'].append(dict(rule='step_round_trip', items=['block'], actual=round(error, 8), required=0.01,
                                  status='PASS' if passed else 'FAIL', unit='mm³',
                                  message='STEP reimport: valid single solid and matching volume.'))
@@ -114,21 +115,28 @@ def current():
     return json.loads(path.read_text()) if path.exists() else None
 
 
-def rebuild(design=None, expected_revision=None):
+def prepare_rebuild(design=None,expected_revision=None):
     with project_lock():
-        previous = read_design()
-        previous_revision = revision(previous)
-        if expected_revision is not None and previous_revision != expected_revision:
+        previous=read_design();previous_revision=revision(previous)
+        if expected_revision is not None and previous_revision!=expected_revision:
             raise ValueError('Design changed on disk. Reload before saving to avoid overwriting Codex edits.')
-        target = design or previous
-        build_id = uuid.uuid4().hex
-        report = build_outputs(target, OUTPUT / 'builds' / build_id)
-        # Detect direct edits during an expensive CAD build before committing anything.
-        if revision(read_design()) != previous_revision:
+        return dict(previous=previous,revision=previous_revision,target=design or previous,save=design is not None,build_id=uuid.uuid4().hex)
+
+
+def finish_rebuild(plan,report):
+    with project_lock():
+        assert_engine_current()
+        if revision(read_design())!=plan['revision']:
             raise ValueError('Design changed during build. Reload and rebuild the latest file.')
-        if design is not None:
-            atomic_json(PROJECT.parent / '.history' / f'{uuid.uuid4().hex}.json', previous.model_dump())
-            atomic_json(PROJECT, target.model_dump())
-        pointer = dict(build_id=build_id, design_revision=revision(target), engine_revision=engine_revision(), status=report['status'], counts=report['counts'])
-        atomic_json(OUTPUT / 'current.json', pointer)
+        if plan['save']:
+            atomic_json(PROJECT.parent/'.history'/(uuid.uuid4().hex+'.json'),plan['previous'].model_dump())
+            atomic_json(PROJECT,plan['target'].model_dump())
+        pointer=dict(build_id=plan['build_id'],design_revision=revision(plan['target']),engine_revision=engine_revision(),status=report['status'],counts=report['counts'])
+        atomic_json(OUTPUT/'current.json',pointer)
         return pointer
+
+
+def rebuild(design=None,expected_revision=None):
+    plan=prepare_rebuild(design,expected_revision)
+    report=build_outputs(plan['target'],OUTPUT/'builds'/plan['build_id'])
+    return finish_rebuild(plan,report)

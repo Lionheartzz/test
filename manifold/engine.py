@@ -29,9 +29,11 @@ def code_manifest():
     # Capture what the Python loader will execute, including valid bytecode caches.
     # Together with immutable startup sources this detects a different executable
     # even when someone retained an old cache with matching source size/mtime.
+    # v3+ reference sharing differs for freshly compiled vs cached code objects.
+    # v2 serializes the full executable without those process-local references.
     return {p.name: hashlib.sha256(marshal.dumps(SourceFileLoader(
         'manifold' if p.stem=='__init__' else 'manifold.'+p.stem,str(p)).get_code(
-        'manifold' if p.stem=='__init__' else 'manifold.'+p.stem))).hexdigest()
+        'manifold' if p.stem=='__init__' else 'manifold.'+p.stem),2)).hexdigest()
         for p in sorted(ROOT.glob('*.py'))}
 
 

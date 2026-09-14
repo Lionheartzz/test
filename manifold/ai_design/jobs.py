@@ -4,6 +4,7 @@ import json
 import threading
 import uuid
 from .. import store
+from ..engineering import CalculationError
 from . import service
 
 _executor=ThreadPoolExecutor(max_workers=1,thread_name_prefix='pmc-ai')
@@ -66,8 +67,10 @@ def _execute(record):
         record.update(status='conflict',message='Analysis changed while the operation ran. Earlier inputs and completed run/candidate evidence are retained; reopen the analysis.')
     except (ValueError,FileNotFoundError):
         record.update(status='failed',message='Inputs, source files or selected library revisions need review. Reopen the analysis and run the generation preflight.')
+    except CalculationError as exc:
+        record.update(status='failed',message=str(exc))
     except RuntimeError:
-        record.update(status='failed',message='Another local CAD operation holds the build lock. Retry after it finishes.')
+        record.update(status='failed',message='Local engineering execution failed. Inspect calculation diagnostics and retry.')
     except Exception:
         record.update(status='failed',message='The local operation could not complete. Inputs are retained; check configuration or simplify the circuit.')
     finally:

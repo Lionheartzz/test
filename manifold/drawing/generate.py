@@ -25,7 +25,7 @@ def paper(sheet):
     return (b, a) if sheet.landscape else (a, b)
 
 
-def snapshot(project_id, expected):
+def snapshot(project_id, expected, *, load_solid=True):
     record = projects.read(project_id)
     current = projects.snapshot(record)
     if current['revision'] != expected:
@@ -48,10 +48,12 @@ def snapshot(project_id, expected):
     if validation.get('design_revision') != expected or store.revision(Design.model_validate(authored)) != expected:
         raise ValueError('Build evidence does not match its project revision. Rebuild before drawing.')
     Design.model_validate(resolved)
-    with CAD_LOCK:
-        solid = cq.importers.importStep(str(folder / 'production.step')).val()
-        if not solid.isValid() or len(solid.Solids()) != 1:
-            raise ValueError('Build has no valid single solid. Correct the manifold before drawing.')
+    solid=None
+    if load_solid:
+        with CAD_LOCK:
+            solid = cq.importers.importStep(str(folder / 'production.step')).val()
+            if not solid.isValid() or len(solid.Solids()) != 1:
+                raise ValueError('Build has no valid single solid. Correct the manifold before drawing.')
     result = dict(project_id=project_id, design_revision=expected, build_id=build['build_id'],
                   engine_revision=validation.get('engine_revision'), files={k: digest(v) for k, v in files.items()},
                   authored=authored, resolved=resolved, validation=validation,

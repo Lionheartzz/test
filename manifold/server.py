@@ -1,24 +1,53 @@
 import json
+import asyncio
+from contextlib import asynccontextmanager
 import re
 from fastapi import FastAPI, HTTPException, Request, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import Field
 from .schema import Design, Strict, CavityDefinition
-from .routing import resolve_design, adopt_routes
+from .routing import adopt_routes
 from .workflow import save_asset, save_library, library_entries, prepare_handoff, asset_path, set_library_deleted
 from .interchange import inspect_project
 from .store import ROOT, OUTPUT, read_design, revision, current, rebuild, engine_revision
+from .engineering import calculate,CalculationError,executor
 from .engine import engine_current
 from .network import host_allowed, same_origin, endpoints
 
-app = FastAPI(title='PMC Manifold', docs_url=None, redoc_url=None, openapi_url=None)
+@asynccontextmanager
+async def lifespan(app):
+    try:yield
+    finally:await asyncio.to_thread(executor.close)
+
+
+app = FastAPI(title='PMC Manifold', docs_url=None, redoc_url=None, openapi_url=None,lifespan=lifespan)
 from .projects import router as project_router
 app.include_router(project_router)
 from .ai_design.api import router as ai_design_router
 app.include_router(ai_design_router)
 from .drawing.api import router as drawing_router
 app.include_router(drawing_router)
+
+
+@app.exception_handler(CalculationError)
+async def calculation_failure(request,exc):
+    return JSONResponse({'detail':str(exc)},status_code=exc.status)
+
+
+@app.get('/api/engineering/status')
+async def engineering_status():return await asyncio.to_thread(executor.status)
+
+
+class CancelPreview(Strict):
+    owner:str=Field(min_length=1,max_length=80)
+    version:int=Field(ge=0)
+
+
+@app.post('/api/preview-cancel')
+async def cancel_preview(payload:CancelPreview):
+    await asyncio.to_thread(executor.cancel,payload.owner,payload.version)
+    return {'status':'cancelled'}
 
 
 @app.middleware('http')
@@ -56,7 +85,7 @@ class BuildRequest(Strict):
 
 
 @app.get('/api/health')
-def health():
+async def health():
     return dict(service='pmc-manifold',network=endpoints())
 
 
@@ -73,20 +102,15 @@ def state():
 
 
 @app.post('/api/build')
-def build(payload: BuildRequest):
+async def build(payload: BuildRequest):
+    from . import store,projects
     try:
-        if payload.project_id:
-            from .projects import build as project_build
-            return project_build(payload.project_id,payload.expected_revision,payload.design)
-        return rebuild(payload.design, payload.expected_revision)
-    except ValueError as exc:
-        raise HTTPException(409, str(exc))
-    except RuntimeError as exc:
-        raise HTTPException(409, str(exc))
-    except Exception:
-        import logging
-        logging.exception('CAD build failed')
-        raise HTTPException(422, 'CAD build failed; previous saved design/model retained. Check local server log.')
+        plan=projects.prepare_build(payload.project_id,payload.expected_revision,payload.design) if payload.project_id else store.prepare_rebuild(payload.design,payload.expected_revision)
+        report=await calculate('build',dict(design=plan['target'].model_dump(),build_id=plan['build_id']))
+        return projects.finish_build(plan,report) if payload.project_id else store.finish_rebuild(plan,report)
+    except CalculationError:raise
+    except FileNotFoundError:raise HTTPException(404,'Project no longer exists; build evidence retained.')
+    except (ValueError,RuntimeError) as exc:raise HTTPException(409,str(exc))
 
 
 @app.post('/api/check-design')
@@ -113,24 +137,13 @@ def export_project(design: Design):
 
 
 @app.post('/api/preview')
-def preview(design: Design):
-    try:
-        resolved, routes = resolve_design(design,exact=False)
-    except ValueError as exc:
-        raise HTTPException(422, str(exc))
-    return dict(design=resolved.model_dump(),routes=routes,status='UNVALIDATED_PREVIEW')
+async def preview(design: Design,request:Request):
+    return Response(await calculate('preview',design.model_dump(),request,transient=True,raw=True),media_type='application/json')
 
 
 @app.post('/api/preview-solid')
-def preview_solid(design: Design):
-    from .geometry import build_geometry,review_model
-    try:
-        resolved,_=resolve_design(design,exact=False)
-        geometry=build_geometry(resolved)
-        return dict(model=review_model(resolved,geometry),features=[f.model_dump() for f in resolved.features],
-                    design_revision=revision(design),status='UNVALIDATED_EXACT_GEOMETRY',route_selection='CURRENT_PROPOSAL_NOT_OPTIMIZED')
-    except (ValueError,RuntimeError) as exc:
-        raise HTTPException(422,str(exc) or type(exc).__name__) from exc
+async def preview_solid(design: Design,request:Request):
+    return Response(await calculate('preview-solid',design.model_dump(),request,transient=True,raw=True),media_type='application/json')
 
 
 @app.post('/api/adopt-routing')
@@ -143,12 +156,20 @@ class OptimizeRequest(BuildRequest):
 
 
 @app.post('/api/optimize-routes')
-def optimize(payload: OptimizeRequest):
-    from .optimization import optimize_routes
+async def optimize(payload: OptimizeRequest):
+    from . import store,projects
+    def saved():return Design.model_validate(projects.read(payload.project_id)['design']) if payload.project_id else read_design()
     try:
-        return optimize_routes(payload.design or read_design(),payload.expected_revision,payload.max_attempts,payload.project_id)
-    except (ValueError,RuntimeError) as exc:
-        raise HTTPException(409,str(exc))
+        with store.project_lock():
+            current_design=saved()
+            if revision(current_design)!=payload.expected_revision:raise ValueError('Project changed on disk. Reload before optimizing.')
+        result=await calculate('optimize',dict(design=(payload.design or current_design).model_dump(),max_attempts=payload.max_attempts))
+        with store.project_lock():
+            if revision(saved())!=payload.expected_revision:raise ValueError('Project changed during optimization. Candidate evidence retained; newer project preserved.')
+        return result
+    except CalculationError:raise
+    except FileNotFoundError:raise HTTPException(404,'Project no longer exists; optimization evidence retained.')
+    except (ValueError,RuntimeError) as exc:raise HTTPException(409,str(exc))
 
 
 class FreezeRequest(Strict):
@@ -158,10 +179,8 @@ class FreezeRequest(Strict):
 
 
 @app.post('/api/freeze-net')
-def freeze_net(payload: FreezeRequest):
-    from .route_edit import freeze
-    try:return freeze(payload.design,payload.net,payload.proposal).model_dump()
-    except (ValueError,RuntimeError) as exc:raise HTTPException(422,str(exc))
+async def freeze_net(payload: FreezeRequest):
+    return await calculate('freeze',payload.model_dump(),limit=30)
 
 
 class RefineRequest(Strict):
@@ -172,20 +191,8 @@ class RefineRequest(Strict):
 
 
 @app.post('/api/refine-route')
-def refine_route(payload:RefineRequest):
-    from .route_edit import refine
-    from .geometry import build_geometry
-    from .routing import authorize_generated_contacts
-    from .validation import validate
-    try:
-        draft,adjusted,notes=refine(payload.design,payload.feature_id,payload.u,payload.v)
-        resolved,_=resolve_design(draft,exact=False)
-        geometry=build_geometry(resolved);authorize_generated_contacts(resolved,geometry)
-        report=validate(resolved,geometry)
-        from datetime import datetime,timezone
-        report['generated_at']=datetime.now(timezone.utc).isoformat()
-        return dict(design=draft.model_dump(),report=report,adjusted_branches=adjusted,notes=notes,status='EXACT_DRAFT_CHECKS_NOT_SAVED')
-    except (ValueError,RuntimeError) as exc:raise HTTPException(422,str(exc))
+async def refine_route(payload:RefineRequest):
+    return await calculate('refine',payload.model_dump(),limit=60)
 
 
 @app.get('/api/library')

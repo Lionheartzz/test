@@ -164,3 +164,5 @@ PASS 仅代表当前规则范围通过，**不是制造放行或承压认证**�
 Footprint envelope 保留来源角色、源形状类型、原始语法和 SHA。独立 AssemblyEnvelope 记录不按名称匹配孔腔或阀型号。Library 中可由工程师显式选择目标孔型、mounting/body/service/tool 角色与高度，再将原始记录固定到项目；该选择单独标为 engineer-selected，并保留复核项。高度 0 仅为平面区域。明确闭合直线轮廓与显式 Circle 的完整四圆弧记录可生成精确边界；未支持的一般曲线语法保留原文并要求独立映射。
 
 V1 hydraulic sizing and displayed-route refinement: [behavior and regression evidence](docs/HYDRAULIC_SIZING_REFINE.md).
+
+V2.3 CAD execution reliability: [process isolation, deadlines, diagnostics and measured evidence](docs/CAD_EXECUTION_RELIABILITY.md).

@@ -1,3 +1,4 @@
+from .timing import timed,phase
 from dataclasses import dataclass
 import math
 from .cad import cq
@@ -34,6 +35,7 @@ def tip_depth(f):
     return 0 if f.tip_angle == 180 else f.diameter / 2 / math.tan(math.radians(f.tip_angle / 2))
 
 
+@timed('geometry.construction')
 def build_geometry(design: Design):
     b = design.block
     block = cq.Solid.makeBox(b.length, b.width, b.height)
@@ -118,6 +120,7 @@ def build_geometry(design: Design):
     return Geometry(block, production, cuts, nodes, circuits, envelopes, plugs, placements, boundaries)
 
 
+@timed('tessellation')
 def mesh(shape):
     # OCCT attaches triangulations to a shape and can enlarge subsequent bounds.
     # Rendering must not mutate solids that will be used again by exact validation.
@@ -125,6 +128,7 @@ def mesh(shape):
     return dict(vertices=[round(v, 6) for p in vertices for v in p.toTuple()], triangles=[i for t in triangles for i in t])
 
 
+@timed('review.generation')
 def review_model(design,g):
     """Display only: both build and draft solids use the same machined BRep mesh."""
     from .schema import COLORS
@@ -135,21 +139,23 @@ def review_model(design,g):
     if void.Volume() > 1e-6:
         parts.append(dict(id='machined-void',kind='machined-void',color='#b6c9da',volume_mm3=void.Volume(),**mesh(void)))
     unions = {}
-    for circuit in sorted(set(g.circuits.values())):
-        members=[key for key in g.nodes if g.circuits[key]==circuit]
-        shapes=[g.nodes[key].intersect(g.block) for key in members]
-        shape=(shapes[0].fuse(*shapes[1:]) if len(shapes)>1 else shapes[0]).clean()
-        unions[circuit]=shape
-        color=next((n.color for n in design.nets if n.id==circuit and n.color),COLORS.get(circuit,'#b08bea'))
-        parts.append(dict(id='net:'+circuit,kind='hydraulic-net',circuit=circuit,color=color,members=members,
-                          volume_mm3=shape.Volume(),solid_count=len(shape.Solids()),**mesh(shape)))
+    with phase('hydraulic.net_geometry'):
+        for circuit in sorted(set(g.circuits.values())):
+            members=[key for key in g.nodes if g.circuits[key]==circuit]
+            shapes=[g.nodes[key].intersect(g.block) for key in members]
+            shape=(shapes[0].fuse(*shapes[1:]) if len(shapes)>1 else shapes[0]).clean()
+            unions[circuit]=shape
+            color=next((n.color for n in design.nets if n.id==circuit and n.color),COLORS.get(circuit,'#b08bea'))
+            parts.append(dict(id='net:'+circuit,kind='hydraulic-net',circuit=circuit,color=color,members=members,
+                              volume_mm3=shape.Volume(),solid_count=len(shape.Solids()),**mesh(shape)))
     from itertools import combinations
     collisions=[]
-    for a,b in combinations(unions,2):
-        common=unions[a].intersect(unions[b]).clean()
-        if common.Volume()>1e-6:
-            collisions.append(dict(nets=[a,b],volume_mm3=common.Volume()))
-            parts.append(dict(id=f'collision:{a}:{b}',kind='collision',color='#ff163e',nets=[a,b],**mesh(common)))
+    with phase('hydraulic.cross_net_geometry'):
+        for a,b in combinations(unions,2):
+            common=unions[a].intersect(unions[b]).clean()
+            if common.Volume()>1e-6:
+                collisions.append(dict(nets=[a,b],volume_mm3=common.Volume()))
+                parts.append(dict(id=f'collision:{a}:{b}',kind='collision',color='#ff163e',nets=[a,b],**mesh(common)))
     for key,cut in g.cuts.items():
         f=features[key]
         parts.append(dict(id=key+':machining',owner=key,kind='cavity' if f.kind=='cavity' else 'port-machining' if f.kind=='port' else 'mounting-machining' if f.kind=='mounting' else 'drilling-machining',

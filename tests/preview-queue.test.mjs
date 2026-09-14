@@ -28,3 +28,29 @@ test('settling edits skip superseded exact requests; cancellation invalidates re
  h.queue.schedule({value:2});await sleep(25);assert.equal(h.calls[1].url,'/api/preview');
  h.queue.cancel();h.calls[1].resolve('old fast');await sleep(30);assert.equal(h.calls.length,2);assert.deepEqual(h.fast,['fast']);
 });
+
+test('remote cancellation releases hung obsolete request and newest snapshot wins',async()=>{
+ const calls=[],cancels=[],shown=[],errors=[];
+ const queue=createPreviewQueue({delay:5,exactDelay:5,timeout:1000,
+  post:(url,design,options)=>new Promise(resolve=>calls.push({url,design,options,resolve})),
+  cancelRemote:(owner,version)=>cancels.push({owner,version}),onFast:()=>{},onExact:r=>shown.push(r),onStatus:()=>{},onError:e=>errors.push(e.message)});
+ queue.schedule({value:1});await sleep(15);calls[0].resolve('first fast');await sleep(15);
+ const obsolete=calls[1];queue.schedule({value:2});queue.schedule({value:3});await sleep(15);
+ assert.equal(obsolete.options.signal.aborted,true);assert.equal(calls.length,3);
+ assert.deepEqual(calls[2].design,{value:3});assert.ok(cancels.some(c=>c.version===1));
+ calls[2].resolve('new fast');await sleep(15);calls[3].resolve('new exact');await sleep(5);
+ obsolete.resolve('stale exact');await sleep(5);assert.deepEqual(shown,['new exact']);assert.deepEqual(errors,[]);queue.cancel();
+});
+
+test('hung exact request times out visibly, retains usable view, then recovers',async()=>{
+ const calls=[],shown=[],errors=[],states=[],cancels=[];
+ const queue=createPreviewQueue({delay:5,exactDelay:5,timeout:40,
+  post:(url,design,options)=>new Promise(resolve=>calls.push({url,design,options,resolve})),
+  cancelRemote:(owner,version)=>cancels.push(version),onFast:()=>{},onExact:r=>shown.push(r),onStatus:s=>states.push(s),onError:e=>errors.push(e.message)});
+ queue.schedule({value:1});await sleep(10);calls[0].resolve('fast');await sleep(10);calls[1].resolve('usable exact');await sleep(5);
+ queue.schedule({value:2});await sleep(10);calls[2].resolve('fast');await sleep(60);
+ assert.equal(states.at(-1),'error');assert.match(errors[0],/interactive time limit.*Last usable view retained/);
+ assert.deepEqual(shown,['usable exact']);assert.equal(calls[3].options.signal.aborted,true);assert.ok(cancels.includes(2));
+ queue.schedule({value:3});await sleep(10);calls[4].resolve('fast');await sleep(10);calls[5].resolve('recovered');await sleep(5);
+ assert.equal(states.at(-1),'ready');assert.deepEqual(shown,['usable exact','recovered']);queue.cancel();
+});

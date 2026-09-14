@@ -49,18 +49,27 @@ def save(design,key=None,expected=None):
             record=dict(id=uuid.uuid4().hex,design=design.model_dump(),build=None,archived=False)
         return write(record)
 
-def build(key,expected,design=None):
+def prepare_build(key,expected,design=None):
     with store.project_lock():
         record=read(key);check(record,expected)
-        target=design or Design.model_validate(record['design'])
-        build_id=uuid.uuid4().hex
-        report=store.build_outputs(target,store.OUTPUT/'builds'/build_id)
-        latest=read(key);check(latest,expected)
+        return dict(key=key,expected=expected,record=record,target=design or Design.model_validate(record['design']),build_id=uuid.uuid4().hex)
+
+
+def finish_build(plan,report):
+    with store.project_lock():
+        store.assert_engine_current()
+        key=plan['key'];record=plan['record'];latest=read(key);check(latest,plan['expected'])
         if latest!=record:raise ValueError('Project metadata changed during build. Reopen it; build evidence is retained.')
         store.atomic_json(folder()/'history'/key/(uuid.uuid4().hex+'.json'),record)
-        record['design']=target.model_dump()
-        record['build']=dict(build_id=build_id,design_revision=store.revision(target),engine_revision=store.engine_revision(),status=report['status'],counts=report['counts'])
+        record['design']=plan['target'].model_dump()
+        record['build']=dict(build_id=plan['build_id'],design_revision=store.revision(plan['target']),engine_revision=store.engine_revision(),status=report['status'],counts=report['counts'])
         return write(record)
+
+
+def build(key,expected,design=None):
+    plan=prepare_build(key,expected,design)
+    report=store.build_outputs(plan['target'],store.OUTPUT/'builds'/plan['build_id'])
+    return finish_build(plan,report)
 
 class SaveRequest(Strict):
     design: Design
