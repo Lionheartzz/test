@@ -102,13 +102,18 @@ def test_manufacturing_and_section_from_existing_build(drawing):
     edit=initial_edit(source,'manufacturing');edit.annotations=auto_annotations(source,edit);add_tables(source,edit,'manufacturing')
     geo=geometry_for(source,solid,edit.views)
     manufacture=storage.save_new(p['project_id'],source,edit,geo,'manufacturing')
-    assert len(edit.sheets)>=9
-    assert geo['section-z:30']['visible']
-    assert geo['section-z:30']['hatching']
-    assert any(a.id=='auto:detail-top:P1:x' for a in edit.annotations)
+    assert len(edit.sheets)==3 and len(edit.views)==21
+    assert all({v.projection for v in edit.views if v.sheet==s.id}=={'top','bottom','front','back','left','right','iso'} for s in edit.sheets)
+    assert any(a.id=='auto:coordinates-top:P1:x' and a.ordinate for a in edit.annotations)
     pdf=PdfReader(io.BytesIO(export_pdf(manufacture)))
     assert len(pdf.pages)==len(edit.sheets)
-    assert 'MACHINING SCHEDULE' in pdf.pages[-1].extract_text()
+    assert all('PORTINGS' in page.extract_text() for page in pdf.pages)
+    # Exact sections remain available when engineering finishing needs one;
+    # they are no longer mandatory extra sheets in the default PMC layout.
+    from manifold.drawing.schema import View
+    section=View(id='section-test',sheet='internal',projection='section-z',section_at=30,position=(20,30))
+    detail=geometry_for(source,solid,[section])['section-z:30']
+    assert detail['visible'] and detail['hatching']
 
 
 def completed(client,project_id,response):
@@ -234,7 +239,8 @@ def test_template_reuses_only_presentation_and_project_deletes_owned_drawings(dr
     assert not base.exists() and (store.OUTPUT/'builds'/p['build']['build_id']/'production.step').exists()
 
 
-def test_original_schematic_pdf_is_vector_and_crop_preserves_aspect(drawing):
+@pytest.mark.parametrize('kind',['customer','manufacturing'])
+def test_original_schematic_pdf_is_vector_and_crop_preserves_aspect(drawing,kind):
     from reportlab.pdfgen.canvas import Canvas
     from manifold.workflow import save_asset
     from manifold.drawing.schema import Schematic
@@ -246,15 +252,105 @@ def test_original_schematic_pdf_is_vector_and_crop_preserves_aspect(drawing):
     asset=save_asset(original.getvalue(),'connection.pdf','application/pdf')
     doc['source']['authored']['schematics']=[asset.model_dump()]
     doc['source']['sha256']=digest({k:v for k,v in doc['source'].items() if k!='sha256'})
-    edit=Edit.model_validate(doc['edit']);edit.schematics=[Schematic(id='circuit',sheet='overview',asset=asset.sha256,position=(20,25),width=100,height=100,crop=(0,0,1,1))]
+    edit=initial_edit(doc['source'],kind)
+    if kind=='customer':edit.schematics=[Schematic(id='circuit',sheet='overview',asset=asset.sha256,position=(20,25),width=100,height=100,crop=(0,0,1,1))]
     doc['edit']=edit.model_dump()
     current=scene(doc,'overview');image=next(p for p in current['primitives'] if p['kind']=='image' and p.get('schematic'))
     assert image['width']/image['height']==pytest.approx(2)
     exported=PdfReader(io.BytesIO(export_pdf(doc)))
-    assert 'VECTOR-CIRCUIT-P1-P2' in exported.pages[0].extract_text()
+    assert len(exported.pages)==(3 if kind=='manufacturing' else 1)
+    assert all('VECTOR-CIRCUIT-P1-P2' in page.extract_text() for page in exported.pages)
     # Original PDF text/path operators survive; schematic is not replaced by a bitmap.
     assert len(list(exported.pages[0].images))==1 # only the print-resolution company logo
     assert not exported.pages[0].get('/Annots')
+
+
+def test_pmc3069_api_layout_dimensions_and_pdf_are_source_linked(drawing):
+    from manifold.drawing.generate import anchors,regenerate_edit
+    p,old=drawing;client=TestClient(app)
+    before=projects.path(p['project_id']).read_bytes()
+    result=completed(client,p['project_id'],client.post('/api/drawings/'+p['project_id'],headers=HEADERS,
+        json=dict(expected_source=p['revision'],kind='manufacturing',template_id='pmc-manufacturing',number='PMC-DYNAMIC-42')))
+    doc=storage.read(p['project_id'],result['drawing_id'])
+    assert projects.path(p['project_id']).read_bytes()==before
+    edit=Edit.model_validate(doc['edit'])
+    assert edit.template.layout=='pmc3069' and len(edit.sheets)==3
+    assert all(s.size=='A2' and s.landscape for s in edit.sheets)
+    assert len(edit.views)==21 and len(edit.tables)==3
+    assert all(t.presentation=='pmc-portings' and t.position==(313,247) for t in edit.tables)
+    assert all(v.hidden for v in edit.views if v.sheet=='internal')
+    assert not any(v.hidden for v in edit.views if v.sheet=='overview')
+    assert not [i for i in check_drawing(doc) if i['severity']=='error']
+    data,rows,_=anchors(doc['source'])
+    from manifold.drawing.pmc3069 import porting_groups
+    porting_text=' '.join(r['labels'] for r in porting_groups(rows,edit.tables[0]))
+    assert all(r['label'] in porting_text and r['machining_label'] in porting_text for r in rows)
+    dimensions={a.id:a for a in edit.annotations if a.kind=='dimension'}
+    top=next(v for v in edit.views if v.id=='coordinates-top')
+    front=next(v for v in edit.views if v.id=='coordinates-front')
+    assert measure(dimensions['auto:coordinates-top:P1:x'],top,data)==40
+    assert measure(dimensions['auto:coordinates-front:P2:y'],front,data)==25 # measured down from the top datum
+    sc=scene(doc,'coordinates')
+    assert any(p['kind']=='text' and p.get('rotation')==-90 and p['text']=='40' for p in sc['primitives'])
+    assert any(p['kind']=='polyline' and p['dash'] for p in scene(doc,'internal')['primitives'] if p['group']=='internal-front')
+    # Presentation edits survive persistence and source regeneration. A changed
+    # coordinate changes the value, never its manually positioned dimension.
+    dimensions['auto:coordinates-top:P1:x'].position=(4,-12)
+    edit.metadata.quantity=7;edit.metadata.designed_by='Engineer';edit.metadata.approved_by='Reviewer'
+    saved=storage.save_edit(p['project_id'],doc['id'],storage.revision(doc),edit)
+    changed=deepcopy(doc['source']);changed['resolved']['features'][0]['u']=43
+    regenerated,_=regenerate_edit(changed,Edit.model_validate(saved['edit']))
+    a=next(a for a in regenerated.annotations if a.id=='auto:coordinates-top:P1:x')
+    assert a.position==(4,-12) and measure(a,top,anchors(changed)[0])==43
+    pdf=PdfReader(io.BytesIO(export_pdf(saved)))
+    assert len(pdf.pages)==3
+    for page in pdf.pages:
+        assert float(page.mediabox.width)==pytest.approx(594*72/25.4,abs=.001)
+        assert float(page.mediabox.height)==pytest.approx(420*72/25.4,abs=.001)
+        text=page.extract_text()
+        assert 'PMC-DYNAMIC-42' in text and 'L100XW80XH60' in text and 'S50C' in text and 'PORTINGS' in text
+        assert 'DRAWING NO' in text and 'QTY' in text and 'Engineer' in text and 'Reviewer' in text
+        assert '3069' not in text and 'SOURCE' not in text and 'BUILD' not in text and 'DRAFT' not in text
+        assert b' l' in page.get_contents().get_data()
+    assert pdf.metadata.subject=='PMC engineering drawing' and doc['source']['build_id'] not in str(pdf.metadata)
+    failed=deepcopy(doc);failed['source']['validation']['status']='FAIL'
+    assert any(i['code']=='engineering-fail' and i['severity']=='error' for i in check_drawing(failed))
+    invalid=edit.model_dump();invalid['sheets'][0]['size']='A4'
+    assert client.post(f'/api/drawings/{p["project_id"]}/{doc["id"]}/render',headers=HEADERS,json=dict(edit=invalid,sheet='overview')).status_code==422
+    # The previously stored Customer/legacy template stays unchanged.
+    assert Edit.model_validate(storage.read(p['project_id'],old['id'])['edit'])==Edit.model_validate(old['edit'])
+
+
+def test_pmc_portings_overflow_preserves_every_source_identifier():
+    from manifold.drawing.pmc3069 import add_overflow,porting_groups,table_layout,configure
+    source=dict(resolved=dict(block=dict(length=187,width=228.6,height=228.6)),authored={})
+    edit=configure(source,Edit(metadata=dict(number='INCH-CONTEXT',title='Table test',unit='inch'),sheets=[dict(id='overview')]))
+    assert edit.metadata.unit=='mm'
+    invalid=edit.model_dump();invalid['metadata']['unit']='inch'
+    with pytest.raises(ValueError,match='millimetre'):Edit.model_validate(invalid)
+    # More than the contract's 200 rows must paginate rather than disappear.
+    rows=[dict(id=f'H{i}',label=f'H{i}',kind='drilling',specification=f'Ø{i+1} × 20 DEEP') for i in range(225)]
+    add_overflow(source,edit,rows)
+    assert len(edit.sheets)>3
+    covered={key for t in edit.tables for r in porting_groups(rows,t) for key in r['ids']}
+    assert covered=={r['id'] for r in rows}
+    for t in edit.tables:
+        grid=table_layout(t,rows)
+        assert all(len(row['cells'])==6 for row in grid)
+        assert sum(r['height'] for r in grid)+5.5<=117.001
+    # Dense but identical source holes use lossless ranges, not 120 new pages.
+    for row in rows[:120]:row['specification']='Ø6 × 12 DEEP'
+    compact=configure(source,Edit(metadata=dict(number='DENSE',title='Dense'),sheets=[dict(id='overview')]))
+    add_overflow(source,compact,rows[:120])
+    assert len(compact.sheets)==3
+    groups=porting_groups(rows[:120],compact.tables[0])
+    assert groups[0]['labels']=='H0-H119' and len(groups[0]['ids'])==120
+    # Wrapped specifications should fill all three column pairs before adding
+    # a continuation; sub-micron paper rounding is not genuine overflow.
+    compact=configure(source,Edit(metadata=dict(number='WRAPPED',title='Wrapped'),sheets=[dict(id='overview')]))
+    mixed=[dict(id=f'F{i}',label=f'F{i}',kind='cavity',specification=f'Cavity {i} / explicit engineering source specification with wrapped thread information') for i in range(5)]
+    add_overflow(source,compact,mixed)
+    assert len(compact.sheets)==3
 
 
 def test_pinned_operations_offsets_angles_and_uncertain_identity():

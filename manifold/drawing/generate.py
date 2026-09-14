@@ -93,6 +93,7 @@ def anchors(source):
         signature = digest(dict(kind=f.kind, definition=f.definition, definition_revision=definition.revision if definition else None, role=definition.usage_role if definition else None,
                                 face=f.face, parent=f.parent_id))
         result[key] = dict(point=origin, label=label, feature=f.id, face=f.face, direction=direction,
+                           machining_label=f.machining_id or machining_ids.get(f.id,label),
                            diameter=diameter, depth=depth, angle=math.degrees(math.acos(min(1, max(-1, abs(direction[2]))))),
                            signature=signature, model=model)
         result[key+':end'] = dict(point=[o+d*depth for o,d in zip(origin,direction)], label=f'{label} depth end', signature=signature)
@@ -102,7 +103,18 @@ def anchors(source):
         if f.kind=='mounting':spec=f'MOUNTING Ø{f.diameter:g} '+('THROUGH' if f.through else f'/ {f.depth:g} deep')+' / explicit plain bore; no thread inferred'
         if f.plugged:
             spec += f' / plug engagement {f.plug_length:g}; entry machining unresolved'
+        # Display the pinned engineering definition, never a guessed product
+        # identity or an internal database key in the PMC PORTINGS cells.
+        if definition:
+            pmc_spec=definition.catalog_id or definition.label
+            if definition.thread_note:pmc_spec+=' / '+definition.thread_note
+        elif f.kind=='mounting' and f.through:pmc_spec=f'Ø{f.diameter:g} THRU'
+        elif f.kind in ('mounting','drilling'):pmc_spec=f'Ø{f.diameter:g} × {f.depth:g} DEEP / {f.tip_angle:g}° POINT'
+        else:pmc_spec=f.size
+        if f.plugged:pmc_spec+=f' / PLUG {f.plug_length:g}; ENTRY SPEC REQUIRED'
         row = dict(id=f.id, feature=f.id, face=f.face, label=label, specification=spec,
+                   machining_label=result[key]['machining_label'],
+                   kind=f.kind,pmc_specification=pmc_spec,
                    model=model, u=f.u, v=f.v, diameter=diameter, depth=depth,
                    source=definition.source if definition else 'Manifold feature parameters')
         rows.append(row)
@@ -151,6 +163,9 @@ def initial_edit(source, kind, number=''):
     meta = Metadata(number=number.strip() or d.name[:100], title=d.name,
                     date=datetime.now(timezone.utc).date().isoformat(), unit='inch' if d.project_context=='inch' else 'mm')
     edit = Edit(metadata=meta, sheets=[Sheet(id='overview', title='Customer reference' if kind=='customer' else 'Manufacturing overview')])
+    if kind=='manufacturing':
+        from .pmc3069 import configure
+        return configure(source,edit)
     positions = {'top': (159, 35), 'left': (38, 148), 'front': (159, 148), 'right': (280, 148), 'back': (400, 148), 'bottom': (159, 266), 'iso': (421, 35)}
     front_y=max(148,65+d.block.width*scale)
     for face in ('left','front','right','back'):positions[face]=(positions[face][0],front_y)
@@ -160,23 +175,14 @@ def initial_edit(source, kind, number=''):
     edit.tables.append(Table(id='porting', sheet='overview', kind='porting', position=(290, 266), width=285, count=10))
     if d.schematics:
         edit.schematics.append(Schematic(id='schematic', sheet='overview', asset=d.schematics[0].sha256, position=(20, 30), width=110, height=95))
-    if kind == 'manufacturing':
-        for face in ('front', 'back', 'left', 'right', 'top', 'bottom'):
-            u,v,*_=FACE_AXES[face];sizes=dimensions(d.block)
-            max_scale=min(2,320/sizes[u],180/sizes[v])
-            detail_scale=next((s for s in (2,1,.5,.25,.2,.1,.05,.025) if s<=max_scale),.01)
-            edit.sheets.append(Sheet(id='face-'+face, title=face.upper()+' machining'))
-            edit.views.append(View(id='detail-'+face, sheet='face-'+face, projection=face,
-                                   position=(100, 70), scale=detail_scale, hidden=True, title=face.upper()+' · DATUM COORDINATES'))
-        edit.sheets.append(Sheet(id='section', title='Internal geometry'))
-        for name, pos, at in [('section-z', (45, 50), d.block.height/2), ('section-y', (310, 50), d.block.width/2)]:
-            section_scale=next((s for s in (1,.5,.25,.2,.1,.05,.025) if s*max(dimensions(d.block))<=200),.01)
-            edit.views.append(View(id=name, sheet='section', projection=name, position=pos, scale=section_scale, hidden=True, section_at=at, title=f'{name.upper()} AT {at:g} mm'))
     return edit
 
 
 def auto_annotations(source, edit):
     data, rows, operations = anchors(source)
+    if edit.template.layout=='pmc3069':
+        from .pmc3069 import annotations
+        return annotations(source,edit,data,rows)
     items = []
     # Opposite-side views have explicit outward axes; dimensions remain positive distances.
     corners = {'front': ('B:000', 'B:100', 'B:001'), 'back': ('B:110', 'B:010', 'B:111'),
@@ -215,6 +221,9 @@ def auto_annotations(source, edit):
 def add_tables(source, edit, kind):
     from .render import fitting_rows,table_rows
     _, rows, operations = anchors(source)
+    if edit.template.layout=='pmc3069':
+        from .pmc3069 import add_overflow
+        return add_overflow(source,edit,rows)
     first=edit.tables[0]
     first.count=max(1,fitting_rows(first,table_rows(first,rows,operations),90))
     for table_kind,start,total in [('porting',first.count,len(rows)),('machining',0,len(operations) if kind=='manufacturing' else 0)]:

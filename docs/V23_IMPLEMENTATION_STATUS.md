@@ -1,6 +1,6 @@
 # V2.3 implementation work record
 
-Baseline ac238b5. Approved plan V1.1: section 16.1 required, section 16.2 non-blocking. User authorized committing and pushing this implementation to GitHub on 2026-09-13. The outstanding reference-page acceptance evidence remains documented below. No Agnes or provider/configuration changes.
+Baseline ac238b5. Approved plan V1.1: section 16.1 required, section 16.2 non-blocking. User authorized committing and pushing this implementation to GitHub on 2026-09-13. The earlier reference-page prerequisite was withdrawn by the user on 2026-09-14. No Agnes or provider/configuration changes.
 
 ## Current result
 
@@ -29,8 +29,10 @@ All fixtures belong to this task. Primary Project cbd87da8584c43a895e33a747c794a
 
 The local application runs at http://127.0.0.1:8765. Browser session pmc uses scripts/browser.ps1; local browser control requires the already-used sandbox escalation. Do not edit production projects or repeat the 120-hole CAD build unnecessarily: scripts.drawing-density supports --reuse-project.
 
-## Only outstanding required acceptance evidence
+## Manufacturing template correction — 2026-09-14
 
-The supplied readable reupload contains PMC26-3092 CUS 1 page, CT 3 pages, Purge 3 pages = 7 pages. Original full-file uploads are damaged 33-byte JSON responses. The approved nine-page reference scope includes the missing PMC26-3092 pages 2 and 3. The async request for their local path has not been answered. Do not mark section 16.1 entirely accepted until those pages are reviewed and any newly exposed essential gaps addressed.
+The user withdrew the earlier missing-reference-page prerequisite and requires PMC26-3069 as the default manufacturing template. The sparse manufacturing output described above is historical and superseded. New generation uses three A2 sheets, each with all six faces, source-driven PORTINGS and the measured PMC title/notes/company arrangement. Legacy saved documents remain intact.
+
+See [PMC3069_MANUFACTURING_TEMPLATE.md](PMC3069_MANUFACTURING_TEMPLATE.md) for the implementation, final 24-test focused regression, browser checks and review PDFs. The 120-hole source now fits three sheets / 519 annotations. The new PDF is ready for user review. The user authorized committing and pushing the correction to GitHub on 2026-09-14.
 
 Non-blocking enhancements are explicitly listed in V23_ACCEPTANCE.md: standalone SVG/DXF, advanced sections/layout/reconciliation, generic template designer, full Project packaging. Do not label these as shipped.

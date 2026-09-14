@@ -15,7 +15,7 @@ def export_pdf(doc):
     canvas=Canvas(buffer,pageCompression=1,invariant=1)
     canvas.setTitle(edit.metadata.number+' · '+edit.metadata.title)
     canvas.setAuthor(edit.template.company)
-    canvas.setSubject(f'{doc["kind"]}; {doc["status"]}; source {doc["source"]["design_revision"]}; build {doc["source"]["build_id"]}')
+    canvas.setSubject('PMC engineering drawing' if edit.template.layout=='pmc3069' else f'{doc["kind"]}; {doc["status"]}; source {doc["source"]["design_revision"]}; build {doc["source"]["build_id"]}')
     overlays=[]
     for sheet in edit.sheets:
         current=scene(doc,sheet.id)
@@ -25,16 +25,20 @@ def export_pdf(doc):
         for p in current['primitives']:
             if p['kind']=='polyline':
                 canvas.setStrokeColor(p['color']);canvas.setLineWidth(p['stroke']*mm)
-                canvas.setDash([2*mm,mm] if p['dash'] else [])
+                canvas.setDash([v*mm for v in p.get('dash_pattern',[2,1])] if p['dash'] else [])
+                if p.get('fill'):canvas.setFillColor(p['fill'])
                 path=canvas.beginPath()
                 for i,(x,y) in enumerate(p['points']):
                     (path.moveTo if i==0 else path.lineTo)(x*mm,(h-y)*mm)
-                canvas.drawPath(path,stroke=1,fill=0)
+                canvas.drawPath(path,stroke=1,fill=bool(p.get('fill')))
             elif p['kind']=='text':
                 canvas.setFillColor(p['color'])
                 canvas.setFont(font_name(any(ord(c)>0x2e80 for c in p['text'])),p['size']*mm)
                 fn={'left':canvas.drawString,'center':canvas.drawCentredString,'right':canvas.drawRightString}[p['align']]
-                fn(p['x']*mm,(h-p['y'])*mm,p['text'])
+                if p.get('rotation'):
+                    canvas.saveState();canvas.translate(p['x']*mm,(h-p['y'])*mm);canvas.rotate(-p['rotation'])
+                    fn(0,0,p['text']);canvas.restoreState()
+                else:fn(p['x']*mm,(h-p['y'])*mm,p['text'])
             elif p['kind']=='image':
                 item=p['schematic']
                 if not item:
@@ -85,6 +89,6 @@ def export_pdf(doc):
                            .translate(item['position'][0]*mm,(h-item['position'][1]-item['height'])*mm))
                 page.merge_transformed_page(original,transform,over=False,expand=False)
     writer.add_metadata({'/Title':edit.metadata.number+' '+edit.metadata.title,'/Author':edit.template.company,
-                         '/Subject':f'Source {doc["source"]["design_revision"]}; build {doc["source"]["build_id"]}; {doc["status"]}'})
+                         '/Subject':'PMC engineering drawing' if edit.template.layout=='pmc3069' else f'Source {doc["source"]["design_revision"]}; build {doc["source"]["build_id"]}; {doc["status"]}'})
     output=io.BytesIO();writer.write(output)
     return output.getvalue()

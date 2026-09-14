@@ -25,6 +25,9 @@ class Metadata(Strict):
     customer: str = Field(default='', max_length=160)
     drawn_by: str = Field(default='', max_length=100)
     checked_by: str = Field(default='', max_length=100)
+    designed_by: str = Field(default='', max_length=100)
+    approved_by: str = Field(default='', max_length=100)
+    quantity: int = Field(default=1, ge=1, le=100000)
     date: str = Field(default='', max_length=30)
     revision_note: Text = ''
     notes: Text = ''
@@ -38,6 +41,7 @@ class Metadata(Strict):
 
 
 class Template(Strict):
+    layout: Literal['legacy', 'pmc3069'] = 'legacy'
     name: str = Field(default='PMC', max_length=100)
     company: str = Field(default='POWER & MOTION CONTROL PTE. LTD.', max_length=160)
     address: str = Field(default='14 Tuas South Link 3, Singapore 638814', max_length=200)
@@ -46,6 +50,10 @@ class Template(Strict):
     general_tolerance: Text = 'PMC reference: linear mm 1–6 ±0.1; >6–30 ±0.2; >30–120 ±0.3; >120–315 ±0.5; >315–1000 ±0.8; >1000–2000 ±1.2.\nConfirm applicability before release.'
     tolerance_confirmed: bool = False
     show_logo: bool = True
+    telephone: str = Field(default='6261 6606', max_length=100)
+    fax: str = Field(default='6265 7789', max_length=100)
+    email: str = Field(default='pmcont@singnet.com.sg', max_length=100)
+    linear_tolerances: list[Annotated[str,Field(max_length=20)]] = Field(default_factory=lambda:['±0.1','±0.2','±0.3','±0.5','±0.8','±1.2','±2.0'], min_length=7, max_length=7)
 
 
 class View(Strict):
@@ -59,6 +67,7 @@ class View(Strict):
     visible: bool = True
     title: str = Field(default='', max_length=120)
     section_at: float | None = Field(default=None, ge=0, le=2000)
+    presentation: Literal['standard','pmc-overview','pmc-coordinate','pmc-internal'] = 'standard'
 
 
 class Annotation(Strict):
@@ -74,6 +83,7 @@ class Annotation(Strict):
     height: float = Field(default=3, ge=2, le=20)
     visible: bool = True
     automatic: bool = False
+    ordinate: bool = False
 
     @model_validator(mode='after')
     def association(self):
@@ -85,6 +95,8 @@ class Annotation(Strict):
                 raise ValueError('Dimension requires a view and its engineering anchors')
             if self.text:
                 raise ValueError('Dimension values are computed; use a separate note for commentary')
+        if self.ordinate and (self.kind!='dimension' or self.measure not in ('x','y')):
+            raise ValueError('Ordinate presentation requires an associated X or Y dimension')
         if self.kind in ('label', 'leader') and (not self.view or len(self.anchors) != 1):
             raise ValueError('Leader/label requires one engineering anchor and a view')
         return self
@@ -103,6 +115,7 @@ class Table(Strict):
     order: list[Key] = Field(default_factory=list, max_length=500)
     remarks: dict[Key, Annotated[str, Field(max_length=240)]] = Field(default_factory=dict, max_length=500)
     visible: bool = True
+    presentation: Literal['standard','pmc-portings'] = 'standard'
 
 
 class Schematic(Strict):
@@ -136,6 +149,9 @@ class Edit(Strict):
 
     @model_validator(mode='after')
     def references(self):
+        if self.template.layout=='pmc3069':
+            if self.metadata.unit!='mm' or any(s.size!='A2' or not s.landscape for s in self.sheets):
+                raise ValueError('The PMC26-3069 template uses A2 landscape sheets and millimetre dimensions/tolerances')
         sheets = {s.id for s in self.sheets}
         views = {v.id: v for v in self.views}
         ids = [s.id for s in self.sheets]

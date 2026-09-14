@@ -58,3 +58,12 @@ PDF is the supported final export in this scope. SVG is the shared editing repre
 - Focused tests: `tests/test_drawing_workspace.py`, `tests/test_mounting_drawing_source.py` and existing store/Project tests.
 - Reproducible fixtures: `scripts/drawing-fixture.py`, `scripts/drawing-density.py`; run with the repository on `PYTHONPATH` in `.venv`.
 - Runtime dependencies: ReportLab and pypdf, pinned in project requirements. All CAD imports retain the existing `manifold.cad` boundary.
+
+
+## PMC26-3069 default Manufacturing Drawing
+
+New manufacturing drawings use three A2 landscape sheets: overview, six machining-coordinate faces together, and six internal/hidden-line faces together with internal ISO. All sheets use the reference-measured PMC title block, stock summary and three-pair PORTINGS table. The source Project schematic repeats in the upper-left slot when present. Actual table overflow alone adds continuation sheets; engineers may add sections/details during finishing.
+
+PMC26-3069 dimensions/tolerance bands are mm. Title block properties include quantity and design/drawn/checked/approved names. Ordinate dimensions can be repositioned or switched to ordinary X/Y presentation, with values still computed from their anchors. Diagnostic build/source information remains in the application, not on normal manufacturing paper. Existing legacy drawings retain their template; create a new manufacturing document to use this default.
+
+See [the template correction and visual evidence](PMC3069_MANUFACTURING_TEMPLATE.md).

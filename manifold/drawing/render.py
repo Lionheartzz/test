@@ -122,13 +122,16 @@ def check_drawing(doc,layouts=True):
     displayed=set()
     for table in edit.tables:
         if table.visible and table.kind=='porting':
-            displayed.update(r['id'] for r in table_rows(table,rows,operations))
+            if table.presentation=='pmc-portings':
+                from .pmc3069 import porting_groups
+                displayed.update(key for r in porting_groups(rows,table) for key in r['ids'])
+            else:displayed.update(r['id'] for r in table_rows(table,rows,operations))
     if any(r['id'] not in displayed for r in rows):
         issues.append(issue('porting-coverage','Some features are missing from the visible porting tables. Add/extend a table or record the intended omission.'))
     if doc['kind']=='manufacturing':
         covered={r['id'] for t in edit.tables if t.visible and t.kind=='machining' for r in table_rows(t,rows,operations)}
         if any(r['id'] not in covered for r in operations):
-            issues.append(issue('machining-coverage','Some machining operations are missing from the visible schedules. Add a continued table.'))
+            issues.append(issue('machining-coverage','Verify machining information is complete in the referenced cavity specifications and the dimensioned views; add sourced detail dimensions or a supplemental schedule where needed.' if edit.template.layout=='pmc3069' else 'Some machining operations are missing from the visible schedules. Add a continued table.'))
     for schematic in edit.schematics:
         if not schematic.visible:continue
         try: asset_image(doc,schematic)
@@ -225,58 +228,71 @@ def scene(doc,sheet_id):
     hitpoints=[]
     render_issues=[]
     group='paper'
-    def poly(points,color='#161b22',stroke=.25,dash=False):
-        primitives.append(dict(kind='polyline',points=points,color=color,stroke=stroke,dash=dash,group=group))
+    def poly(points,color='#161b22',stroke=.25,dash=False,fill=None):
+        primitives.append(dict(kind='polyline',points=points,color=color,stroke=stroke,dash=dash,group=group,fill=fill,
+                               dash_pattern=[.8,.4] if edit.template.layout=='pmc3069' else [2,1]))
     def rect(x,y,w,h,color='#161b22'):
         poly([[x,y],[x+w,y],[x+w,y+h],[x,y+h],[x,y]],color)
-    def text(x,y,value,size=3,align='left',color='#161b22',max_width=None):
+    def text(x,y,value,size=3,align='left',color='#161b22',max_width=None,rotation=0):
         for i,line in enumerate(wrap(value,max_width,size) if max_width else str(value).split('\n')):
-            primitives.append(dict(kind='text',x=x,y=y+i*size*1.35,text=line,size=size,align=align,color=color,group=group))
+            primitives.append(dict(kind='text',x=x,y=y+i*size*1.35,text=line,size=size,align=align,color=color,group=group,rotation=rotation))
     def arrow(p,towards):
         dx,dy=towards[0]-p[0],towards[1]-p[1];length=math.hypot(dx,dy)
         if length<1e-8:return
         ux,uy=dx/length,dy/length
-        poly([[p[0]+ux*2-uy*.7,p[1]+uy*2+ux*.7],p,[p[0]+ux*2+uy*.7,p[1]+uy*2-ux*.7]],stroke=.2)
-    rect(8,8,width-16,height-16)
-    text(14,17,edit.metadata.number,4)
-    text(width-14,17,sheet.title,3,align='right')
-    title_y=height-59
-    rect(8,title_y,width-16,51)
-    poly([[width*.58,title_y],[width*.58,height-8]])
-    text(13,title_y+6,edit.template.company,3.5)
-    text(13,title_y+11,edit.template.address+' · '+edit.template.website,2.5)
-    text(13,title_y+16,edit.template.standard_notes,2.5,max_width=width*.55)
-    text(13,title_y+29,edit.template.general_tolerance,2.3,max_width=width*.55)
-    text(13,height-12,edit.metadata.notes,2.5,max_width=width*.55)
-    x=width*.58+5
-    text(x,title_y+7,edit.metadata.title,4,max_width=width*.39)
-    text(x,title_y+19,f'DRAWING {edit.metadata.number}    REV {edit.metadata.revision}',3)
-    material=doc['source']['resolved']['block']['material']
-    b=doc['source']['resolved']['block']
-    text(x,title_y+25,f'MATERIAL {material}   SIZE {b["length"]:g} × {b["width"]:g} × {b["height"]:g} mm',2.7,max_width=width*.38)
-    text(x,title_y+32,f'DRAWN {edit.metadata.drawn_by}   CHECKED {edit.metadata.checked_by}   {edit.metadata.date}',2.5)
-    text(x,title_y+38,f'THIRD ANGLE   UNITS {edit.metadata.unit}   SCALE: PER VIEW   SHEET {edit.sheets.index(sheet)+1}/{len(edit.sheets)}',2.5)
-    state='RELEASED' if doc['status']=='Released' else 'DRAFT / ENGINEERING REVIEW'
-    if doc['status']!='Released':
-        from .storage import source_current
-        if doc['source']['validation'].get('status')!='PASS':state='DRAFT / SOURCE ENGINEERING FAIL'
-        elif not source_current(doc):state='DRAFT / SOURCE CHANGED'
-    if doc['kind']=='customer':state+=' · CUSTOMER REFERENCE'
-    text(x,title_y+45,state,2.7,color='#8a3450' if doc['status']!='Released' else '#161b22')
-    text(14,height-3,f'SOURCE {doc["source"]["design_revision"][:12]} / BUILD {doc["source"]["build_id"][:12]} · {edit.metadata.revision_note}',2)
-    if edit.metadata.customer:text(13,title_y+24,'CUSTOMER '+edit.metadata.customer,2.5,max_width=width*.44)
-    if edit.template.show_logo:
-        logo=(Path(__file__).parent/'assets'/'pmc-logo.png').read_bytes()
-        primitives.append(dict(kind='image',x=width*.58-53,y=title_y+3,width=48,height=48*16.5/58.5,
-            data=base64.b64encode(logo).decode(),group='paper',schematic=None))
-    # Third-angle projection symbol: frustum side view and end view to its right.
-    sx,sy=width*.53,title_y+41
-    poly([[sx,sy-3],[sx+7,sy-2],[sx+7,sy+2],[sx,sy+3],[sx,sy-3]],stroke=.2)
-    for radius in (3,2):poly([[sx+13+radius*math.cos(i*math.pi/24),sy+radius*math.sin(i*math.pi/24)] for i in range(49)],stroke=.2)
-    poly([[sx-2,sy],[sx+18,sy]],stroke=.12,dash=True)
-    if doc.get('release',{}):
-        exceptions=doc['release'].get('exceptions',{})
-        if exceptions:text(14,25,'RELEASED WITH RECORDED EXCEPTIONS — see release notes',3,color='#9a2d28')
+        points=[[p[0]+ux*2-uy*.7,p[1]+uy*2+ux*.7],p,[p[0]+ux*2+uy*.7,p[1]+uy*2-ux*.7]]
+        if edit.template.layout=='pmc3069':points.append(points[0])
+        poly(points,stroke=.15 if edit.template.layout=='pmc3069' else .2,fill='#161b22' if edit.template.layout=='pmc3069' else None)
+    pmc=edit.template.layout=='pmc3069'
+    title_y=383 if pmc else height-59
+    margin=2 if pmc else 8
+    if pmc:
+        from .pmc3069 import furniture
+        def logo(x,y,w,h):
+            data=(Path(__file__).parent/'assets'/'pmc-logo.png').read_bytes()
+            primitives.append(dict(kind='image',x=x,y=y,width=w,height=h,data=base64.b64encode(data).decode(),group='paper',schematic=None))
+        furniture(doc,edit,sheet,text,poly,rect,logo)
+    else:
+        rect(8,8,width-16,height-16)
+        text(14,17,edit.metadata.number,4)
+        text(width-14,17,sheet.title,3,align='right')
+        title_y=height-59
+        rect(8,title_y,width-16,51)
+        poly([[width*.58,title_y],[width*.58,height-8]])
+        text(13,title_y+6,edit.template.company,3.5)
+        text(13,title_y+11,edit.template.address+' · '+edit.template.website,2.5)
+        text(13,title_y+16,edit.template.standard_notes,2.5,max_width=width*.55)
+        text(13,title_y+29,edit.template.general_tolerance,2.3,max_width=width*.55)
+        text(13,height-12,edit.metadata.notes,2.5,max_width=width*.55)
+        x=width*.58+5
+        text(x,title_y+7,edit.metadata.title,4,max_width=width*.39)
+        text(x,title_y+19,f'DRAWING {edit.metadata.number}    REV {edit.metadata.revision}',3)
+        material=doc['source']['resolved']['block']['material']
+        b=doc['source']['resolved']['block']
+        text(x,title_y+25,f'MATERIAL {material}   SIZE {b["length"]:g} × {b["width"]:g} × {b["height"]:g} mm',2.7,max_width=width*.38)
+        text(x,title_y+32,f'DRAWN {edit.metadata.drawn_by}   CHECKED {edit.metadata.checked_by}   {edit.metadata.date}',2.5)
+        text(x,title_y+38,f'THIRD ANGLE   UNITS {edit.metadata.unit}   SCALE: PER VIEW   SHEET {edit.sheets.index(sheet)+1}/{len(edit.sheets)}',2.5)
+        state='RELEASED' if doc['status']=='Released' else 'DRAFT / ENGINEERING REVIEW'
+        if doc['status']!='Released':
+            from .storage import source_current
+            if doc['source']['validation'].get('status')!='PASS':state='DRAFT / SOURCE ENGINEERING FAIL'
+            elif not source_current(doc):state='DRAFT / SOURCE CHANGED'
+        if doc['kind']=='customer':state+=' · CUSTOMER REFERENCE'
+        text(x,title_y+45,state,2.7,color='#8a3450' if doc['status']!='Released' else '#161b22')
+        text(14,height-3,f'SOURCE {doc["source"]["design_revision"][:12]} / BUILD {doc["source"]["build_id"][:12]} · {edit.metadata.revision_note}',2)
+        if edit.metadata.customer:text(13,title_y+24,'CUSTOMER '+edit.metadata.customer,2.5,max_width=width*.44)
+        if edit.template.show_logo:
+            logo=(Path(__file__).parent/'assets'/'pmc-logo.png').read_bytes()
+            primitives.append(dict(kind='image',x=width*.58-53,y=title_y+3,width=48,height=48*16.5/58.5,
+                data=base64.b64encode(logo).decode(),group='paper',schematic=None))
+        # Third-angle projection symbol: frustum side view and end view to its right.
+        sx,sy=width*.53,title_y+41
+        poly([[sx,sy-3],[sx+7,sy-2],[sx+7,sy+2],[sx,sy+3],[sx,sy-3]],stroke=.2)
+        for radius in (3,2):poly([[sx+13+radius*math.cos(i*math.pi/24),sy+radius*math.sin(i*math.pi/24)] for i in range(49)],stroke=.2)
+        poly([[sx-2,sy],[sx+18,sy]],stroke=.12,dash=True)
+        if doc.get('release',{}):
+            exceptions=doc['release'].get('exceptions',{})
+            if exceptions:text(14,25,'RELEASED WITH RECORDED EXCEPTIONS — see release notes',3,color='#9a2d28')
     for view in edit.views:
         if view.sheet!=sheet_id or not view.visible:continue
         group=view.id
@@ -289,9 +305,15 @@ def scene(doc,sheet_id):
         for path in geo.get('hatching',[])[::stride]:poly([transform(p) for p in path],stroke=.12)
         for paths,hidden in [(geo['hidden'],True),(geo['visible'],False)]:
             if hidden and not view.hidden:continue
-            for path in paths:poly([transform(p) for p in path],stroke=.16 if hidden else .3,dash=hidden)
+            for path in paths:poly([transform(p) for p in path],stroke=(.13 if hidden else .18) if pmc else (.16 if hidden else .3),dash=hidden)
         scale_text=f'{view.scale:g}:1' if view.scale>=1 else f'1:{1/view.scale:g}'
-        text(view.position[0],view.position[1]-5,(view.title or view.projection.upper())+f'   SCALE {scale_text}',3)
+        if view.presentation=='standard':text(view.position[0],view.position[1]-5,(view.title or view.projection.upper())+f'   SCALE {scale_text}',3)
+        elif view.projection=='iso':text(view.position[0]+(right-left)*view.scale,view.position[1]+(top-bottom)*view.scale+4,'ISO '+scale_text,2.4,align='right',color='#69666d')
+        elif view.presentation in ('pmc-coordinate','pmc-internal'):
+            from .pmc3069 import FACE_LETTERS
+            cx,cy=view.position[0]+4,view.position[1]+4
+            poly([[cx+2.2*math.cos(i*math.pi/3),cy+2.2*math.sin(i*math.pi/3)] for i in range(7)],'#a72c6f',.18)
+            text(cx,cy+1,FACE_LETTERS[view.projection],2.6,align='center',color='#a72c6f')
         if view.id.startswith('detail-'):
             from ..kinematics import FACE_AXES
             u,v,*_=FACE_AXES[view.projection]
@@ -317,7 +339,20 @@ def scene(doc,sheet_id):
                 val=measure(item,view,data)
                 if val is None:continue
                 a=points[0];b=points[-1]
-                if item.measure=='x':
+                if item.ordinate:
+                    value=dimension_text(val,item,edit.metadata.unit).rstrip('0').rstrip('.') if item.precision else dimension_text(val,item,edit.metadata.unit)
+                    if item.measure=='x':
+                        end=[b[0]+item.position[0],view.position[1]+item.position[1]]
+                        poly([b,[b[0],view.position[1]-3],end],stroke=.18)
+                        arrow(end,[end[0],end[1]-4])
+                        text(end[0]+.9,end[1]-2,value,item.height,rotation=-90)
+                    else:
+                        end=[view.position[0]+item.position[0],b[1]+item.position[1]]
+                        edge=view.position[0]-3 if item.position[0]<0 else view.position[0]+(right-left)*view.scale+3
+                        poly([b,[edge,b[1]],end],stroke=.18)
+                        arrow(end,[end[0]+(-4 if item.position[0]<0 else 4),end[1]])
+                        text(end[0]+(-2 if item.position[0]<0 else 2),end[1]+1,value,item.height,align='right' if item.position[0]<0 else 'left')
+                elif item.measure=='x':
                     y=max(a[1],b[1])+item.position[1]
                     aa=[a[0],y];bb=[b[0],y]
                     poly([a,aa]);poly([b,bb]);poly([aa,bb]);arrow(aa,bb);arrow(bb,aa)
@@ -326,7 +361,7 @@ def scene(doc,sheet_id):
                     x=min(a[0],b[0])+item.position[0]
                     aa=[x,a[1]];bb=[x,b[1]]
                     poly([a,aa]);poly([b,bb]);poly([aa,bb]);arrow(aa,bb);arrow(bb,aa)
-                    text(x-1,(a[1]+b[1])/2+item.position[1],dimension_text(val,item,edit.metadata.unit),item.height,align='right')
+                    text(x-1,(a[1]+b[1])/2+item.position[1],dimension_text(val,item,edit.metadata.unit),item.height,align='center' if pmc else 'right',rotation=-90 if pmc else 0)
                 elif item.measure=='aligned':
                     aa=[a[0]+item.position[0],a[1]+item.position[1]];bb=[b[0]+item.position[0],b[1]+item.position[1]]
                     poly([a,aa]);poly([b,bb]);poly([aa,bb]);arrow(aa,bb);arrow(bb,aa)
@@ -338,13 +373,26 @@ def scene(doc,sheet_id):
             else:
                 a=points[0];end=[a[0]+item.position[0],a[1]+item.position[1]]
                 if item.kind=='leader':poly([a,end]);arrow(a,end)
-                text(end[0],end[1],item.text or values[0]['label'],item.height,color='#8a3450')
+                caption=values[0].get('machining_label',values[0]['label']) if view.presentation in ('pmc-coordinate','pmc-internal') else values[0]['label']
+                text(end[0],end[1],item.text or caption,item.height,color='#151515' if view.presentation in ('pmc-coordinate','pmc-internal') else '#a72c6f')
     for item in edit.annotations:
         if item.sheet==sheet_id and item.kind=='text' and item.visible:
             group=item.id;text(*item.position,item.text,item.height)
     for table in edit.tables:
         if table.sheet!=sheet_id or not table.visible:continue
         group=table.id
+        if table.presentation=='pmc-portings':
+            from .pmc3069 import table_layout,MAGENTA
+            x,y=table.position;cw=table.width/6
+            rect(x,y,table.width,5.5,MAGENTA);text(x+table.width/2,y+4.3,'PORTINGS',3.6,align='center',color=MAGENTA)
+            y+=5.5
+            for row in table_layout(table,rows):
+                for i,lines in enumerate(row['cells']):
+                    rect(x+i*cw,y,cw,row['height'],MAGENTA)
+                    for j,line in enumerate(lines):text(x+(i+.5)*cw,y+table.height+j*table.height*1.15,line,table.height,align='center',color=MAGENTA)
+                y+=row['height']
+            if y>364.1 and table.position==(313,247):render_issues.append(issue('table-bounds:'+table.id,'PORTINGS overlaps the PMC company block. Reduce the row range or add a continuation sheet.',table.id,'error'))
+            continue
         selected=table_rows(table,rows,operations)
         x,y=table.position
         widths,cells=table_cells(table,selected)
@@ -369,19 +417,30 @@ def scene(doc,sheet_id):
             primitives.append(dict(kind='image',x=x,y=y,width=w,height=h,
                                    data=base64.b64encode(content).decode(),group=group,schematic={**item.model_dump(),'position':[x,y],'width':w,'height':h}))
         except (ValueError,OSError,RuntimeError):text(*item.position,'SCHEMATIC UNAVAILABLE',3,color='#b42318')
+    if pmc:
+        overview_views={v.id for v in edit.views if v.presentation=='pmc-overview'}
+        dimension_groups={a.id for a in edit.annotations if a.kind=='dimension' and a.view in overview_views}
+        for primitive in primitives:
+            if primitive['group'] in dimension_groups:
+                primitive['color']='#a72c6f'
+                if primitive.get('fill'):primitive['fill']='#a72c6f'
     boxes=[];warned=set();outside=set()
     for index,p in enumerate(primitives):
         if p['kind']=='text':
             length=text_width(p['text'],p['size'])
             left=p['x']-({'left':0,'center':.5,'right':1}[p['align']])*length
             bounds=(left,p['y']-p['size'],left+length,p['y']+.2)
+            if p.get('rotation'):
+                angle=math.radians(p['rotation']);c,s=math.cos(angle),math.sin(angle)
+                corners=[(p['x']+(x-p['x'])*c-(y-p['y'])*s,p['y']+(x-p['x'])*s+(y-p['y'])*c) for x in (bounds[0],bounds[2]) for y in (bounds[1],bounds[3])]
+                bounds=(min(x for x,y in corners),min(y for x,y in corners),max(x for x,y in corners),max(y for x,y in corners))
             if p['text'] and (p['group']!='paper' or p['y']>=title_y):boxes.append((p['group'] if p['group']!='paper' else 'paper:'+str(index),bounds))
         elif p['kind']=='image':bounds=(p['x'],p['y'],p['x']+p['width'],p['y']+p['height'])
         elif p['group']!='paper':
             pts=p['points'];bounds=(min(x for x,y in pts),min(y for x,y in pts),max(x for x,y in pts),max(y for x,y in pts))
         else:continue
-        if p['group']!='paper' and (bounds[0]<8 or bounds[1]<8 or bounds[2]>width-8 or bounds[3]>title_y-2):outside.add(p['group'])
-        elif p['group']=='paper' and (bounds[0]<8 or bounds[2]>width-8 or bounds[3]>height):outside.add('paper')
+        if p['group']!='paper' and (bounds[0]<margin or bounds[1]<margin or bounds[2]>width-margin or bounds[3]>title_y-2):outside.add(p['group'])
+        elif p['group']=='paper' and (bounds[0]<margin or bounds[2]>width-margin or bounds[3]>height):outside.add('paper')
     for i,(key,a) in enumerate(boxes):
         for other,b in boxes[i+1:]:
             if key!=other and max(a[0],b[0])<min(a[2],b[2]) and max(a[1],b[1])<min(a[3],b[3]):warned.update([key,other])
@@ -403,13 +462,14 @@ def svg(scene):
             last=p['group'];result.append(f'<g data-item="{escape(last,quote=True)}">')
         if p['kind']=='polyline':
             coords=' '.join(','.join(map(n,point)) for point in p['points'])
-            dash=' stroke-dasharray="2,1"' if p['dash'] else ''
-            result.append(f'<polyline points="{coords}" stroke="{p["color"]}" stroke-width="{n(p["stroke"])}" fill="none"{dash}/>')
+            dash=' stroke-dasharray="'+','.join(map(n,p.get('dash_pattern',[2,1])))+'"' if p['dash'] else ''
+            result.append(f'<polyline points="{coords}" stroke="{p["color"]}" stroke-width="{n(p["stroke"])}" fill="{p.get("fill") or "none"}"{dash}/>')
         elif p['kind']=='text':
             anchor={'left':'start','center':'middle','right':'end'}[p['align']]
             family='PMC-CJK' if any(ord(c)>0x2e80 for c in p['text']) else 'PMC-Text'
             length=text_width(p['text'],p['size'])
-            result.append(f'<text x="{n(p["x"])}" y="{n(p["y"])}" font-size="{n(p["size"])}" font-family="{family},sans-serif" text-anchor="{anchor}" fill="{p["color"]}" textLength="{n(length)}" lengthAdjust="spacingAndGlyphs">{escape(p["text"])}</text>')
+            transform=f' transform="rotate({p["rotation"]} {n(p["x"])} {n(p["y"])})"' if p.get('rotation') else ''
+            result.append(f'<text x="{n(p["x"])}" y="{n(p["y"])}" font-size="{n(p["size"])}" font-family="{family},sans-serif" text-anchor="{anchor}" fill="{p["color"]}" textLength="{n(length)}" lengthAdjust="spacingAndGlyphs"{transform}>{escape(p["text"])}</text>')
         else:
             result.append(f'<image x="{n(p["x"])}" y="{n(p["y"])}" width="{n(p["width"])}" height="{n(p["height"])}" preserveAspectRatio="none" href="data:image/png;base64,{p["data"]}"/>')
     if last is not None:result.append('</g>')
