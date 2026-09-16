@@ -116,11 +116,12 @@ def build_geometry(design: Design):
             circuits[f.id] = f.circuit
             if f.plugged or f.kind == 'port':
                 envelopes[f.id] = cylinder(origin, direction, f.clearance_diameter, -f.clearance_height, 0)
-    production = block.cut(*cuts.values()).clean() if cuts else block
+    with phase('geometry.production_boolean'):
+        production = block.cut(*cuts.values()).clean() if cuts else block
     return Geometry(block, production, cuts, nodes, circuits, envelopes, plugs, placements, boundaries)
 
 
-@timed('tessellation')
+@timed('tessellation',immediate=True)
 def mesh(shape):
     # OCCT attaches triangulations to a shape and can enlarge subsequent bounds.
     # Rendering must not mutate solids that will be used again by exact validation.
@@ -135,7 +136,10 @@ def review_model(design,g):
     features={f.id:f for f in design.features}
     parts=[dict(id='block',kind='body',color='#9ba9b9',**mesh(g.production))]
     # Boolean the authoritative solids before tessellation. Meshes never define connectivity.
-    void = g.block.cut(g.production).clean()
+    with phase('review.removed_volume'):
+        # Do not run ShapeUpgrade_UnifySameDomain on this complementary solid.
+        # Coincident cut faces can make that display-only cleanup unbounded.
+        void = g.block.cut(g.production)
     if void.Volume() > 1e-6:
         parts.append(dict(id='machined-void',kind='machined-void',color='#b6c9da',volume_mm3=void.Volume(),**mesh(void)))
     unions = {}
@@ -143,7 +147,7 @@ def review_model(design,g):
         for circuit in sorted(set(g.circuits.values())):
             members=[key for key in g.nodes if g.circuits[key]==circuit]
             shapes=[g.nodes[key].intersect(g.block) for key in members]
-            shape=(shapes[0].fuse(*shapes[1:]) if len(shapes)>1 else shapes[0]).clean()
+            shape=shapes[0].fuse(*shapes[1:]) if len(shapes)>1 else shapes[0]
             unions[circuit]=shape
             color=next((n.color for n in design.nets if n.id==circuit and n.color),COLORS.get(circuit,'#b08bea'))
             parts.append(dict(id='net:'+circuit,kind='hydraulic-net',circuit=circuit,color=color,members=members,
@@ -152,7 +156,7 @@ def review_model(design,g):
     collisions=[]
     with phase('hydraulic.cross_net_geometry'):
         for a,b in combinations(unions,2):
-            common=unions[a].intersect(unions[b]).clean()
+            common=unions[a].intersect(unions[b])
             if common.Volume()>1e-6:
                 collisions.append(dict(nets=[a,b],volume_mm3=common.Volume()))
                 parts.append(dict(id=f'collision:{a}:{b}',kind='collision',color='#ff163e',nets=[a,b],**mesh(common)))
@@ -168,4 +172,5 @@ def review_model(design,g):
         parts.append(dict(id=key+':plug',owner=key,kind='plug',color='#d5dee9',entry_machining_status='unresolved',**mesh(shape)))
     return dict(block=design.block.model_dump(),parts=parts,placements=g.placements,
                 volume_mm3=round(g.production.Volume(),3),colors=COLORS,geometry_kind='machined-brep',
+                brep_valid=g.production.isValid(),
                 collisions=collisions,semantics='Machined void is stock minus production; hydraulic nets are separate exact unions of flow nodes after closures. Interface parts remain separate inspection layers.')

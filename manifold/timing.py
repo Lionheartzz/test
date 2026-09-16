@@ -38,19 +38,19 @@ def publish(force=False):
 
 
 @contextmanager
-def phase(name):
-    start=time.monotonic();_stack.append(name);publish()
+def phase(name, *, immediate=False):
+    start=time.monotonic();_stack.append(name);publish(force=immediate)
     try:yield
     finally:
         value=_counts.setdefault(name,[0,0.0]);value[0]+=1;value[1]+=time.monotonic()-start
         _stack.pop();publish()
 
 
-def timed(name):
+def timed(name, *, immediate=False):
     def decorate(fn):
         @wraps(fn)
         def call(*args,**kwargs):
-            with phase(name):return fn(*args,**kwargs)
+            with phase(name,immediate=immediate):return fn(*args,**kwargs)
         return call
     return decorate
 
@@ -63,4 +63,4 @@ def trace_occt():
         for method in ('cut','fuse','intersect','distance','clean'):
             fn=cls.__dict__.get(method)
             if fn and not getattr(fn,'_pmc_timed',False):
-                wrapped=timed('boolean.'+method)(fn);wrapped._pmc_timed=True;setattr(cls,method,wrapped)
+                wrapped=timed('boolean.'+method,immediate=True)(fn);wrapped._pmc_timed=True;setattr(cls,method,wrapped)

@@ -1,0 +1,412 @@
+{
+  "base": "780a362",
+  "before": [
+    {
+      "position": [
+        107,
+        50
+      ],
+      "trace": {
+        "elapsed_s": 15.031,
+        "phase": "operation.preview-solid / review.generation",
+        "diagnostic_write_errors": 0,
+        "operations": {
+          "boolean.clean": {
+            "count": 32,
+            "seconds": 0.0
+          },
+          "boolean.cut": {
+            "count": 10,
+            "seconds": 0.234
+          },
+          "boolean.fuse": {
+            "count": 18,
+            "seconds": 0.141
+          },
+          "boolean.intersect": {
+            "count": 4,
+            "seconds": 0.032
+          },
+          "geometry.construction": {
+            "count": 1,
+            "seconds": 0.422
+          },
+          "route.proposal": {
+            "count": 1,
+            "seconds": 1.062
+          },
+          "route.resolution": {
+            "count": 1,
+            "seconds": 1.062
+          },
+          "tessellation": {
+            "count": 1,
+            "seconds": 0.453
+          },
+          "worker.startup": {
+            "count": 1,
+            "seconds": 2.375
+          }
+        },
+        "cpu_s": 15.8906,
+        "peak_memory_mb": 231.49,
+        "operation": "preview-solid",
+        "limit_s": 15,
+        "exit_code": 1,
+        "state": "timeout",
+        "reason": "Exact preview exceeded 15 seconds; worker stopped. Last usable view and saved project retained. Inspect calculation diagnostics or retry after revising the draft."
+      }
+    },
+    {
+      "position": [
+        97,
+        53
+      ],
+      "trace": {
+        "elapsed_s": 15.032,
+        "phase": "operation.preview-solid / review.generation",
+        "diagnostic_write_errors": 0,
+        "operations": {
+          "boolean.clean": {
+            "count": 32,
+            "seconds": 0.016
+          },
+          "boolean.cut": {
+            "count": 10,
+            "seconds": 0.265
+          },
+          "boolean.fuse": {
+            "count": 18,
+            "seconds": 0.141
+          },
+          "boolean.intersect": {
+            "count": 4,
+            "seconds": 0.015
+          },
+          "geometry.construction": {
+            "count": 1,
+            "seconds": 0.453
+          },
+          "route.proposal": {
+            "count": 1,
+            "seconds": 1.109
+          },
+          "route.resolution": {
+            "count": 1,
+            "seconds": 1.109
+          },
+          "tessellation": {
+            "count": 1,
+            "seconds": 0.516
+          },
+          "worker.startup": {
+            "count": 1,
+            "seconds": 2.438
+          }
+        },
+        "cpu_s": 16.0156,
+        "peak_memory_mb": 243.22,
+        "operation": "preview-solid",
+        "limit_s": 15,
+        "exit_code": 1,
+        "state": "timeout",
+        "reason": "Exact preview exceeded 15 seconds; worker stopped. Last usable view and saved project retained. Inspect calculation diagnostics or retry after revising the draft."
+      }
+    }
+  ],
+  "after": [
+    {
+      "position": [
+        107,
+        50
+      ],
+      "elapsed_s": 6.985,
+      "operations": {
+        "boolean.clean": {
+          "count": 32,
+          "seconds": 0.093
+        },
+        "boolean.cut": {
+          "count": 11,
+          "seconds": 0.25
+        },
+        "boolean.fuse": {
+          "count": 22,
+          "seconds": 0.314
+        },
+        "boolean.intersect": {
+          "count": 30,
+          "seconds": 0.188
+        },
+        "geometry.construction": {
+          "count": 1,
+          "seconds": 0.5
+        },
+        "geometry.production_boolean": {
+          "count": 1,
+          "seconds": 0.156
+        },
+        "hydraulic.cross_net_geometry": {
+          "count": 1,
+          "seconds": 0.047
+        },
+        "hydraulic.net_geometry": {
+          "count": 1,
+          "seconds": 0.703
+        },
+        "operation.preview-solid": {
+          "count": 1,
+          "seconds": 3.5
+        },
+        "result.serialization": {
+          "count": 1,
+          "seconds": 0.078
+        },
+        "review.generation": {
+          "count": 1,
+          "seconds": 2.156
+        },
+        "review.removed_volume": {
+          "count": 1,
+          "seconds": 0.031
+        },
+        "route.proposal": {
+          "count": 1,
+          "seconds": 0.828
+        },
+        "route.resolution": {
+          "count": 1,
+          "seconds": 0.844
+        },
+        "tessellation": {
+          "count": 53,
+          "seconds": 1.687
+        },
+        "worker.startup": {
+          "count": 1,
+          "seconds": 2.437
+        }
+      }
+    },
+    {
+      "position": [
+        106,
+        50
+      ],
+      "elapsed_s": 6.843,
+      "operations": {
+        "boolean.clean": {
+          "count": 32,
+          "seconds": 0.047
+        },
+        "boolean.cut": {
+          "count": 11,
+          "seconds": 0.265
+        },
+        "boolean.fuse": {
+          "count": 22,
+          "seconds": 0.375
+        },
+        "boolean.intersect": {
+          "count": 30,
+          "seconds": 0.172
+        },
+        "geometry.construction": {
+          "count": 1,
+          "seconds": 0.516
+        },
+        "geometry.production_boolean": {
+          "count": 1,
+          "seconds": 0.172
+        },
+        "hydraulic.cross_net_geometry": {
+          "count": 1,
+          "seconds": 0.047
+        },
+        "hydraulic.net_geometry": {
+          "count": 1,
+          "seconds": 0.687
+        },
+        "operation.preview-solid": {
+          "count": 1,
+          "seconds": 3.468
+        },
+        "result.serialization": {
+          "count": 1,
+          "seconds": 0.078
+        },
+        "review.generation": {
+          "count": 1,
+          "seconds": 2.094
+        },
+        "review.removed_volume": {
+          "count": 1,
+          "seconds": 0.015
+        },
+        "route.proposal": {
+          "count": 1,
+          "seconds": 0.828
+        },
+        "route.resolution": {
+          "count": 1,
+          "seconds": 0.843
+        },
+        "tessellation": {
+          "count": 53,
+          "seconds": 1.655
+        },
+        "worker.startup": {
+          "count": 1,
+          "seconds": 2.407
+        }
+      }
+    },
+    {
+      "position": [
+        97,
+        53
+      ],
+      "elapsed_s": 7.063,
+      "operations": {
+        "boolean.clean": {
+          "count": 32,
+          "seconds": 0.093
+        },
+        "boolean.cut": {
+          "count": 11,
+          "seconds": 0.218
+        },
+        "boolean.fuse": {
+          "count": 22,
+          "seconds": 0.345
+        },
+        "boolean.intersect": {
+          "count": 30,
+          "seconds": 0.173
+        },
+        "geometry.construction": {
+          "count": 1,
+          "seconds": 0.515
+        },
+        "geometry.production_boolean": {
+          "count": 1,
+          "seconds": 0.171
+        },
+        "hydraulic.cross_net_geometry": {
+          "count": 1,
+          "seconds": 0.032
+        },
+        "hydraulic.net_geometry": {
+          "count": 1,
+          "seconds": 0.703
+        },
+        "operation.preview-solid": {
+          "count": 1,
+          "seconds": 3.484
+        },
+        "result.serialization": {
+          "count": 1,
+          "seconds": 0.079
+        },
+        "review.generation": {
+          "count": 1,
+          "seconds": 2.125
+        },
+        "review.removed_volume": {
+          "count": 1,
+          "seconds": 0.031
+        },
+        "route.proposal": {
+          "count": 1,
+          "seconds": 0.828
+        },
+        "route.resolution": {
+          "count": 1,
+          "seconds": 0.844
+        },
+        "tessellation": {
+          "count": 53,
+          "seconds": 1.672
+        },
+        "worker.startup": {
+          "count": 1,
+          "seconds": 2.578
+        }
+      }
+    },
+    {
+      "position": [
+        107,
+        50
+      ],
+      "elapsed_s": 6.859,
+      "operations": {
+        "boolean.clean": {
+          "count": 32,
+          "seconds": 0.187
+        },
+        "boolean.cut": {
+          "count": 11,
+          "seconds": 0.172
+        },
+        "boolean.fuse": {
+          "count": 22,
+          "seconds": 0.312
+        },
+        "boolean.intersect": {
+          "count": 30,
+          "seconds": 0.156
+        },
+        "geometry.construction": {
+          "count": 1,
+          "seconds": 0.515
+        },
+        "geometry.production_boolean": {
+          "count": 1,
+          "seconds": 0.171
+        },
+        "hydraulic.cross_net_geometry": {
+          "count": 1,
+          "seconds": 0.047
+        },
+        "hydraulic.net_geometry": {
+          "count": 1,
+          "seconds": 0.672
+        },
+        "operation.preview-solid": {
+          "count": 1,
+          "seconds": 3.469
+        },
+        "result.serialization": {
+          "count": 1,
+          "seconds": 0.078
+        },
+        "review.generation": {
+          "count": 1,
+          "seconds": 2.11
+        },
+        "review.removed_volume": {
+          "count": 1,
+          "seconds": 0.016
+        },
+        "route.proposal": {
+          "count": 1,
+          "seconds": 0.828
+        },
+        "route.resolution": {
+          "count": 1,
+          "seconds": 0.828
+        },
+        "tessellation": {
+          "count": 53,
+          "seconds": 1.657
+        },
+        "worker.startup": {
+          "count": 1,
+          "seconds": 2.453
+        }
+      }
+    }
+  ],
+  "notes": "Windows local samples; the 15 second preview watchdog is unchanged. After: one streamed worker/resolution per snapshot. Regression uses source-pinned T-8A cavities with unchanged source geometry; proposal completion is not engineering PASS."
+}

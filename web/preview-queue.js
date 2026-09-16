@@ -1,13 +1,13 @@
 // One newest snapshot. The server owns killable CAD workers; abort and explicit
 // invalidation terminate obsolete work instead of merely discarding its result.
-export function createPreviewQueue({post,onFast,onExact,onStatus,onError,cancelRemote=null,delay=350,exactDelay=450,timeout=20000}) {
+export function createPreviewQueue({post,stream=null,onFast,onExact,onStatus,onError,cancelRemote=null,delay=350,exactDelay=450,timeout=20000}) {
   let latest=null,running=false,timer=null,version=0,cache=null,controller=null;
   const owner=globalThis.crypto?.randomUUID?.()||String(Math.random());
   function invalidate(){if(cancelRemote){controller?.abort();Promise.resolve(cancelRemote(owner,version)).catch(()=>{});}}
-  async function request(url,job){
+  async function request(url,job,send=post){
     const abort=controller=new AbortController();
     let timer;
-    try{return await Promise.race([post(url,job.design,{signal:abort.signal,headers:{'X-PMC-Preview-Owner':owner,'X-PMC-Preview-Version':String(job.version)}}),new Promise((_,reject)=>{abort.signal.addEventListener('abort',()=>reject(Error('Preview superseded')),{once:true});timer=setTimeout(()=>{reject(Error('Exact preview exceeded the interactive time limit. Last usable view retained; retry or Save & Validate.'));abort.abort();if(cancelRemote)Promise.resolve(cancelRemote(owner,job.version)).catch(()=>{});},timeout);})]);}
+    try{return await Promise.race([send(url,job.design,{signal:abort.signal,headers:{'X-PMC-Preview-Owner':owner,'X-PMC-Preview-Version':String(job.version)}}),new Promise((_,reject)=>{abort.signal.addEventListener('abort',()=>reject(Error('Preview superseded')),{once:true});timer=setTimeout(()=>{reject(Error('Exact preview exceeded the interactive time limit. Last usable view retained; retry or Save & Validate.'));abort.abort();if(cancelRemote)Promise.resolve(cancelRemote(owner,job.version)).catch(()=>{});},timeout);})]);}
     finally{clearTimeout(timer);if(controller===abort)controller=null;}
   }
   const current=job=>latest===job&&job.version===version;
@@ -18,7 +18,12 @@ export function createPreviewQueue({post,onFast,onExact,onStatus,onError,cancelR
     if(job.due>Date.now()){arm();return;}
     running=true;
     try{
-      if(job.stage==='fast'){
+      if(stream){
+        onStatus('exact');
+        const result=await request('/api/preview-solid',job,(_url,design,options)=>stream(design,{...options,onProposal:p=>{if(current(job)){onFast(p,job.design);onStatus('exact');}}}));
+        if(!current(job))return;
+        cache={key:job.key,result};latest=null;onExact(result,job.design);onStatus('ready');
+      }else if(job.stage==='fast'){
         onStatus('routing');
         const result=await request('/api/preview',job);
         if(!current(job))return;

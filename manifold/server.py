@@ -3,7 +3,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import re
 from fastapi import FastAPI, HTTPException, Request, Query
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import Field
 from .schema import Design, Strict, CavityDefinition
@@ -11,7 +11,7 @@ from .routing import adopt_routes
 from .workflow import save_asset, save_library, library_entries, prepare_handoff, asset_path, set_library_deleted
 from .interchange import inspect_project
 from .store import ROOT, OUTPUT, read_design, revision, current, rebuild, engine_revision
-from .engineering import calculate,CalculationError,executor
+from .engineering import calculate,CalculationError,executor,preview_stream
 from .engine import engine_current
 from .network import host_allowed, same_origin, endpoints
 
@@ -143,6 +143,8 @@ async def preview(design: Design,request:Request):
 
 @app.post('/api/preview-solid')
 async def preview_solid(design: Design,request:Request):
+    if request.headers.get('accept')=='application/x-ndjson':
+        return StreamingResponse(await preview_stream(design.model_dump(),request),media_type='application/x-ndjson')
     return Response(await calculate('preview-solid',design.model_dump(),request,transient=True,raw=True),media_type='application/json')
 
 

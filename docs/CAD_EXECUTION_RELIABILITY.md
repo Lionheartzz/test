@@ -2,6 +2,8 @@
 
 Base: `2bb4aa1` (V2.3 Drawing Workspace and PMC26-3069 drawing layout). This change keeps the existing routing model, OCCT/BRep rules, source geometry and version 1 projects.
 
+For the subsequent ordinary two-cavity/four-port movement reproduction, review cleanup fix, single-worker streamed preview and separation of completed engineering evidence from display failure, see [Interactive preview performance](INTERACTIVE_PREVIEW_PERFORMANCE.md).
+
 ## Findings and execution changes
 
 The old API executed native CAD inside FastAPI's service process. A request thread is not isolation from an OCCT call that holds the Python GIL. Named/legacy builds and optimization also held the shared project lock throughout calculation. Save & Validate resolved exact candidates, then constructed and validated the selected candidate again. Drawing projection and generated-draft checks had additional in-process CAD paths.

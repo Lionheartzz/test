@@ -23,6 +23,16 @@ elif request['payload'].get('name')=='large-cad':
 elif request['payload'].get('name')=='crash-cad':
     (work/'result.json').write_text(json.dumps({'status':'FAKE_SUCCESS_BEFORE_NATIVE_CRASH'}))
     os._exit(9)
+elif request['operation']=='build' and request['payload']['design']['name']=='slow-review':
+    from manifold import geometry,timing
+    def slow_review(*args):
+        with timing.phase('fixture.review_cpu',immediate=True):
+            sys.setswitchinterval(120)
+            until=time.monotonic()+120
+            while time.monotonic()<until:pass
+    geometry.review_model=slow_review
+    from manifold.cad_worker import main
+    main()
 else:
     from manifold.cad_worker import main
     main()

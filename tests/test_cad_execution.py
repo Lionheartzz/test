@@ -211,3 +211,35 @@ def test_diagnostic_file_lock_does_not_abort_or_skip_engineering(tmp_path,monkey
     assert timing.summary()['diagnostic_write_errors']>=1
     with pytest.raises(ValueError,match='real engineering failure'):
         with timing.phase('exact.check'):raise ValueError('real engineering failure')
+
+
+def test_native_review_timeout_preserves_completed_engineering_only(isolated):
+    client,worker=isolated
+    row=worker.start('build',dict(design=design('slow-review').model_dump(),build_id='a'*32),limit=10)
+    until=time.monotonic()+15;result=None
+    while result is None and time.monotonic()<until:
+        assert client.get('/api/health').status_code==200
+        result=worker.poll(row);time.sleep(.03)
+    assert result is not None and result['status']=='PASS'
+    assert worker.history[-1]['state']=='engineering-complete-review-timeout'
+    assert gone(row['process'].process.pid) and worker.active is None
+    folder=store.OUTPUT/'builds'/('a'*32)
+    persisted=json.loads((folder/'validation.json').read_text(encoding='utf-8'))
+    assert result==persisted
+    assert next(c for c in persisted['checks'] if c['rule']=='step_round_trip')['status']=='PASS'
+    assert json.loads((folder/'review.json').read_text())['geometry_kind']=='unavailable'
+    assert (folder/'production.step').is_file() and (folder/'manufacturing.json').is_file()
+
+
+def test_streamed_preview_watchdog_returns_explicit_error_event(isolated):
+    client,worker=isolated
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        pending=pool.submit(client.post,'/api/preview-solid',json=design('slow-cad').model_dump(),
+                            headers={**HEADERS,'Accept':'application/x-ndjson'})
+        active=started(worker);worker.expire(worker.active)
+        response=pending.result(timeout=2)
+    events=[json.loads(line) for line in response.text.splitlines()]
+    assert response.status_code==200 # headers precede computation; error is an event
+    assert len(events)==1 and events[0]['type']=='error' and events[0]['status']==504
+    assert 'exceeded 15 seconds' in events[0]['detail']
+    assert gone(active['busy_pid']) and worker.active is None

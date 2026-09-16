@@ -68,7 +68,7 @@ def project_lock():
 
 
 @timed('build')
-def build_outputs(design, folder):
+def build_outputs(design, folder, *, engineering_complete=None):
     assert_engine_current()
     folder.mkdir(parents=True, exist_ok=False)
     authored = design
@@ -90,11 +90,6 @@ def build_outputs(design, folder):
     report['counts']['PASS' if passed else 'FAIL'] += 1
     if not passed:
         report['status'] = 'FAIL'
-    from .geometry import review_model
-    review = review_model(design,g)
-    review['design_revision']=rev
-    review['engine_revision']=engine_revision()
-    atomic_json(folder / 'review.json', review)
     atomic_json(folder / 'design.json', authored.model_dump())
     atomic_json(folder / 'resolved_design.json', design.model_dump())
     from .manufacturing import manufacturing_outputs
@@ -107,6 +102,21 @@ def build_outputs(design, folder):
         lines.append('| ' + ' | '.join(str(c.get(k, '')).replace('|', '/') for k in ['status', 'rule', 'items', 'actual', 'required', 'unit']) + ' |')
     lines.extend(['', '## Scope limits', *['- ' + s for s in report['limitations']]])
     (folder / 'validation.md').write_text('\n'.join(lines), encoding='utf-8')
+    # All engineering evidence is complete before optional display work. A mesh
+    # failure must not erase actual validation/STEP results or imply a CAD FAIL.
+    unavailable=dict(geometry_kind='unavailable',review_error='Review generation did not complete. Exact validation and STEP evidence are available.',
+                     design_revision=rev,engine_revision=engine_revision())
+    atomic_json(folder / 'review.json', unavailable)
+    if engineering_complete:engineering_complete(report)
+    from .geometry import review_model
+    try:
+        review=review_model(design,g)
+        review.update(design_revision=rev,engine_revision=engine_revision())
+        atomic_json(folder / 'review.json',review)
+    except Exception as exc:
+        unavailable['review_error']='Review unavailable: '+(str(exc) or type(exc).__name__)[:2000]
+        atomic_json(folder / 'review.json',unavailable)
+    assert_engine_current()
     return report
 
 

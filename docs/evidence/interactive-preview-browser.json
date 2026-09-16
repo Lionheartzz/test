@@ -1,0 +1,23 @@
+{
+  "passed": true,
+  "timings": [
+    {
+      "u": 106,
+      "elapsed_ms": 8817
+    },
+    {
+      "u": 97,
+      "elapsed_ms": 8737
+    },
+    {
+      "u": 107,
+      "elapsed_ms": 8558
+    }
+  ],
+  "previewRequests": 14,
+  "separateFastRequests": 0,
+  "context": {
+    "mode": "review",
+    "opacity": "0.22"
+  }
+}

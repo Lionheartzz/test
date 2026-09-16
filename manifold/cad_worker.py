@@ -5,7 +5,7 @@ import sys
 from . import timing
 
 
-def dispatch(operation,payload):
+def dispatch(operation,payload,engineering_complete=None,proposal_ready=None):
     from .schema import Design
     from .routing import resolve_design,authorize_generated_contacts
     from .geometry import build_geometry,review_model
@@ -15,11 +15,14 @@ def dispatch(operation,payload):
         design=Design.model_validate(payload)
         resolved,routes=resolve_design(design,exact=False)
         if operation=='preview':return dict(design=resolved.model_dump(),routes=routes,status='UNVALIDATED_PREVIEW')
+        if proposal_ready:proposal_ready(dict(design=resolved.model_dump(),routes=routes,status='UNVALIDATED_PREVIEW'))
         geometry=build_geometry(resolved)
-        return dict(model=review_model(resolved,geometry),features=[f.model_dump() for f in resolved.features],
+        try:model=review_model(resolved,geometry)
+        except Exception as exc:raise RuntimeError('Exact BRep construction completed; display review unavailable: '+(str(exc) or type(exc).__name__)) from exc
+        return dict(model=model,features=[f.model_dump() for f in resolved.features],
                     design_revision=store.revision(design),status='UNVALIDATED_EXACT_GEOMETRY',route_selection='CURRENT_PROPOSAL_NOT_OPTIMIZED')
     if operation=='build':
-        return store.build_outputs(Design.model_validate(payload['design']),store.OUTPUT/'builds'/payload['build_id'])
+        return store.build_outputs(Design.model_validate(payload['design']),store.OUTPUT/'builds'/payload['build_id'],engineering_complete=engineering_complete)
     if operation=='optimize':
         from .optimization import search_routes
         return search_routes(Design.model_validate(payload['design']),payload['max_attempts'])
@@ -56,7 +59,12 @@ def main():
             if engine_revision()!=request['engine_revision']:raise RuntimeError('Engineering code changed. Restart the local server before calculating.')
             store.OUTPUT=Path(request['output']);store.PROJECT=Path(request['project'])
             timing.trace_occt()
-        with timing.phase('operation.'+request['operation']):result=dispatch(request['operation'],request['payload'])
+        def completed(report):
+            store.atomic_json(work/'engineering-complete.json',report)
+        def proposal(result):
+            temp=work/'proposal.tmp'
+            temp.write_text(json.dumps(result),encoding='utf-8');temp.replace(work/'proposal.json')
+        with timing.phase('operation.'+request['operation']):result=dispatch(request['operation'],request['payload'],completed,proposal)
     except Exception as exc:
         result=dict(error=str(exc)[:2000] or type(exc).__name__,status=422)
     with timing.phase('result.serialization'):
