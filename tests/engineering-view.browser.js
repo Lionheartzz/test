@@ -19,8 +19,8 @@ window.assertEngineeringView=(mode)=>{
 window.assertEngineeringPreview=()=>{
   const {viewer,fixture}=window.engineeringView;viewer.preview(fixture.design);
   const state=viewer.inspection();if(state.geometry!=='parameter-preview')throw Error('Preview falsely labelled exact');
-  const f=fixture.design.features.find(f=>!f.definition);const parts=state.parts.filter(p=>p.id===f.id+':tip');
-  if((parts.length>0)!==(f.tip_angle!==180))throw Error('Incorrect preview drill tip');
+  const f=fixture.design.features.find(f=>!f.cavity_id&&!f.port_definition_id);const parts=state.parts.filter(p=>p.id===f.id+':tip');
+  if((parts.length>0)!==(f.tip_angle!==180))throw Error('Incorrect preview drill tip '+JSON.stringify({feature:f,parts:state.parts.map(p=>({id:p.id,kind:p.kind}))}));
   if(parts.length&&f.face==='left'){
     const xs=parts[0].positions.filter((_,i)=>i%3===0),expected=f.depth+f.diameter/2/Math.tan(f.tip_angle*Math.PI/360);
     if(Math.abs(Math.max(...xs)-expected)>.0001)throw Error('Preview tip does not match exact drilling parameters');

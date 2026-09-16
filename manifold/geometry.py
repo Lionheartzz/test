@@ -128,23 +128,48 @@ def build_geometry(design: Design, definitions=None):
 def mesh(shape):
     # OCCT attaches triangulations to a shape and can enlarge subsequent bounds.
     # Rendering must not mutate solids that will be used again by exact validation.
-    vertices, triangles = shape.copy(mesh=False).tessellate(0.12, 0.15)
-    return dict(vertices=[round(v, 6) for p in vertices for v in p.toTuple()], triangles=[i for t in triangles for i in t])
+    with phase('mesh.copy'):
+        prepared=shape.copy(mesh=False)
+    with phase('mesh.occt_tessellate',immediate=True):
+        vertices, triangles = prepared.tessellate(0.12, 0.15)
+    with phase('mesh.flatten'):
+        return dict(vertices=[round(v, 6) for p in vertices for v in p.toTuple()], triangles=[i for t in triangles for i in t])
+
+
+def review_layer(design,g,layer):
+    """Exact display-only parts deferred by interactive preview."""
+    from .schema import COLORS
+    features={f.id:f for f in design.features}
+    parts=[]
+    if layer=='void':
+        with phase('review.removed_volume'):
+            # Do not run ShapeUpgrade_UnifySameDomain on this complementary solid.
+            # Coincident cut faces can make that display-only cleanup unbounded.
+            void = g.block.cut(g.production)
+        if void.Volume() > 1e-6:
+            parts.append(dict(id='machined-void',kind='machined-void',color='#b6c9da',volume_mm3=void.Volume(),**mesh(void)))
+    elif layer=='features':
+        for key,cut in g.cuts.items():
+            f=features[key]
+            parts.append(dict(id=key+':machining',owner=key,kind='cavity' if f.kind=='cavity' else 'port-machining' if f.kind=='port' else 'mounting-machining' if f.kind=='mounting' else 'drilling-machining',
+                              color='#bbc7d4',definition=f.definition,volume_mm3=cut.Volume(),**mesh(cut)))
+        for key,shape in g.nodes.items():
+            owner=key.split(':')[0];f=features[owner]
+            color=next((n.color for n in design.nets if n.id==g.circuits[key] and n.color),COLORS.get(g.circuits[key],'#b08bea'))
+            parts.append(dict(id=key,owner=owner,kind='zone' if ':' in key else f.kind,circuit=g.circuits[key],color=color,**mesh(shape)))
+        for key,shape in g.plugs.items():
+            parts.append(dict(id=key+':plug',owner=key,kind='plug',color='#d5dee9',entry_machining_status='unresolved',**mesh(shape)))
+    else:
+        raise ValueError('Unknown exact preview layer')
+    return parts
 
 
 @timed('review.generation')
-def review_model(design,g):
+def review_model(design,g,*,core_only=False):
     """Display only: both build and draft solids use the same machined BRep mesh."""
     from .schema import COLORS
-    features={f.id:f for f in design.features}
     parts=[dict(id='block',kind='body',color='#9ba9b9',**mesh(g.production))]
     # Boolean the authoritative solids before tessellation. Meshes never define connectivity.
-    with phase('review.removed_volume'):
-        # Do not run ShapeUpgrade_UnifySameDomain on this complementary solid.
-        # Coincident cut faces can make that display-only cleanup unbounded.
-        void = g.block.cut(g.production)
-    if void.Volume() > 1e-6:
-        parts.append(dict(id='machined-void',kind='machined-void',color='#b6c9da',volume_mm3=void.Volume(),**mesh(void)))
     unions = {}
     with phase('hydraulic.net_geometry'):
         for circuit in sorted(set(g.circuits.values())):
@@ -163,17 +188,12 @@ def review_model(design,g):
             if common.Volume()>1e-6:
                 collisions.append(dict(nets=[a,b],volume_mm3=common.Volume()))
                 parts.append(dict(id=f'collision:{a}:{b}',kind='collision',color='#ff163e',nets=[a,b],**mesh(common)))
-    for key,cut in g.cuts.items():
-        f=features[key]
-        parts.append(dict(id=key+':machining',owner=key,kind='cavity' if f.kind=='cavity' else 'port-machining' if f.kind=='port' else 'mounting-machining' if f.kind=='mounting' else 'drilling-machining',
-                          color='#bbc7d4',definition=f.definition,volume_mm3=cut.Volume(),**mesh(cut)))
-    for key,shape in g.nodes.items():
-        owner=key.split(':')[0];f=features[owner]
-        color=next((n.color for n in design.nets if n.id==g.circuits[key] and n.color),COLORS.get(g.circuits[key],'#b08bea'))
-        parts.append(dict(id=key,owner=owner,kind='zone' if ':' in key else f.kind,circuit=g.circuits[key],color=color,**mesh(shape)))
-    for key,shape in g.plugs.items():
-        parts.append(dict(id=key+':plug',owner=key,kind='plug',color='#d5dee9',entry_machining_status='unresolved',**mesh(shape)))
+    if not core_only:
+        parts.extend(review_layer(design,g,'void'))
+        parts.extend(review_layer(design,g,'features'))
     return dict(block=design.block.model_dump(),parts=parts,placements=g.placements,
                 volume_mm3=round(g.production.Volume(),3),colors=COLORS,geometry_kind='machined-brep',
                 brep_valid=g.production.isValid(),
-                collisions=collisions,semantics='Machined void is stock minus production; hydraulic nets are separate exact unions of flow nodes after closures. Interface parts remain separate inspection layers.')
+                collisions=collisions,deferred_layers=['void','features'] if core_only else [],
+                loaded_layers=[] if core_only else ['void','features'],
+                semantics='Machined void is stock minus production; hydraulic nets are separate exact unions of flow nodes after closures. Interface parts remain separate inspection layers.')

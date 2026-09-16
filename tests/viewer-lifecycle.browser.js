@@ -14,8 +14,7 @@ window.setupViewerLifecycle=()=>{
   const viewer=createViewer(container,()=>{},(id,u,v,done)=>{
     frames.push({id,u,v,done,alignment:container.dataset.alignment||''});
     edited.u=u;edited.v=v;
-    // This is the synchronous production callback before any debounced response.
-    viewer.preview(draft);viewer.setDesign(draft);
+    if(!done)viewer.updateFeature(draft,id);
   });
   viewer.setReferences([edited,automatic]);
   viewer.preview({...draft,features:[edited,automatic]});viewer.setDesign(draft);viewer.fit('left');
@@ -31,11 +30,16 @@ window.setupViewerLifecycle=()=>{
 };
 
 window.assertViewerLifecycle=()=>{
-  const {frames}=window.viewerLifecycle;
+  const {frames,viewer}=window.viewerLifecycle;
   const moves=frames.filter(f=>!f.done);
   if(moves.length<4)throw Error('Continuous drag did not deliver four pointer movements: '+JSON.stringify(frames));
   for(const frame of moves){
     if(frame.u!==42||frame.v!==67||!frame.alignment.includes('AUTO_OTHER'))throw Error('Generated reference lost during continuous preview/load: '+JSON.stringify(frame));
   }
-  return {passed:true,moves,adoptedAutomatic:false};
+  const state=viewer.inspection(),dragTimings=state.diagnostics.filter(r=>r.kind==='drag-update');
+  if(dragTimings.length<moves.length||state.diagnostics.filter(r=>r.kind==='exact-load').length!==1)throw Error('Pointermove rebuilt the full scene: '+JSON.stringify(state.diagnostics));
+  if(!state.parts.some(p=>p.owner==='AUTO_OTHER')||!state.parts.some(p=>p.owner==='REFINED'&&p.dragPreview))throw Error('Incremental drag lost moved or unrelated geometry');
+  if(state.parts.some(p=>p.owner==='REFINED'&&!p.dragPreview&&p.visible))throw Error('Old moved-feature geometry remained visible during drag');
+  if(!frames.some(f=>f.done))throw Error('Pointerup did not settle the drag');
+  return {passed:true,moves,dragTimings,adoptedAutomatic:false};
 };

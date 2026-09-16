@@ -37,6 +37,12 @@ def publish(force=False):
             _write_errors+=1
 
 
+def record(name,seconds):
+    """Record bounded timing measured before this request trace was configured."""
+    value=_counts.setdefault(name,[0,0.0]);value[0]+=1;value[1]+=max(0.0,float(seconds))
+    publish()
+
+
 @contextmanager
 def phase(name, *, immediate=False):
     start=time.monotonic();_stack.append(name);publish(force=immediate)
@@ -63,4 +69,8 @@ def trace_occt():
         for method in ('cut','fuse','intersect','distance','clean'):
             fn=cls.__dict__.get(method)
             if fn and not getattr(fn,'_pmc_timed',False):
-                wrapped=timed('boolean.'+method,immediate=True)(fn);wrapped._pmc_timed=True;setattr(cls,method,wrapped)
+                # Keep bounded OCCT diagnostics without forcing a Windows file
+                # replacement before every primitive call. publish() still
+                # emits progress at most every 150 ms and the hard watchdog is
+                # independent of trace-file writes.
+                wrapped=timed('boolean.'+method)(fn);wrapped._pmc_timed=True;setattr(cls,method,wrapped)

@@ -408,5 +408,386 @@
       }
     }
   ],
-  "notes": "Windows local samples; the 15 second preview watchdog is unchanged. After: one streamed worker/resolution per snapshot. Regression uses source-pinned T-8A cavities with unchanged source geometry; proposal completion is not engineering PASS."
+  "notes": "Windows local samples; the 15 second preview watchdog is unchanged. After: one streamed worker/resolution per snapshot. Regression uses source-pinned T-8A cavities with unchanged source geometry; proposal completion is not engineering PASS.",
+  "phase2_base": "08b8b0ef1031dccfc5d536a6513e819c04670ec8",
+  "phase2": [
+    {
+      "position": [
+        107,
+        50
+      ],
+      "elapsed_s": 4.141,
+      "pid": 6124,
+      "warm_reused": false,
+      "operations": {
+        "boolean.clean": {
+          "count": 32,
+          "seconds": 0.0
+        },
+        "boolean.cut": {
+          "count": 10,
+          "seconds": 0.11
+        },
+        "boolean.fuse": {
+          "count": 22,
+          "seconds": 0.297
+        },
+        "boolean.intersect": {
+          "count": 30,
+          "seconds": 0.092
+        },
+        "geometry.construction": {
+          "count": 1,
+          "seconds": 0.203
+        },
+        "geometry.production_boolean": {
+          "count": 1,
+          "seconds": 0.11
+        },
+        "hydraulic.cross_net_geometry": {
+          "count": 1,
+          "seconds": 0.031
+        },
+        "hydraulic.net_geometry": {
+          "count": 1,
+          "seconds": 0.797
+        },
+        "mesh.copy": {
+          "count": 5,
+          "seconds": 0.015
+        },
+        "mesh.flatten": {
+          "count": 5,
+          "seconds": 0.127
+        },
+        "mesh.occt_tessellate": {
+          "count": 5,
+          "seconds": 0.687
+        },
+        "operation.preview-solid": {
+          "count": 1,
+          "seconds": 1.938
+        },
+        "result.serialization": {
+          "count": 1,
+          "seconds": 0.047
+        },
+        "review.generation": {
+          "count": 1,
+          "seconds": 1.203
+        },
+        "route.proposal": {
+          "count": 1,
+          "seconds": 0.516
+        },
+        "route.resolution": {
+          "count": 1,
+          "seconds": 0.532
+        },
+        "tessellation": {
+          "count": 5,
+          "seconds": 0.829
+        },
+        "worker.request_setup": {
+          "count": 1,
+          "seconds": 0.0
+        },
+        "worker.startup": {
+          "count": 1,
+          "seconds": 1.734
+        }
+      },
+      "lazy_void": {
+        "elapsed_s": 0.688,
+        "operations": {
+          "boolean.cut": {
+            "count": 1,
+            "seconds": 0.016
+          },
+          "mesh.copy": {
+            "count": 1,
+            "seconds": 0.0
+          },
+          "mesh.flatten": {
+            "count": 1,
+            "seconds": 0.062
+          },
+          "mesh.occt_tessellate": {
+            "count": 1,
+            "seconds": 0.485
+          },
+          "operation.preview-layer": {
+            "count": 1,
+            "seconds": 0.61
+          },
+          "result.serialization": {
+            "count": 1,
+            "seconds": 0.031
+          },
+          "review.removed_volume": {
+            "count": 1,
+            "seconds": 0.016
+          },
+          "tessellation": {
+            "count": 1,
+            "seconds": 0.563
+          },
+          "worker.startup": {
+            "count": 1,
+            "seconds": 0.0
+          }
+        }
+      }
+    },
+    {
+      "position": [
+        106,
+        50
+      ],
+      "elapsed_s": 2.672,
+      "pid": 6124,
+      "warm_reused": true,
+      "operations": {
+        "boolean.clean": {
+          "count": 32,
+          "seconds": 0.0
+        },
+        "boolean.cut": {
+          "count": 10,
+          "seconds": 0.172
+        },
+        "boolean.fuse": {
+          "count": 22,
+          "seconds": 0.266
+        },
+        "boolean.intersect": {
+          "count": 30,
+          "seconds": 0.125
+        },
+        "geometry.construction": {
+          "count": 1,
+          "seconds": 0.297
+        },
+        "geometry.production_boolean": {
+          "count": 1,
+          "seconds": 0.172
+        },
+        "hydraulic.cross_net_geometry": {
+          "count": 1,
+          "seconds": 0.031
+        },
+        "hydraulic.net_geometry": {
+          "count": 1,
+          "seconds": 0.797
+        },
+        "mesh.copy": {
+          "count": 5,
+          "seconds": 0.0
+        },
+        "mesh.flatten": {
+          "count": 5,
+          "seconds": 0.123
+        },
+        "mesh.occt_tessellate": {
+          "count": 5,
+          "seconds": 0.845
+        },
+        "operation.preview-solid": {
+          "count": 1,
+          "seconds": 2.531
+        },
+        "result.serialization": {
+          "count": 1,
+          "seconds": 0.047
+        },
+        "review.generation": {
+          "count": 1,
+          "seconds": 1.343
+        },
+        "route.proposal": {
+          "count": 1,
+          "seconds": 0.891
+        },
+        "route.resolution": {
+          "count": 1,
+          "seconds": 0.891
+        },
+        "tessellation": {
+          "count": 5,
+          "seconds": 0.998
+        },
+        "worker.startup": {
+          "count": 1,
+          "seconds": 0.0
+        }
+      }
+    },
+    {
+      "position": [
+        97,
+        53
+      ],
+      "elapsed_s": 2.672,
+      "pid": 6124,
+      "warm_reused": true,
+      "operations": {
+        "boolean.clean": {
+          "count": 32,
+          "seconds": 0.0
+        },
+        "boolean.cut": {
+          "count": 10,
+          "seconds": 0.202
+        },
+        "boolean.fuse": {
+          "count": 22,
+          "seconds": 0.234
+        },
+        "boolean.intersect": {
+          "count": 30,
+          "seconds": 0.125
+        },
+        "geometry.construction": {
+          "count": 1,
+          "seconds": 0.281
+        },
+        "geometry.production_boolean": {
+          "count": 1,
+          "seconds": 0.14
+        },
+        "hydraulic.cross_net_geometry": {
+          "count": 1,
+          "seconds": 0.047
+        },
+        "hydraulic.net_geometry": {
+          "count": 1,
+          "seconds": 0.781
+        },
+        "mesh.copy": {
+          "count": 5,
+          "seconds": 0.0
+        },
+        "mesh.flatten": {
+          "count": 5,
+          "seconds": 0.127
+        },
+        "mesh.occt_tessellate": {
+          "count": 5,
+          "seconds": 0.827
+        },
+        "operation.preview-solid": {
+          "count": 1,
+          "seconds": 2.516
+        },
+        "result.serialization": {
+          "count": 1,
+          "seconds": 0.047
+        },
+        "review.generation": {
+          "count": 1,
+          "seconds": 1.36
+        },
+        "route.proposal": {
+          "count": 1,
+          "seconds": 0.875
+        },
+        "route.resolution": {
+          "count": 1,
+          "seconds": 0.875
+        },
+        "tessellation": {
+          "count": 5,
+          "seconds": 1.001
+        },
+        "worker.startup": {
+          "count": 1,
+          "seconds": 0.0
+        }
+      }
+    },
+    {
+      "position": [
+        107,
+        50
+      ],
+      "elapsed_s": 2.672,
+      "pid": 6124,
+      "warm_reused": true,
+      "operations": {
+        "boolean.clean": {
+          "count": 32,
+          "seconds": 0.016
+        },
+        "boolean.cut": {
+          "count": 10,
+          "seconds": 0.172
+        },
+        "boolean.fuse": {
+          "count": 22,
+          "seconds": 0.297
+        },
+        "boolean.intersect": {
+          "count": 30,
+          "seconds": 0.092
+        },
+        "geometry.construction": {
+          "count": 1,
+          "seconds": 0.313
+        },
+        "geometry.production_boolean": {
+          "count": 1,
+          "seconds": 0.172
+        },
+        "hydraulic.cross_net_geometry": {
+          "count": 1,
+          "seconds": 0.031
+        },
+        "hydraulic.net_geometry": {
+          "count": 1,
+          "seconds": 0.765
+        },
+        "mesh.copy": {
+          "count": 5,
+          "seconds": 0.0
+        },
+        "mesh.flatten": {
+          "count": 5,
+          "seconds": 0.126
+        },
+        "mesh.occt_tessellate": {
+          "count": 5,
+          "seconds": 0.827
+        },
+        "operation.preview-solid": {
+          "count": 1,
+          "seconds": 2.515
+        },
+        "result.serialization": {
+          "count": 1,
+          "seconds": 0.063
+        },
+        "review.generation": {
+          "count": 1,
+          "seconds": 1.312
+        },
+        "route.proposal": {
+          "count": 1,
+          "seconds": 0.875
+        },
+        "route.resolution": {
+          "count": 1,
+          "seconds": 0.875
+        },
+        "tessellation": {
+          "count": 5,
+          "seconds": 0.985
+        },
+        "worker.startup": {
+          "count": 1,
+          "seconds": 0.0
+        }
+      }
+    }
+  ],
+  "phase2_notes": "Same Windows representative cavity-move case. Cold and warm requests use one killable preview worker PID; every immutable snapshot resolves its required definitions once from SQLite. Core preview omits inspection-only meshes; lazy_void records the deferred exact layer."
 }

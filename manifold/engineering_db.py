@@ -281,12 +281,14 @@ def search_cartridges(query="", offset=0, limit=40):
     return {"total": total, "offset": offset, "limit": limit, "items": [dict(row) for row in rows]}
 
 
-def compatible(cartridge_id: str, cavity_id: str) -> bool:
-    with _connect() as connection:
-        return connection.execute(
-            "SELECT 1 FROM cartridge_cavities WHERE cartridge_id=? AND cavity_id=? AND valid=1",
-            (cartridge_id, cavity_id),
-        ).fetchone() is not None
+def compatible(cartridge_id: str, cavity_id: str, *, connection: sqlite3.Connection | None = None) -> bool:
+    if connection is None:
+        with _connect() as opened:
+            return compatible(cartridge_id, cavity_id, connection=opened)
+    return connection.execute(
+        "SELECT 1 FROM cartridge_cavities WHERE cartridge_id=? AND cavity_id=? AND valid=1",
+        (cartridge_id, cavity_id),
+    ).fetchone() is not None
 
 
 def cartridge(identifier: str):
@@ -333,7 +335,7 @@ def validate_references(design, *, connection: sqlite3.Connection | None = None)
                 raise ValueError(f"{feature.id}: cavity is unusable: {definition.unusable_reason}")
             if set(feature.interface_nets) != {z.id for z in definition.zones}:
                 raise ValueError(f"{feature.id}: assign a hydraulic net to every cavity interface")
-            if feature.cartridge_id and not compatible(feature.cartridge_id, feature.cavity_id):
+            if feature.cartridge_id and not compatible(feature.cartridge_id, feature.cavity_id, connection=connection):
                 raise ValueError(
                     f"{feature.id}: cartridge {feature.cartridge_id} is not compatible with cavity {feature.cavity_id}"
                 )

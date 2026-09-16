@@ -152,6 +152,16 @@ async def preview_solid(design: Design,request:Request):
     return Response(await calculate('preview-solid',design.model_dump(),request,transient=True,raw=True),media_type='application/json')
 
 
+class PreviewLayerRequest(Strict):
+    design_revision:str=Field(pattern=r'^[0-9a-f]{64}$')
+    layer:str=Field(pattern=r'^(void|features)$')
+
+
+@app.post('/api/preview-layer')
+async def preview_layer(payload:PreviewLayerRequest,request:Request):
+    return Response(await calculate('preview-layer',payload.model_dump(),request,transient=True,raw=True),media_type='application/json')
+
+
 @app.post('/api/adopt-routing')
 def adopt(design: Design):
     return adopt_routes(design).model_dump()

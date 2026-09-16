@@ -13,23 +13,24 @@ def port_interface_diameter(feature, definitions):
     return feature.diameter
 
 
-def terminal_points(design):
-    from .engineering_db import definitions_for_design
-    lib = definitions_for_design(design)
+def terminal_points(design, definitions=None):
+    if definitions is None:
+        from .engineering_db import definitions_for_design
+        definitions = definitions_for_design(design)
     points = {}
     for f in design.features:
         if f.suppressed or f.kind in ('drilling','mounting'):
             continue
         p, axis = pose(f, design.block)
         if f.kind == 'cavity':
-            for z in lib[f.definition].zones:
+            for z in definitions[f.definition].zones:
                 point = [a + b * (z.start + z.end) / 2 for a, b in zip(p, axis)]
                 angle = math.radians(f.rotation); u,v,_,_ = FACE_AXES[f.face]
                 point[u] += z.offset_u*math.cos(angle)-z.offset_v*math.sin(angle)
                 point[v] += z.offset_u*math.sin(angle)+z.offset_v*math.cos(angle)
                 points[f'{f.id}:{z.id}'] = tuple(point)
         else:
-            depth=(lib[f.definition].zones[0].start+lib[f.definition].zones[0].end)/2 if f.definition else f.depth
+            depth=(definitions[f.definition].zones[0].start+definitions[f.definition].zones[0].end)/2 if f.definition else f.depth
             points[f.id] = tuple(a + b * depth for a, b in zip(p, axis))
     return points
 
@@ -44,10 +45,11 @@ def spanning_pairs(points):
     return pairs
 
 
-def propose(design, net, order, entry=None, detour='direct'):
-    from .engineering_db import definitions_for_design
-    definitions=definitions_for_design(design)
-    points = terminal_points(design)
+def propose(design, net, order, entry=None, detour='direct', definitions=None):
+    if definitions is None:
+        from .engineering_db import definitions_for_design
+        definitions=definitions_for_design(design)
+    points = terminal_points(design,definitions)
     pairs = spanning_pairs(sorted(set(points[m] for m in net.members if m in points)))
     lines = {}
     for a,b in pairs:
@@ -138,11 +140,12 @@ def cylinder_bounds(feature, block, start, end, diameter):
              max(a[i],b[i])+diameter/2*math.sqrt(max(0,1-direction[i]**2))) for i in range(3)]
 
 
-def simple_routes(design,net):
+def simple_routes(design,net,definitions=None):
     """Single-entry proposals may exploit offset intersection; exact checks decide adequacy."""
-    from .engineering_db import definitions_for_design
-    definitions=definitions_for_design(design)
-    points=terminal_points(design);targets=[points[m] for m in net.members if m in points]
+    if definitions is None:
+        from .engineering_db import definitions_for_design
+        definitions=definitions_for_design(design)
+    points=terminal_points(design,definitions);targets=[points[m] for m in net.members if m in points]
     if len(targets)<2 or net.construction_access:
         return []
     routes=[];digest=hashlib.sha256(net.id.encode()).hexdigest()[:8]
@@ -155,8 +158,7 @@ def simple_routes(design,net):
         radii={f.id:port_interface_diameter(f,definitions)/2 for f in design.features if f.kind=='port'}
         for f in design.features:
             if f.kind=='cavity':
-                from .engineering_db import get_definition
-                definition=get_definition(f.definition)
+                definition=definitions[f.definition]
                 radii.update({f'{f.id}:{z.id}':z.diameter/2 for z in definition.zones})
         if any(math.dist(points[m],tuple(origin[i]+direction[i]*sum((points[m][j]-origin[j])*direction[j] for j in range(3)) for i in range(3)))>=radii[m]+net.diameter/2-1e-6 for m in net.members if m in points):
             continue
@@ -182,11 +184,12 @@ def simple_routes(design,net):
     return routes
 
 
-def proximity_risk(design, net, route):
+def proximity_risk(design, net, route, definitions=None):
     """Conservative cylinder/centerline screen. This is a ranking estimate, never validation."""
     risk = 0.0
-    from .engineering_db import definitions_for_design
-    lib = definitions_for_design(design)
+    if definitions is None:
+        from .engineering_db import definitions_for_design
+        definitions=definitions_for_design(design)
     dims = dimensions(design.block)
     for bore in route:
         a,b = segment(bore,design.block)
@@ -199,7 +202,7 @@ def proximity_risk(design, net, route):
             if other.suppressed or other.route_net == net.id:
                 continue
             if other.definition:
-                definition = lib[other.definition]
+                definition = definitions[other.definition]
                 allowed = [z for z in definition.zones
                            if (other.circuits[z.id] if other.kind=='cavity' else other.circuit) == net.id
                            and (f'{other.id}:{z.id}' if other.kind=='cavity' else other.id) in net.members]
@@ -236,7 +239,7 @@ def proximity_risk(design, net, route):
             for other in design.features:
                 if other.suppressed or other.face != bore.face:
                     continue
-                diameter = lib[other.definition].clearance_diameter if other.kind == 'cavity' else other.clearance_diameter
+                diameter = definitions[other.definition].clearance_diameter if other.kind == 'cavity' else other.clearance_diameter
                 if other.kind == 'drilling' and not other.plugged:
                     continue
                 gap = math.hypot(bore.u-other.u,bore.v-other.v)-(bore.clearance_diameter+diameter)/2
@@ -310,24 +313,27 @@ def route_obstructions(design, net, route):
     return failures
 
 
-def route_options(design, net, *, expanded=False):
+def route_options(design, net, *, expanded=False, definitions=None):
+    if definitions is None:
+        from .engineering_db import definitions_for_design
+        definitions=definitions_for_design(design)
     orders = list(itertools.permutations(range(3)))
     if net.preferred_axis != 'auto':
         orders = [o for o in orders if o[0] == 'xyz'.index(net.preferred_axis)]
     entries = ['nearest','negative','positive'] if net.entry_preference == 'nearest' else [net.entry_preference]
     options, seen = [],set()
-    for i,route in enumerate(simple_routes(design,net)):
-        options.append(dict(key=f'simple_{i}',route=route,risk=proximity_risk(design,net,route),cost=route_cost(design,route)))
+    for i,route in enumerate(simple_routes(design,net,definitions)):
+        options.append(dict(key=f'simple_{i}',route=route,risk=proximity_risk(design,net,route,definitions),cost=route_cost(design,route)))
     sides=('p','m','p2','m2') if expanded else ('p','m')
     detours = ['direct'] + [f'offset_{axis}_{side}' for axis in 'xyz' for side in sides]
     for order,entry,detour in itertools.product(orders,entries,detours):
         key = ''.join('xyz'[i] for i in order)+':'+entry+':'+detour
-        route = propose(design,net,order,entry,detour)
+        route = propose(design,net,order,entry,detour,definitions)
         signature = tuple((f.face,round(f.u,5),round(f.v,5),round(f.depth,5),f.plugged) for f in route)
         if signature in seen:
             continue
         seen.add(signature)
-        risk = proximity_risk(design,net,route)
+        risk = proximity_risk(design,net,route,definitions)
         options.append(dict(key=key,route=route,risk=risk,cost=route_cost(design,route)))
     permitted = [o for o in options if all(f.face not in design.constraints.forbidden_drilling_faces for f in o['route'])]
     # Keep an explicitly failing proposal if the constraint makes every candidate impossible.
@@ -335,13 +341,15 @@ def route_options(design, net, *, expanded=False):
     for option in options:
         option['hard_failures']=len(route_obstructions(design,net,option['route']))
     if not expanded and all(o['hard_failures'] for o in (permitted or options)):
-        return route_options(design,net,expanded=True)
+        return route_options(design,net,expanded=True,definitions=definitions)
     return sorted(permitted or options,key=lambda o:(o['hard_failures'],o['cost']+o['risk'],o['cost'],o['key']))
 
 
 @timed('route.proposal')
 def _resolve_proposals(design):
     resolved = resolve_parents(design)
+    from .engineering_db import definitions_for_design
+    definitions=definitions_for_design(resolved)
     from .sizing import route_sizing
     sizing={n.id:route_sizing(n,resolved.constraints.standard_drills) for n in resolved.nets}
     for net in resolved.nets:
@@ -354,22 +362,22 @@ def _resolve_proposals(design):
             continue
         # Pinned candidates are materialized directly; enumerating their entire
         # neighbourhood again would multiply the cost of each exact attempt.
-        choices = [] if net.routing_variant else route_options(resolved,net)
+        choices = [] if net.routing_variant else route_options(resolved,net,definitions=definitions)
         if net.routing_variant:
             if net.routing_variant.startswith('simple_'):
-                choices=[dict(key=f'simple_{i}',route=r,risk=proximity_risk(resolved,net,r),cost=route_cost(resolved,r))
-                         for i,r in enumerate(simple_routes(resolved,net))]
+                choices=[dict(key=f'simple_{i}',route=r,risk=proximity_risk(resolved,net,r,definitions),cost=route_cost(resolved,r))
+                         for i,r in enumerate(simple_routes(resolved,net,definitions))]
                 selected=next((o for o in choices if o['key']==net.routing_variant),None)
                 if selected is None:
-                    choices=route_options(resolved,net)
+                    choices=route_options(resolved,net,definitions=definitions)
                     selected=choices[0]  # Moved/reassigned terminals invalidate the old proposal.
                 route=selected['route']
             else:
                 order,entry,detour = net.routing_variant.split(':')
                 if sorted(order) != ['x','y','z']:
                     raise ValueError('Routing variant must use each axis once')
-                route = propose(resolved,net,tuple('xyz'.index(i) for i in order),entry,detour)
-                selected = dict(key=net.routing_variant,route=route,risk=proximity_risk(resolved,net,route),cost=route_cost(resolved,route))
+                route = propose(resolved,net,tuple('xyz'.index(i) for i in order),entry,detour,definitions)
+                selected = dict(key=net.routing_variant,route=route,risk=proximity_risk(resolved,net,route,definitions),cost=route_cost(resolved,route))
         else:
             selected = choices[0]
             route = selected['route']
@@ -390,7 +398,7 @@ def _resolve_proposals(design):
         if not failures:continue
         context=resolved.model_copy(deep=True)
         context.features=[f for f in context.features if f.route_net!=net.id]
-        option=route_options(context,net)[0]
+        option=route_options(context,net,definitions=definitions)[0]
         if option['hard_failures']>=len(failures) or len(context.features)+len(option['route'])>120:continue
         resolved.features=context.features+option['route']
         metadata=next(r for r in candidates if r['net']==net.id)

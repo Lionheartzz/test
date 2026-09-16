@@ -79,6 +79,14 @@ def test_optional_cartridge_uses_explicit_many_to_many_relationship(engineering_
     validate_references(cavity_only(None))
 
 
+def test_explicit_validation_connection_owns_compatibility_lookup(engineering_db,monkeypatch):
+    import manifold.engineering_db as module
+    connection=sqlite3.connect(engineering_db);connection.row_factory=sqlite3.Row
+    monkeypatch.setattr(module,'_connect',lambda *args,**kwargs:pytest.fail('validation escaped its explicit transaction'))
+    try:validate_references(cavity_only('CART_OK'),connection=connection)
+    finally:connection.close()
+
+
 def test_schematic_conformance_exists_only_when_intent_exists(engineering_db):
     intent=dict(assets=[],components=[dict(id='COMP1',label='Valve intent',function='directional valve',
         cartridge_id=None,cavity_id='CAV_A',interface_nets={'port1':'P'},placement_id='CV1')])

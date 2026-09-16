@@ -27,7 +27,7 @@ def editing_manifold():
 def test_moving_cavity_converges_below_watchdog_and_keeps_exact_layers(tmp_path,monkeypatch):
     monkeypatch.setattr(store,'OUTPUT',tmp_path/'output')
     worker=engineering.Executor();monkeypatch.setattr(engineering,'executor',worker);monkeypatch.setattr(server,'executor',worker)
-    d=editing_manifold();source=get_definition(CAVITY_ID).model_dump();evidence=[]
+    d=editing_manifold();source=get_definition(CAVITY_ID).model_dump();evidence=[];pids=[];reuse=[]
     with TestClient(server.app) as client,ThreadPoolExecutor(max_workers=2) as pool:
         for u,v in [(107,50),(106,50),(97,53),(107,50)]:
             d.features[-1].u=u;d.features[-1].v=v
@@ -46,15 +46,14 @@ def test_moving_cavity_converges_below_watchdog_and_keeps_exact_layers(tmp_path,
             assert model['geometry_kind']=='machined-brep'
             assert {p['circuit'] for p in parts if p['kind']=='hydraulic-net'}=={'P','T','A','B'}
             assert any(p['kind']=='body' and p['triangles'] for p in parts)
-            void=next(p for p in parts if p['kind']=='machined-void')
-            assert void['volume_mm3']>0 and void['triangles']
+            assert not any(p['kind'] in ('machined-void','cavity','port-machining','drilling-machining','mounting-machining','zone','plug') for p in parts)
+            assert model['deferred_layers']==['void','features']
             # Current proposals can have invalid topology (including the real
             # reproduction). Expose it; do not turn display success into PASS.
             assert isinstance(model['brep_valid'],bool)
-            if model['brep_valid']:
-                assert void['volume_mm3']==pytest.approx(160*100*150-model['volume_mm3'],abs=.01)
             assert next(f for f in exact['features'] if f['id']=='CV2')['u']==u
             trace=worker.history[-1]
+            pids.append(trace['pid']);reuse.append(trace['warm_reused'])
             assert trace['limit_s']==15 and trace['state']=='completed'
             assert trace['operations']['geometry.construction']['count']==1
             assert trace['operations']['route.resolution']['count']==1
@@ -62,7 +61,18 @@ def test_moving_cavity_converges_below_watchdog_and_keeps_exact_layers(tmp_path,
             # cannot disguise a return of the pathological review operation.
             assert trace['operations']['operation.preview-solid']['seconds']<8
             assert 'validation' not in trace['operations'] and 'step.export' not in trace['operations']
-            evidence.append(dict(position=[u,v],elapsed_s=round(elapsed,3),operations=trace['operations']))
+            evidence.append(dict(position=[u,v],elapsed_s=round(elapsed,3),pid=trace['pid'],
+                                 warm_reused=trace['warm_reused'],operations=trace['operations']))
+            if len(evidence)==1:
+                payload=dict(design_revision=exact['design_revision'],layer='void')
+                first=client.post('/api/preview-layer',json=payload,headers={'X-PMC-Request':'local-console'}).json()
+                lazy_trace=worker.history[-1]
+                second=client.post('/api/preview-layer',json=payload,headers={'X-PMC-Request':'local-console'}).json()
+                assert first==second and first['parts'][0]['kind']=='machined-void'
+                evidence[-1]['lazy_void']=dict(elapsed_s=lazy_trace['elapsed_s'],operations=lazy_trace['operations'])
+                if model['brep_valid']:
+                    assert first['parts'][0]['volume_mm3']==pytest.approx(160*100*150-model['volume_mm3'],abs=.01)
+    assert len(set(pids))==1 and reuse==[False,True,True,True]
     assert get_definition(CAVITY_ID).model_dump()==source
     assert not (store.OUTPUT/'builds').exists() and not (store.OUTPUT/'route-selections').exists()
     print('INTERACTIVE_EDIT_EVIDENCE='+json.dumps(evidence))
@@ -100,7 +110,26 @@ def test_exact_preview_reports_display_failure_separately(monkeypatch):
     import manifold.geometry as geometry
     from manifold.cad_worker import dispatch
     from test_v1_engineering_views import bores
-    def fail(*args):raise RuntimeError('tessellation fixture failed')
+    def fail(*args,**kwargs):raise RuntimeError('tessellation fixture failed')
     monkeypatch.setattr(geometry,'review_model',fail)
     with pytest.raises(RuntimeError,match='Exact BRep construction completed; display review unavailable: tessellation fixture failed'):
         dispatch('preview-solid',bores().model_dump())
+
+
+def test_cancelled_warm_preview_is_destroyed_and_later_preview_recovers(tmp_path,monkeypatch):
+    monkeypatch.setattr(store,'OUTPUT',tmp_path/'output')
+    worker=engineering.Executor();d=editing_manifold()
+    try:
+        cancelled=worker.start('preview-solid',d.model_dump(),transient=True,owner='warm-qa',version=1)
+        old_pid=cancelled['process'].process.pid;worker.stop(cancelled,'QA cancel')
+        assert worker.warm is None and cancelled['process'].process.poll() is not None
+        recovered=worker.start('preview-solid',d.model_dump(),transient=True,owner='warm-qa',version=2)
+        result=None;deadline=time.monotonic()+15
+        while result is None and time.monotonic()<deadline:
+            result=worker.poll(recovered);time.sleep(.03)
+        assert result and result['status']=='UNVALIDATED_EXACT_GEOMETRY'
+        assert recovered['process'].process.pid!=old_pid and worker.warm is recovered['process']
+        authoritative=worker.start('validate',d.model_dump())
+        assert recovered['process'].process.poll() is not None and authoritative['process'].process.pid!=recovered['process'].process.pid
+        worker.stop(authoritative,'End isolation check')
+    finally:worker.close()

@@ -10,7 +10,7 @@ function cli(...args){const r=spawnSync(process.execPath,['node_modules/@playwri
 cli('open','about:blank');
 const root=process.cwd().replaceAll('\\','/');
 try{
-  for(const name of ['A-same-net','B-conical','C-flat','D-plug','E-cross-net','F-source-port']){
+  for(const name of process.env.PMC_VIEW_FIXTURE?[process.env.PMC_VIEW_FIXTURE]:['A-same-net','B-conical','C-flat','D-plug','E-cross-net','F-source-port']){
     const fixture=JSON.parse(readFileSync(`output/v1-view-fixtures/${name}.json`,'utf8'));
     writeFileSync(`output/v1-view-fixtures/${name}.js`,'window.currentFixture='+JSON.stringify(fixture)+';');
     cli('run-code',`async page=>{

@@ -23,24 +23,36 @@ class CalculationError(RuntimeError):
 
 
 class Executor:
-    def __init__(self,command=None):
+    def __init__(self,command=None,*,warm_preview=None):
         self.lock=threading.RLock();self.active=None;self.history=[];self.versions={};self.cancelled={}
-        self.command=command or [sys.executable,'-m','manifold.cad_worker']
+        self.command=command or [sys.executable,'-m','manifold.cad_worker'];self.warm=None
+        self.warm_preview=(command is None) if warm_preview is None else warm_preview
 
     def status(self):
         with self.lock:
             row=self.active
-            return dict(active=self.describe(row) if row else None,recent=self.history[-12:])
+            warm=self.warm.process.pid if self.warm and self.warm.process.poll() is None else None
+            return dict(active=self.describe(row) if row else None,warm_preview_pid=warm,recent=self.history[-12:])
 
     def describe(self,row):
         try:detail=json.loads(row['trace'].read_text(encoding='utf-8'))
         except (OSError,ValueError):detail={}
-        return {**detail,**row['process'].metrics(),'id':row['id'],'operation':row['operation'],'pid':row['process'].process.pid,
+        metrics=row['process'].metrics();baseline=row.get('baseline_metrics',{})
+        if 'cpu_s' in metrics and 'cpu_s' in baseline:metrics['cpu_s']=round(max(0,metrics['cpu_s']-baseline['cpu_s']),4)
+        return {**detail,**metrics,'id':row['id'],'operation':row['operation'],'pid':row['process'].process.pid,
+                'warm_reused':row.get('warm_reused',False),
                 'elapsed_s':round(time.monotonic()-row['start'],3),'limit_s':row['limit'],'exit_code':row['process'].process.poll()}
+
+    def destroy_warm(self):
+        process=self.warm;self.warm=None
+        if process:
+            if process.process.poll() is None:process.stop()
+            process.close()
 
     def start(self,operation,payload,*,transient=False,owner='',version=0,limit=None):
         from . import store
         from .engine import assert_engine_current,engine_revision
+        from .engineering_db import database_path
         assert_engine_current()
         limit=limit or (15 if transient else 300)
         with self.lock:
@@ -52,14 +64,17 @@ class Executor:
                 if self.active['transient']:
                     self.stop(self.active,'Preview superseded by newer work.',409)
                 else:raise CalculationError('An authoritative engineering calculation is running. Try again when it finishes.',409)
+            use_warm=self.warm_preview and transient and operation in ('preview','preview-solid','preview-layer')
+            if not use_warm:self.destroy_warm()
             key=uuid.uuid4().hex;work=Path(tempfile.mkdtemp(prefix='pmc-cad-'))
             traces=store.OUTPUT/'cad-diagnostics';traces.mkdir(parents=True,exist_ok=True)
             trace=traces/(key+'.json')
             request=dict(operation=operation,payload=payload,output=str(store.OUTPUT.resolve()),project=str(store.PROJECT.resolve()),
                          engine_revision=engine_revision(),trace=str(trace.resolve()))
             (work/'request.json').write_text(json.dumps(request),encoding='utf-8')
-            env={**os.environ,'OMP_NUM_THREADS':'1','OPENBLAS_NUM_THREADS':'1','MKL_NUM_THREADS':'1'}
-            command=[*self.command,str(work)]
+            env={**os.environ,'OMP_NUM_THREADS':'1','OPENBLAS_NUM_THREADS':'1','MKL_NUM_THREADS':'1',
+                 'PMC_ENGINEERING_DB':str(database_path())}
+            command=[*self.command]
             if os.name=='nt' and command[0]==sys.executable and not getattr(sys,'frozen',False):
                 # Store/venv aliases can activate a Python process outside the job.
                 # Launch the actual interpreter, using CPython's venv redirect
@@ -69,10 +84,25 @@ class Executor:
                     shutil.rmtree(work)
                     raise CalculationError('Unable to locate the actual Python runtime for isolated CAD.',503)
                 command[0]=str(runtime);env['__PYVENV_LAUNCHER__']=sys.executable
-            try:process=ProcessJob(command,cwd=str(store.ROOT),env=env,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-            except BaseException:shutil.rmtree(work);raise
+            warm_reused=False
+            try:
+                if use_warm:
+                    if self.warm and self.warm.process.poll() is not None:self.destroy_warm()
+                    warm_reused=self.warm is not None
+                    if not self.warm:
+                        self.warm=ProcessJob([*command,'--warm-preview'],cwd=str(store.ROOT),env=env,stdin=subprocess.PIPE,
+                                             stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                    process=self.warm
+                    process.process.stdin.write((str(work.resolve())+'\n').encode());process.process.stdin.flush()
+                else:
+                    process=ProcessJob([*command,str(work)],cwd=str(store.ROOT),env=env,stdin=subprocess.DEVNULL,
+                                       stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            except BaseException:
+                if use_warm:self.destroy_warm()
+                shutil.rmtree(work);raise
             row=dict(id=key,operation=operation,process=process,work=work,trace=trace,start=time.monotonic(),limit=limit,
-                     transient=transient,owner=owner,version=version,error=None,closed=False)
+                     transient=transient,owner=owner,version=version,error=None,closed=False,warm=use_warm,
+                     warm_reused=warm_reused,baseline_metrics=process.metrics())
             self.active=row
             row['timer']=threading.Timer(limit,self.expire,args=(row,));row['timer'].daemon=True;row['timer'].start()
             return row
@@ -107,7 +137,12 @@ class Executor:
         if row['error']:record['reason']=str(row['error'])
         if row.get('warning'):record['reason']=row['warning']
         self.history.append(record);self.history=self.history[-12:]
-        row['process'].close();row['closed']=True
+        keep_warm=row.get('warm') and state=='completed' and row['process'].process.poll() is None
+        if not keep_warm:
+            if row.get('warm') and self.warm is row['process']:self.warm=None
+            if row['process'].process.poll() is None:row['process'].stop()
+            row['process'].close()
+        row['closed']=True
         if self.active is row:self.active=None
         # Only our explicitly created temporary directory; no caller path participates.
         try:
@@ -124,14 +159,15 @@ class Executor:
         with self.lock:
             if row['error']:raise row['error']
             if 'fallback' in row:return row['fallback']
-            if row['process'].process.poll() is None:
+            ready=(row['work']/'done').is_file() if row.get('warm') else row['process'].process.poll() is not None
+            if not ready and row['process'].process.poll() is None:
                 if not row.get('review_deadline') and self.completed_engineering(row) is not None:
                     row['review_deadline']=True;row['timer'].cancel()
                     remaining=max(.01,min(15,row['limit']-(time.monotonic()-row['start'])))
                     row['timer']=threading.Timer(remaining,self.expire,args=(row,));row['timer'].daemon=True;row['timer'].start()
                 return None
             try:
-                if row['process'].process.returncode!=0:
+                if row['process'].process.returncode not in (None,0):
                     raise CalculationError(f'CAD worker exited with code {row["process"].process.returncode}; result rejected. Inspect calculation diagnostics and retry.',422)
                 path=row['work']/'result.json'
                 if path.stat().st_size>64_000_000:raise CalculationError('Exact result exceeds the interactive transfer limit; saved engineering evidence is retained.',422)
@@ -161,6 +197,7 @@ class Executor:
     def close(self):
         with self.lock:
             if self.active:self.stop(self.active,'Service stopped.',503)
+            self.destroy_warm()
 
 
 executor=Executor();atexit.register(executor.close)

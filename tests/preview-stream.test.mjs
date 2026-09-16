@@ -5,15 +5,15 @@ import {createPreviewQueue} from '../web/preview-queue.js';
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 test('proposal arrives before exact, fragmented UTF-8 and JSON are reassembled',async t=>{
-  let writer;const seen=[];
+  let writer;const seen=[],timings=[];
   t.mock.method(globalThis,'fetch',async()=>new Response(new ReadableStream({start(c){writer=c;}})));
-  const result=streamExactPreview({}, {onProposal:p=>seen.push(p),headers:{}});
+  const result=streamExactPreview({}, {onProposal:p=>seen.push(p),onTiming:t=>timings.push(t),headers:{}});
   await sleep(0);
   const bytes=new TextEncoder().encode(JSON.stringify({type:'proposal',result:{name:'阀腔'}})+'\n');
   for(const b of bytes)writer.enqueue(new Uint8Array([b]));
   await sleep(0);assert.deepEqual(seen,[{name:'阀腔'}]);
   writer.enqueue(new TextEncoder().encode('{"type":"exact","result":{"model":"BRep"}}\n'));writer.close();
-  assert.deepEqual(await result,{model:'BRep'});
+  assert.deepEqual(await result,{model:'BRep'});assert.equal(timings.length,1);assert.ok(timings[0].exact_ms>=timings[0].proposal_ms&&timings[0].parse_ms>=0);
 });
 
 test('stream error or missing final result retains actual failure reason',async t=>{

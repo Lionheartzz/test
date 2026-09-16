@@ -1,6 +1,6 @@
 // One newest snapshot. The server owns killable CAD workers; abort and explicit
 // invalidation terminate obsolete work instead of merely discarding its result.
-export function createPreviewQueue({post,stream=null,onFast,onExact,onStatus,onError,cancelRemote=null,delay=350,exactDelay=450,timeout=20000}) {
+export function createPreviewQueue({post,stream=null,onFast,onExact,onStatus,onError,onTiming=()=>{},cancelRemote=null,delay=350,exactDelay=450,timeout=20000}) {
   let latest=null,running=false,timer=null,version=0,cache=null,controller=null;
   const owner=globalThis.crypto?.randomUUID?.()||String(Math.random());
   function invalidate(){if(cancelRemote){controller?.abort();Promise.resolve(cancelRemote(owner,version)).catch(()=>{});}}
@@ -20,9 +20,9 @@ export function createPreviewQueue({post,stream=null,onFast,onExact,onStatus,onE
     try{
       if(stream){
         onStatus('exact');
-        const result=await request('/api/preview-solid',job,(_url,design,options)=>stream(design,{...options,onProposal:p=>{if(current(job)){onFast(p,job.design);onStatus('exact');}}}));
+        const result=await request('/api/preview-solid',job,(_url,design,options)=>stream(design,{...options,onTiming:t=>{if(current(job))onTiming(t);},onProposal:p=>{if(current(job)){onFast(p,job.design);onStatus('exact');}}}));
         if(!current(job))return;
-        cache={key:job.key,result};latest=null;onExact(result,job.design);onStatus('ready');
+        const context={owner,version:job.version,key:job.key};cache={key:job.key,result,context};latest=null;onExact(result,job.design,context);onStatus('ready');
       }else if(job.stage==='fast'){
         onStatus('routing');
         const result=await request('/api/preview',job);
@@ -33,7 +33,7 @@ export function createPreviewQueue({post,stream=null,onFast,onExact,onStatus,onE
         onStatus('exact');
         const result=await request('/api/preview-solid',job);
         if(!current(job))return;
-        cache={key:job.key,result};latest=null;onExact(result,job.design);onStatus('ready');
+        const context={owner,version:job.version,key:job.key};cache={key:job.key,result,context};latest=null;onExact(result,job.design,context);onStatus('ready');
       }
     }catch(error){if(current(job)){latest=null;onStatus('error');onError(error);}}
     finally{running=false;arm();}
@@ -43,7 +43,7 @@ export function createPreviewQueue({post,stream=null,onFast,onExact,onStatus,onE
       const snapshot=structuredClone(design),key=scope+JSON.stringify(snapshot);
       if(latest?.key===key)return;
       invalidate();++version;clearTimeout(timer);
-      if(cache?.key===key){latest=null;onExact(cache.result,snapshot);onStatus('ready');return;}
+      if(cache?.key===key){latest=null;onExact(cache.result,snapshot,cache.context);onStatus('ready');return;}
       latest={design:snapshot,key,version,stage:'fast',due:Date.now()+delay};onStatus('queued');arm();
     },
     cancel(){invalidate();++version;latest=null;clearTimeout(timer);onStatus('idle');}
