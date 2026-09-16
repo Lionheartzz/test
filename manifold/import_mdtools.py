@@ -7,6 +7,8 @@ import math
 import os
 import re
 import sqlite3
+import subprocess
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -30,6 +32,157 @@ def safe_id(value, fallback):
     if not value or not value[0].isalpha():
         value = "I_" + value
     return value[:40] or fallback
+
+
+def source_boundary(raw, source_type="", scale=1.0):
+    """Return only source contours whose closed geometry is unambiguous."""
+    tokens = [value.strip() for value in str(raw or "").split(";") if value.strip()]
+    if tokens and len(tokens) % 5 == 0 and all(tokens[index] == "L" for index in range(0, len(tokens), 5)):
+        try:
+            edges = [
+                ((float(tokens[index + 1]) * scale, float(tokens[index + 2]) * scale),
+                 (float(tokens[index + 3]) * scale, float(tokens[index + 4]) * scale))
+                for index in range(0, len(tokens), 5)
+            ]
+        except ValueError:
+            return None
+        if any(not math.isfinite(value) or abs(value) > 2000 for edge in edges for point in edge for value in point):
+            return None
+        points = list(edges.pop(0))
+        while edges:
+            matches = [
+                (index, end if math.dist(start, points[-1]) < 1e-7 else start)
+                for index, (start, end) in enumerate(edges)
+                if min(math.dist(start, points[-1]), math.dist(end, points[-1])) < 1e-7
+            ]
+            if len(matches) != 1:
+                return None
+            index, end = matches[0]
+            points.append(end)
+            edges.pop(index)
+        if len(points) < 4 or math.dist(points[0], points[-1]) > 1e-7:
+            return None
+        return {"points": points[:-1]}
+
+    # Support only the exact four-quarter-arc circle form. General arcs and
+    # mixed contours have no safe direction/bulge interpretation here.
+    if str(source_type or "").strip().lower() != "circle" or len(tokens) != 28 or any(tokens[i] != "A" for i in range(0, 28, 7)):
+        return None
+    try:
+        arcs = [tuple(float(value) * scale for value in tokens[i + 1:i + 7]) for i in range(0, 28, 7)]
+    except ValueError:
+        return None
+    if any(not math.isfinite(value) or abs(value) > 2000 for arc in arcs for value in arc):
+        return None
+    cx, cy = arcs[0][4:]
+    radius = math.hypot(arcs[0][0] - cx, arcs[0][1] - cy)
+    if radius <= 0:
+        return None
+    edges, vertices = set(), {}
+    for x, y, xx, yy, cxx, cyy in arcs:
+        if math.dist((cx, cy), (cxx, cyy)) > 1e-6:
+            return None
+        if abs(math.hypot(x - cx, y - cy) - radius) > 1e-6 or abs(math.hypot(xx - cx, yy - cy) - radius) > 1e-6:
+            return None
+        if abs((x - cx) * (xx - cx) + (y - cy) * (yy - cy)) > 1e-6:
+            return None
+        start, end = (round(x, 6), round(y, 6)), (round(xx, 6), round(yy, 6))
+        edges.add(tuple(sorted((start, end))))
+        for point in (start, end):
+            vertices[point] = vertices.get(point, 0) + 1
+    if len(edges) != 4 or len(vertices) != 4 or set(vertices.values()) != {2}:
+        return None
+    return {"circle": (cx, cy, radius)}
+
+
+def explicit_manufacturer(identity, revision, row):
+    for record in (row, revision, identity):
+        for key in ("manufacturer", "Manufacturer", "manufacturer_name", "ManufacturerName"):
+            value = record.get(key)
+            if value not in (None, ""):
+                return str(value).strip()[:120]
+    return ""
+
+
+def has_unrepresented_special_cut(*records):
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        for key in ("special_feature_refs", "required_special_cuts", "undercuts", "o_ring_grooves", "grooves"):
+            if record.get(key):
+                return True
+        for index in range(1, 11):
+            if any(number(record.get(f"ORing{index}{suffix}")) not in (None, 0)
+                   for suffix in ("CavityDia", "Width", "Depth")):
+                return True
+        operations = " ".join(str(record.get(f"Machine{field}{index}") or "")
+                              for index in range(1, 8) for field in ("Operation", "Tool"))
+        if re.search(r"under.?cut|o.?ring\s+groove|groove", operations, re.IGNORECASE):
+            return True
+    return False
+
+
+def unresolved_datum(row):
+    return bool(row.get("IsSunCavity")) or any(
+        row.get(key) not in (None, "", 0, "0")
+        for key in ("LSMinDepth", "LSMaxDepth", "LSCircleNumber")
+    )
+
+
+def linked_special_cuts(source):
+    """Read mandatory cavity links from the authoritative MDBs when present.
+
+    The merged JSON currently omits the CavityUnderCuts/CavityOringGrooves
+    relationship tables. Treat an unreadable relationship source as an import
+    error rather than silently admitting incomplete geometry.
+    """
+    raw = source / "raw"
+    if not raw.is_dir():
+        return set()
+    if sys.platform != "win32":
+        raise RuntimeError(
+            "MDTools special-cut relationship admission requires the Windows ACE provider; "
+            "initialize the database on Windows and move the resulting SQLite file."
+        )
+    script = r'''
+$ErrorActionPreference='Stop'
+$connection=New-Object System.Data.OleDb.OleDbConnection("Provider=Microsoft.ACE.OLEDB.12.0;Data Source=$env:PMC_MDB_PATH;Mode=Read;")
+$rows=@()
+try {
+  $connection.Open()
+  $catalog=$connection.GetSchema('Tables')
+  foreach($entry in @(@('CavityUnderCuts','undercut'),@('CavityOringGrooves','groove'))) {
+    $table=$entry[0];$kind=$entry[1]
+    if(-not ($catalog | Where-Object {$_.TABLE_NAME -eq $table})) { continue }
+    $command=$connection.CreateCommand();$command.CommandText="SELECT LibraryCode,CavityIndex FROM [$table]"
+    $reader=$command.ExecuteReader()
+    while($reader.Read()) {$rows += [pscustomobject]@{kind=$kind;library_code=[int]$reader['LibraryCode'];cavity_index=[int]$reader['CavityIndex']}}
+    $reader.Close()
+  }
+} finally {$connection.Close()}
+ConvertTo-Json -Compress -InputObject @($rows)
+'''
+    result = set()
+    for unit, filename in (("inch", "InchVESTMDToolsLibrary.mdb"), ("metric", "MMVESTMDToolsLibrary.mdb")):
+        for release in ("legacy", "2026-R2"):
+            path = raw / release / filename
+            if not path.is_file():
+                raise RuntimeError(f"Merged MDTools raw database is missing: {path}")
+            environment = os.environ.copy()
+            environment["PMC_MDB_PATH"] = str(path)
+            try:
+                completed = subprocess.run(
+                    ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+                    check=True, capture_output=True, text=True, encoding="utf-8", env=environment,
+                )
+                rows = json.loads(completed.stdout or "[]")
+            except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+                detail = getattr(exc, "stderr", "") or str(exc)
+                raise RuntimeError(f"Cannot inspect mandatory special-cut relationships in {path.name}: {detail[:500]}") from exc
+            if isinstance(rows, dict):
+                rows = [rows]
+            result.update((unit, release, int(row["library_code"]), int(row["cavity_index"])) for row in rows)
+    return result
 
 
 def profile(row, scale, *, offset_u=0.0, offset_v=0.0, source_prefix=""):
@@ -142,6 +295,7 @@ def import_database(source: Path, destination: Path) -> dict:
             record = json.loads(line)
             if record.get("active"):
                 footprints[record["cavity_revision_id"]].append(record)
+    special_cut_sources = linked_special_cuts(source)
     report = dict(cavities=0, external_ports=0, cartridges=0, compatibility=0,
                   duplicate_records=0, rejected=0, unusable=0, zero_footprint=0,
                   one_footprint=0, multiple_footprints=0)
@@ -159,6 +313,7 @@ def import_database(source: Path, destination: Path) -> dict:
                 scale = 25.4 if identity["unit"] == "inch" else 1.0
                 stages, primitives = profile(row, scale, source_prefix="main:")
                 zones = interfaces(row, primitives, scale)
+                main_zone_count = len(zones)
                 children = footprints.get(revision["revision_id"], [])
                 if not children:
                     report["zero_footprint"] += 1
@@ -167,7 +322,8 @@ def import_database(source: Path, destination: Path) -> dict:
                 else:
                     report["multiple_footprints"] += 1
                 boundaries = []
-                boundary_metadata = []
+                boundary_signatures = set()
+                boundary_incomplete = False
                 for child in children:
                     child_row = child["row"]
                     u = (number(child_row.get("CavityXDim")) or 0) * scale
@@ -179,9 +335,34 @@ def import_database(source: Path, destination: Path) -> dict:
                                             prefix=safe_id(child.get("port_application"), "fp") + "_"))
                     envelope = child_row.get("EnvelopDimensions")
                     if envelope not in (None, ""):
-                        boundary_metadata.append({"raw_boundary": envelope, "offset_u": u, "offset_v": v})
-                usable = bool(stages and primitives)
-                reason = "" if usable else "No executable numeric cutting profile"
+                        shape = source_boundary(envelope, child_row.get("EnvelopeType"), scale)
+                        if shape is None:
+                            boundary_incomplete = True
+                        else:
+                            boundary = dict(category="mounting-footprint", height=0, **shape)
+                            signature = json.dumps(boundary, sort_keys=True, separators=(",", ":"))
+                            if signature not in boundary_signatures:
+                                boundary_signatures.add(signature)
+                                boundaries.append(boundary)
+                reasons = []
+                if not stages or not primitives:
+                    reasons.append("No executable numeric cutting profile")
+                if unresolved_datum(row):
+                    reasons.append("Sun/LS installation datum is unresolved")
+                declared = int(number(row.get("NumberofPorts")) or 0)
+                if str(row.get("CavityType") or "").upper() == "CV" and main_zone_count != declared:
+                    reasons.append("Declared hydraulic windows are incomplete")
+                linked_special = any(
+                    (identity["unit"], item.get("release"), int(item.get("library_code") or -1),
+                     int(item.get("cavity_index") or -1)) in special_cut_sources
+                    for item in revision.get("sources", [])
+                )
+                if linked_special or has_unrepresented_special_cut(identity, revision, row, *(child["row"] for child in children)):
+                    reasons.append("Required special cut is not executable")
+                if boundary_incomplete:
+                    reasons.append("Declared mounting boundary is not safely interpretable")
+                usable = not reasons
+                reason = "; ".join(reasons)
                 if not usable:
                     report["unusable"] += 1
                 clearance = max(
@@ -192,10 +373,10 @@ def import_database(source: Path, destination: Path) -> dict:
                 height = max([item["end"] for item in primitives] + [1.0])
                 thread = str(row.get("ThreadPitch") or row.get("ThreadSize") or "")
                 common = (identity["canonical_id"], identity["display_name"], identity["display_family"],
-                          identity["unit"], identity["display_family"], thread,
+                          identity["unit"], explicit_manufacturer(identity, revision, row), thread,
                           json.dumps(stages, separators=(",", ":")), json.dumps(primitives, separators=(",", ":")),
                           json.dumps(boundaries, separators=(",", ":")),
-                          json.dumps([*machining(row), *boundary_metadata], separators=(",", ":")), clearance, height,
+                          json.dumps(machining(row), separators=(",", ":")), clearance, height,
                           int(usable), reason, 1)
                 cavity_type = str(row.get("CavityType") or "").upper()
                 if cavity_type in {"P", "PORT"}:

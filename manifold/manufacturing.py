@@ -19,8 +19,10 @@ def manufacturing_outputs(design, g, folder, definitions=None):
         steps=([s.model_dump() for s in definition.cutting_primitives] or
                [dict(kind='cylinder',**s.model_dump()) for s in definition.stages]) if definition else []
         profile=dict(feature=f.id,definition=f.definition,source='PMC engineering database' if definition else 'Explicit drilling parameters',
-                     cutting_steps=steps,hydraulic_interfaces=[z.model_dump() for z in definition.zones] if definition else [],
-                     cylinder_diameter_mm=None if definition else f.diameter,cylinder_depth_mm=None if definition else f.depth,
+                      cutting_steps=steps,hydraulic_interfaces=[z.model_dump() for z in definition.zones] if definition else [],
+                      definition_facts=(dict(id=definition.id,label=definition.label,thread_specification=definition.thread_note,
+                                             machining_operations=definition.machining) if definition else None),
+                      cylinder_diameter_mm=None if definition else f.diameter,cylinder_depth_mm=None if definition else f.depth,
                      tip_angle_degrees=None if definition else f.tip_angle,
                      closure=dict(engagement_mm=f.plug_length,geometry='Declared cylindrical exclusion from hydraulic volume',
                                   entry_machining_status='unresolved',

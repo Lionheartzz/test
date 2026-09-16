@@ -71,18 +71,19 @@ def anchors(source):
             for c in range(2):
                 key = f'B:{a}{b}{c}'
                 result[key] = dict(point=[a*sizes[0], b*sizes[1], c*sizes[2]], label=f'Block {a}{b}{c}', signature='block-corner')
-    from ..engineering_db import definitions_for_design
-    library = definitions_for_design(design)
     components = {c.feature_id: c for c in design.components if c.feature_id}
     rows, machining = [], []
     profiles = {p['feature']: p for p in source['manufacturing'].get('machining_profiles', [])}
+    recipes = {p['definition']: p.get('operations', []) for p in source['manufacturing'].get('native_recipes', [])}
     machining_ids={p['feature']:p['machining_id'] for p in source['manufacturing'].get('drill_chart',[])}
     for f in design.features:
         if f.suppressed:
             continue
         origin, direction = pose(f, design.block)
-        definition = library.get(f.definition)
-        steps = ([s.model_dump() for s in definition.cutting_primitives] or [s.model_dump() for s in definition.stages]) if definition else []
+        profile = profiles.get(f.id, {})
+        facts = profile.get('definition_facts') or {}
+        definition_id = profile.get('definition') or f.definition
+        steps = profile.get('cutting_steps') or []
         diameter = max((s['diameter'] for s in steps), default=f.diameter or 0)
         depth = max((s['end'] for s in steps), default=f.depth or 0)
         identity_pending = f.id in components and bool(components[f.id].cartridge_id) and components[f.id].cartridge_id != f.cartridge_id
@@ -93,24 +94,26 @@ def anchors(source):
         label=label or machining_ids.get(f.id,f.id)
         model = 'Identity pending review' if identity_pending else (f.cartridge_id or '')
         key = f'F:{f.id}'
-        signature = digest(dict(kind=f.kind, definition=f.definition, engineering_definition=definition.model_dump() if definition else None,
+        signature = digest(dict(kind=f.kind, definition=definition_id, engineering_definition=facts or profile,
                                 face=f.face, parent=f.parent_id))
         result[key] = dict(point=origin, label=label, feature=f.id, face=f.face, direction=direction,
                            machining_label=f.machining_id or machining_ids.get(f.id,label),
                            diameter=diameter, depth=depth, angle=math.degrees(math.acos(min(1, max(-1, abs(direction[2]))))),
                            signature=signature, model=model)
         result[key+':end'] = dict(point=[o+d*depth for o,d in zip(origin,direction)], label=f'{label} depth end', signature=signature)
-        spec = definition.thread_note if definition else (f.size if f.kind == 'port' else f'Ø{f.diameter:g} × {f.depth:g} deep')
-        if definition:
-            spec = f'{definition.label} [{definition.id}]' + (f' / {spec}' if spec else '')
+        thread_spec = facts.get('thread_specification', '')
+        definition_label = facts.get('label') or definition_id
+        spec = thread_spec if definition_id else (f.size if f.kind == 'port' else f'Ø{f.diameter:g} × {f.depth:g} deep')
+        if definition_id:
+            spec = f'{definition_label} [{definition_id}]' + (f' / {spec}' if spec else '')
         if f.kind=='mounting':spec=f'MOUNTING Ø{f.diameter:g} '+('THROUGH' if f.through else f'/ {f.depth:g} deep')+' / explicit plain bore; no thread inferred'
         if f.plugged:
             spec += f' / plug engagement {f.plug_length:g}; entry machining unresolved'
         # Display the pinned engineering definition, never a guessed product
         # identity or an internal database key in the PMC PORTINGS cells.
-        if definition:
-            pmc_spec=definition.label
-            if definition.thread_note:pmc_spec+=' / '+definition.thread_note
+        if definition_id:
+            pmc_spec=definition_label
+            if thread_spec:pmc_spec+=' / '+thread_spec
         elif f.kind=='mounting' and f.through:pmc_spec=f'Ø{f.diameter:g} THRU'
         elif f.kind in ('mounting','drilling'):pmc_spec=f'Ø{f.diameter:g} × {f.depth:g} DEEP / {f.tip_angle:g}° POINT'
         else:pmc_spec=f.size
@@ -119,9 +122,8 @@ def anchors(source):
                    machining_label=result[key]['machining_label'],
                    kind=f.kind,pmc_specification=pmc_spec,
                    model=model, u=f.u, v=f.v, diameter=diameter, depth=depth,
-                   source='PMC engineering database' if definition else 'Manifold feature parameters')
+                    source='Immutable build engineering facts' if definition_id else 'Manifold feature parameters')
         rows.append(row)
-        profile = profiles.get(f.id, {})
         for index, step in enumerate(steps or [dict(diameter=f.diameter, start=0, end=f.depth)], 1):
             theta=math.radians(f.rotation)
             du,dv=step.get('offset_u',0),step.get('offset_v',0)
@@ -139,8 +141,8 @@ def anchors(source):
                 inner_diameter=step.get('inner_diameter') if step.get('kind')=='annulus' else None,
                 offset_u=step.get('offset_u', 0), offset_v=step.get('offset_v', 0),
                 rotation=f.rotation,
-                machining_notes=json.dumps(definition.machining,ensure_ascii=False) if definition else '',tooling=[],
-                profile=step.get('kind', 'cylinder'), tip_angle=None if definition or (f.kind=='mounting' and f.through) else f.tip_angle,
+                machining_notes=json.dumps(facts.get('machining_operations',recipes.get(definition_id,[])),ensure_ascii=False) if definition_id else '',tooling=[],
+                profile=step.get('kind', 'cylinder'), tip_angle=None if definition_id or (f.kind=='mounting' and f.through) else f.tip_angle,
                 direction=direction, specification=spec, source=row['source'], closure=profile.get('closure')))
     return result, rows, machining
 

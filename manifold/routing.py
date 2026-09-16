@@ -413,7 +413,7 @@ def alternative_proposals(best, target, routes, report, eligible, inspected, *, 
     by_id={f.id:f for f in target.features}
     conflicts=set(); affected=set()
     for check in report['checks']:
-        if check['status']!='FAIL':continue
+        if check['status']!='FAIL' or repair_only and check.get('repair_domain')!='routing':continue
         owners=set()
         for item in check.get('items',[]):
             f=by_id.get(item.split(':')[0])

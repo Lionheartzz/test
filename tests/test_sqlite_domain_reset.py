@@ -5,14 +5,17 @@ import pytest
 
 from manifold.engineering_db import (
     compatible,
+    database_path,
     get_definition,
     initialize_schema,
+    search_definitions,
     validate_database,
     validate_references,
 )
 from manifold.geometry import build_geometry
 from manifold.import_mdtools import import_database
 from manifold.project_migration import convert
+from manifold.migrate_saved_projects import migrate
 from manifold.routing import alternative_proposals
 from manifold.schema import Design
 from manifold.validation import validate
@@ -88,10 +91,21 @@ def test_schematic_conformance_exists_only_when_intent_exists(engineering_db):
     assert not any(row['rule']=='schematic_conformance' for row in report['checks'])
 
 
-def test_non_routing_failure_produces_no_route_candidates(engineering_db):
+def test_engineering_review_owned_by_cavity_produces_no_route_candidates(engineering_db):
     design=cavity_only()
     report=dict(counts={'FAIL':1,'WARNING':0},checks=[dict(
-        rule='engineering_review',status='FAIL',items=['REVIEW_1'],actual='open',required='resolved')])
+        rule='engineering_review',status='FAIL',items=['REVIEW_1','CV1'],actual='open',required='resolved')])
+    assert alternative_proposals(design,design,[],report,{'P'},set())==[]
+
+
+def test_cavity_collision_produces_no_route_candidates(engineering_db):
+    design=cavity_only()
+    raw=design.model_dump()
+    raw['features'].append(dict(id='CV2',kind='cavity',face='top',u=65,v=50,cavity_id='CAV_A',
+                                cartridge_id=None,interface_nets={'port1':'P'}))
+    design=Design.model_validate(raw)
+    report=dict(counts={'FAIL':1,'WARNING':0},checks=[dict(
+        rule='cavity_collision',status='FAIL',items=['CV1','CV2'],actual=1,required=0)])
     assert alternative_proposals(design,design,[],report,{'P'},set())==[]
 
 
@@ -104,6 +118,13 @@ def test_runtime_database_is_required_and_never_created(tmp_path,monkeypatch):
     monkeypatch.setenv('PMC_ENGINEERING_DB',str(invalid))
     with pytest.raises(RuntimeError,match='invalid'):
         validate_database()
+
+
+def test_relative_database_path_is_application_root_relative(tmp_path,monkeypatch):
+    import manifold.engineering_db as module
+    monkeypatch.setattr(module,'ROOT',tmp_path)
+    monkeypatch.setenv('PMC_ENGINEERING_DB','configured/engineering.db')
+    assert database_path()==(tmp_path/'configured'/'engineering.db').resolve()
 
 
 def test_zero_footprint_import_uses_cavity_engineering_data(tmp_path,monkeypatch):
@@ -121,6 +142,50 @@ def test_zero_footprint_import_uses_cavity_engineering_data(tmp_path,monkeypatch
     monkeypatch.setenv('PMC_ENGINEERING_DB',str(destination))
     definition=get_definition('ZERO_FP')
     assert definition.usable and definition.stages and definition.cutting_primitives
+    assert definition.family=='QA' and definition.manufacturer==''
+
+
+def test_import_admission_and_source_boundaries_are_conservative(tmp_path,monkeypatch):
+    source=tmp_path/'merged';source.mkdir()
+    def identity(identifier, row, **revision_fields):
+        revision_id='rev_'+identifier
+        return dict(canonical_id=identifier,display_name=identifier,display_family='Family only',unit='metric',
+                    active_revision_id=revision_id,revisions=[dict(revision_id=revision_id,active=True,row=row,**revision_fields)])
+    base=dict(CavityType='CV',Circle0Dia=10,Circle0Depth=20,NumberofPorts=1,
+              Port1Depth=15,Port1Diameter=4,MachineOperation1='Bore')
+    records=[
+        identity('SUN_DATUM',base|{'IsSunCavity':True,'LSMinDepth':4,'LSCircleNumber':1}),
+        identity('MISSING_WINDOW',base|{'NumberofPorts':2}),
+        identity('SPECIAL_CUT',base,special_feature_refs={'undercuts':[{'index':1}]}),
+        identity('BOUNDARY_OK',base),identity('BOUNDARY_BAD',base),
+    ]
+    (source/'cavities_master.jsonl').write_text(''.join(json.dumps(row)+'\n' for row in records),encoding='utf-8')
+    def footprint(identifier,envelope):
+        return dict(footprint_id='fp_'+identifier,cavity_revision_id='rev_'+identifier,port_application='bh1',active=True,
+                    row=dict(CavityType='BH',Circle0Dia=4,Circle0Depth=10,CavityXDim=0,CavityYDim=0,
+                             EnvelopDimensions=envelope,PortApplicationName='BH1'))
+    footprints=[footprint('BOUNDARY_OK','L;0;0;20;0;L;20;0;20;10;L;20;10;0;10;L;0;10;0;0;'),
+                footprint('BOUNDARY_BAD','L;0;0;20;0;')]
+    (source/'footprints_master.jsonl').write_text(''.join(json.dumps(row)+'\n' for row in footprints),encoding='utf-8')
+    destination=tmp_path/'imported.db';report=import_database(source,destination)
+    assert report['unusable']==4
+    monkeypatch.setenv('PMC_ENGINEERING_DB',str(destination))
+    assert 'Sun/LS installation datum' in get_definition('SUN_DATUM').unusable_reason
+    assert 'hydraulic windows' in get_definition('MISSING_WINDOW').unusable_reason
+    assert 'special cut' in get_definition('SPECIAL_CUT').unusable_reason
+    boundary=get_definition('BOUNDARY_OK').boundaries[0]
+    assert boundary.points==[(0,0),(20,0),(20,10),(0,10)]
+    assert get_definition('BOUNDARY_OK').usable
+    assert 'mounting boundary' in get_definition('BOUNDARY_BAD').unusable_reason
+
+
+def test_inactive_definition_resolves_for_existing_project_but_not_selection(engineering_db):
+    with sqlite3.connect(engineering_db) as connection:
+        connection.execute("UPDATE cavities SET active=0 WHERE id='CAV_A'")
+    with pytest.raises(ValueError,match='inactive'):
+        get_definition('CAV_A')
+    validate_references(cavity_only())
+    assert search_definitions(kind='cavity')['total']==0
 
 
 def test_schema1_migration_drops_fake_intent_and_ai_evidence(engineering_db):
@@ -140,3 +205,22 @@ def test_schema1_migration_drops_fake_intent_and_ai_evidence(engineering_db):
     assert not any(migrated['origin'][key] for key in ('author','provider','model'))
     assert 'members' not in migrated['nets'][0]
     assert 'library' not in migrated and 'components' not in migrated and 'ai_trace' not in migrated['origin']
+
+
+def test_failed_project_migration_rolls_back_legacy_definition(engineering_db,tmp_path):
+    source=tmp_path/'saved';source.mkdir()
+    legacy=dict(id='LEGACY_NEW',label='Legacy new',manufacturer='',thread_note='',
+                stages=[dict(start=0,end=12,diameter=11)],zones=[dict(id='port1',start=8,end=12,diameter=11)],
+                cutting_primitives=[],boundaries=[],machining=[],clearance_diameter=12,clearance_height=12)
+    design=dict(schema_version=1,name='Invalid migrated project',units='mm',project_context='metric',
+                block=dict(length=100,width=100,height=100,material='Aluminium'),library=[legacy],
+                features=[dict(id='CV1',kind='cavity',face='top',u=50,v=50,definition='LEGACY_NEW',circuits={})],
+                nets=[],constraints={},rules={})
+    (source/'project.json').write_text(json.dumps(dict(design=design,build=None)),encoding='utf-8')
+    with sqlite3.connect(engineering_db) as connection:
+        before=connection.execute("SELECT count(*) FROM cavities WHERE id LIKE 'legacy_%'").fetchone()[0]
+    with pytest.raises(ValueError,match='assign a hydraulic net'):
+        migrate(source,tmp_path/'staging',tmp_path/'backup')
+    with sqlite3.connect(engineering_db) as connection:
+        after=connection.execute("SELECT count(*) FROM cavities WHERE id LIKE 'legacy_%'").fetchone()[0]
+    assert after==before

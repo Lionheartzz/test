@@ -25,14 +25,11 @@ def migrate(source: Path, staging: Path, backup: Path, *, install: bool=False):
             design=convert(record['design'],connection)
             from .schema import Design
             parsed=Design.model_validate(design)
+            validate_references(parsed,connection=connection)
             record['design']=parsed.model_dump();record['build']=None
             target=staging/path.name
             target.write_text(json.dumps(record,indent=2),encoding='utf-8')
             report['projects']+=1
-        connection.commit()
-        for path in staging.glob('*.json'):
-            from .schema import Design
-            validate_references(Design.model_validate(json.loads(path.read_text(encoding='utf-8'))['design']))
         after=connection.execute("SELECT count(*) FROM cavities WHERE unit_system='custom'").fetchone()[0]
         report['legacy_definitions_before']=before;report['legacy_definitions_added']=after-before
     report['schema2']=sum(json.loads(p.read_text(encoding='utf-8'))['design']['schema_version']==2 for p in staging.glob('*.json'))

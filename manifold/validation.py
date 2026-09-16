@@ -15,6 +15,30 @@ def validate(design, g, definitions=None):
     threshold = design.rules.minimum_overlap_volume
     wall = design.rules.minimum_wall
     by_id = {f.id: f for f in design.features}
+    automatic_nets = {net.id for net in design.nets if net.routing == 'automatic'}
+    route_geometry_rules = {
+        'circuit_intersection', 'declared_connection', 'connection_opening_area',
+        'expected_connection', 'minimum_feature_wall', 'port_protected_region',
+        'cavity_protected_region', 'unintended_cut_intersection', 'external_wall',
+        'external_face_entry', 'drill_reach', 'drilling_entry_closure',
+        'plug_engagement', 'installation_access', 'boundary_access',
+        'drilling_face_constraint',
+    }
+    route_connectivity_rules = {'connected_interface', 'circuit_connectivity'}
+
+    def routing_repairable(rule, items):
+        features = [by_id.get(str(item).split(':')[0]) for item in items]
+        if rule in route_geometry_rules:
+            return any(feature and feature.route_net in automatic_nets for feature in features)
+        if rule in route_connectivity_rules:
+            for feature in features:
+                if not feature:
+                    continue
+                owners = {feature.route_net, feature.circuit, *feature.circuits.values()}
+                if owners & automatic_nets:
+                    return True
+        return False
+
     def port_diameter(feature):
         return definitions[feature.port_definition_id].zones[0].diameter if feature.port_definition_id else feature.diameter
     graph = {k: set() for k in g.nodes}
@@ -22,7 +46,8 @@ def validate(design, g, definitions=None):
 
     def result(rule, items, actual, required, passed, message, severity='FAIL', unit=''):
         checks.append(dict(rule=rule, items=items, actual=round(actual, 5) if isinstance(actual, float) else actual,
-                           required=required, status='PASS' if passed else severity, message=message, unit=unit))
+                           required=required, status='PASS' if passed else severity, message=message, unit=unit,
+                           repair_domain='routing' if not passed and routing_repairable(rule,items) else None))
 
     def overlap(a, b):
         key = tuple(sorted((a, b)))

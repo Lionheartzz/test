@@ -429,7 +429,7 @@ def test_customer_portings_continue_without_losing_source_rows_or_notice():
     assert {a.sheet for a in edit.annotations if a.text=='FOR CUSTOMER REFERENCE ONLY'}=={s.id for s in edit.sheets[1:]}
 
 
-def test_pinned_operations_offsets_angles_and_uncertain_identity(tmp_path,monkeypatch):
+def test_pinned_build_facts_survive_inactive_master_and_preserve_operations(tmp_path,monkeypatch):
     from manifold.demo import demo
     from manifold.engineering_db import get_definition,initialize_schema
     from manifold.drawing.generate import anchors
@@ -457,7 +457,15 @@ def test_pinned_operations_offsets_angles_and_uncertain_identity(tmp_path,monkey
                 cavity_id=definition['id'],interface_nets={definition['zones'][0]['id']:'P',definition['zones'][1]['id']:'A'}),
                 dict(id='D1',kind='drilling',face='top',u=80,v=60,diameter=8,depth=20,direction=[.6,0,-.8],circuit='P')],
              schematic_intent=dict(components=[dict(id='V1',placement_id='C1',cavity_id=definition['id'])]))
-    data,rows,operations=anchors(dict(resolved=d.model_dump(),manufacturing={}))
+    facts=dict(id=definition['id'],label=definition['label'],thread_specification=definition['thread_note'],
+               machining_operations=definition['machining'])
+    manufacturing=dict(machining_profiles=[dict(feature='C1',definition=definition['id'],
+        cutting_steps=definition['cutting_primitives'],hydraulic_interfaces=definition['zones'],definition_facts=facts)],
+        drill_chart=[],native_recipes=[])
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE cavities SET active=0 WHERE id=?",(definition['id'],))
+    monkeypatch.setenv('PMC_ENGINEERING_DB',str(tmp_path/'master-unavailable.db'))
+    data,rows,operations=anchors(dict(resolved=d.model_dump(),manufacturing=manufacturing))
     assert data['F:C1:step:1:start']['point']==pytest.approx([43,64,100])
     assert data['F:C1:step:1:end']['point']==pytest.approx([43,64,90])
     assert data['F:C1:step:1:end']['diameter']==20
