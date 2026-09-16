@@ -4,7 +4,7 @@ import json
 import math
 from datetime import datetime, timezone
 from pathlib import Path
-from .. import projects, store
+from .. import store
 from ..schema import Design
 from ..kinematics import pose, dimensions, FACE_AXES
 from ..cad import cq
@@ -26,14 +26,13 @@ def paper(sheet):
 
 
 def snapshot(project_id, expected, *, load_solid=True):
-    record = projects.read(project_id)
-    current = projects.snapshot(record)
-    if current['revision'] != expected:
+    from .storage import safe_folder, saved_project_state
+    record, project_revision = saved_project_state(project_id)
+    if project_revision != expected:
         raise ValueError('Source project changed. Refresh the project before creating or updating the drawing.')
-    build = current['build']
+    build = record.get('build')
     if not build or build['design_revision'] != expected:
         raise ValueError('No build matches the saved manifold. Save & Validate in Manifold Studio, then retry Create Drawing.')
-    from .storage import safe_folder
     folder = safe_folder(store.OUTPUT / 'builds', build['build_id'])
     names = ('design.json', 'resolved_design.json', 'validation.json', 'production.step', 'manufacturing.json')
     files = {}

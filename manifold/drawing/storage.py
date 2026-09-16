@@ -8,9 +8,17 @@ import re
 from threading import RLock
 import uuid
 from .. import store, projects
+from ..schema import Design
 from .schema import Edit
 
 LOCK = RLock()
+
+
+def saved_project_state(project_id):
+    """Read only the saved project revision and build pointer for drawing ownership."""
+    record = projects.read(project_id)
+    revision = store.revision(Design.model_validate(record['design']))
+    return record, revision
 
 
 def linked(path):
@@ -65,9 +73,10 @@ def check(document, expected):
 
 
 def source_current(doc):
-    state = projects.snapshot(projects.read(doc['project_id']))
-    return (state['revision'] == doc['source']['design_revision'] and state['build'] is not None
-            and state['build']['build_id'] == doc['source']['build_id'])
+    record, project_revision = saved_project_state(doc['project_id'])
+    build = record.get('build')
+    return (project_revision == doc['source']['design_revision'] and build is not None
+            and build['build_id'] == doc['source']['build_id'])
 
 
 def public(doc, with_checks=True):
@@ -104,10 +113,10 @@ def listing(project_id):
 
 def save_new(project_id, source, edit, geometry, kind, drawing_id=None, expected_project=None, broken=None):
     with LOCK, store.project_lock():
-        state=projects.snapshot(projects.read(project_id))
-        if state['archived']:
+        record, project_revision = saved_project_state(project_id)
+        if record.get('archived',False):
             raise ValueError('Restore the project before editing drawings')
-        if expected_project and state['revision'] != expected_project:
+        if expected_project and project_revision != expected_project:
             raise ValueError('Source project changed during generation. Retry with its new saved build.')
         now=datetime.now(timezone.utc).isoformat()
         doc=dict(schema_version=1,id=drawing_id or uuid.uuid4().hex,project_id=project_id,kind=kind,status='Draft',

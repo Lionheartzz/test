@@ -37,6 +37,17 @@ def drawing(tmp_path,monkeypatch):
     return p,doc
 
 
+def test_drawing_snapshot_and_open_do_not_resolve_current_engineering_master(drawing,monkeypatch):
+    p,doc=drawing
+    monkeypatch.setattr(projects,'snapshot',lambda record: (_ for _ in ()).throw(AssertionError('current engineering master queried')))
+    source,solid=snapshot(p['project_id'],p['revision'])
+    assert source['build_id']==p['build']['build_id'] and solid.isValid()
+    opened=storage.public(storage.read(p['project_id'],doc['id']))
+    assert opened['source_current'] is True
+    copied=storage.save_new(p['project_id'],source,Edit.model_validate(doc['edit']),doc['geometry'],'customer',expected_project=p['revision'])
+    assert copied['source']['sha256']==source['sha256']
+
+
 def test_exact_projection_axes_and_dimensions(drawing):
     p,doc=drawing
     assert doc['geometry']['front']['bounds']==pytest.approx([0,0,100,60])
