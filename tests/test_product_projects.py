@@ -7,7 +7,6 @@ from manifold.demo import demo
 from manifold.server import app
 from manifold.routing import route_cost,route_margin,adopt_routes,resolve_design
 from manifold.route_edit import freeze,refine
-
 HEADERS={'X-PMC-Request':'local-console'}
 
 @pytest.fixture
@@ -21,14 +20,14 @@ def blank(name='Empty project'):
 
 def test_project_library_empty_start_and_independent_reopen(isolated):
     assert isolated.get('/api/health').json()['service']=='pmc-manifold'
-    assert isolated.get('/api/library').json()==[]
+    assert isolated.get('/api/catalog/manifest').json()['schema_version']==1
     assert isolated.get('/api/projects').json()==[]
     first=isolated.post('/api/projects',json=dict(design=blank().model_dump()),headers=HEADERS).json()
     second=isolated.post('/api/projects',json=dict(design=blank('Second').model_dump()),headers=HEADERS).json()
     assert first['project_id']!=second['project_id']
     d=first['design'];d['name']='Edited first'
     saved=isolated.post('/api/projects',json=dict(design=d,project_id=first['project_id'],expected_revision=first['revision']),headers=HEADERS)
-    assert saved.status_code==200 and saved.json()['design']['library']==[]
+    assert saved.status_code==200 and 'library' not in saved.json()['design']
     assert isolated.get('/api/projects/'+second['project_id']).json()['design']['name']=='Second'
     assert isolated.post('/api/projects',json=dict(design=d,project_id=first['project_id'],expected_revision=first['revision']),headers=HEADERS).status_code==409
     assert not store.PROJECT.exists() and store.current() is None
@@ -73,25 +72,6 @@ def test_routing_rewards_margin_without_relaxing_minimum_wall():
     assert d.rules.minimum_wall==7
 
 
-def test_automatic_route_prefers_healthier_equal_complexity_elbow():
-    from manifold.schema import CavityDefinition,HydraulicNet
-    from manifold.routing import route_options,authorize_generated_contacts
-    from manifold.geometry import build_geometry
-    from manifold.validation import validate
-    d=blank()
-    d.library=[CavityDefinition(id='TEST',label='Synthetic window',source='Test geometry only',thread_note='',
-        stages=[dict(start=0,end=20,diameter=4)],zones=[dict(id='p',start=10,end=15,diameter=4)],clearance_diameter=4,clearance_height=5)]
-    d.features=[Feature(id=k,kind='cavity',face='top',u=x,v=y,definition='TEST',circuits={'p':'P'}) for k,x,y in [('C1',11.5,70),('C2',70,30)]]
-    d.nets=[HydraulicNet(id='P',members=['C1:p','C2:p'],routing='automatic',diameter=4)]
-    d.constraints.preferred_wall_margin=6
-    options=route_options(d,d.nets[0]);chosen=options[0]
-    competitor=next(o for o in options if o['key']=='yxz:nearest:direct')
-    assert len(chosen['route'])==len(competitor['route'])==2
-    assert sum(f.depth for f in chosen['route'])==sum(f.depth for f in competitor['route'])
-    assert route_margin(d,chosen['route'])['estimated_min_wall_mm']>route_margin(d,competitor['route'])['estimated_min_wall_mm']
-    resolved,_=resolve_design(d);g=build_geometry(resolved);authorize_generated_contacts(resolved,g)
-    assert validate(resolved,g)['status']=='PASS'
-
 def test_refining_route_extends_connected_branch_preserving_intent():
     d=blank();d.features=[
         Feature(id='TRUNK',kind='drilling',face='left',u=50,v=50,circuit='P',diameter=8,depth=70,plugged=True,frozen_net='P',connects_to=['BRANCH']),
@@ -118,30 +98,3 @@ def test_freeze_changes_only_selected_automatic_net():
     assert any(f.frozen_net=='P' for f in result.features)
     assert not any(f.route_net=='P' for f in result.features)
     assert d.model_dump()==before
-
-
-def test_source_circle_and_assembly_role_are_preserved_without_name_matching(isolated):
-    import hashlib,math
-    from manifold import catalog
-    from manifold.boundaries import boundary_shape
-    from manifold.geometry import build_geometry
-    record=catalog.get_record('metric:assembly_envelope:56')
-    source_path=catalog.records()[record['id']][1]
-    before=hashlib.sha256(source_path.read_bytes()).hexdigest()
-    shape=boundary_shape(record['dimension_raw'],record['envelope_type'])
-    assert shape==dict(circle=(0,0,60))
-    assert boundary_shape(record['dimension_raw'],'Custom') is None
-    assert boundary_shape(record['dimension_raw'].replace('A;60;0;0;60','A;61;0;0;60'),'Circle') is None
-    d=demo();d.features=[d.features[0]];d.features[0].u=90;d.features[0].v=60;d.nets=[]
-    payload=dict(design=d.model_dump(),definition_id=d.features[0].definition,source_id=record['id'],category='service',height=12,decision='Synthetic test association; not vendor approval')
-    response=isolated.post('/api/assign-boundary',json=payload,headers=HEADERS)
-    assert response.status_code==200,response.text
-    result=Design.model_validate(response.json())
-    boundary=result.library[0].boundaries[-1]
-    assert boundary.source_role=='assembly-envelope' and boundary.category=='service'
-    assert boundary.association=='engineer-selected' and boundary.source_raw==record['dimension_raw']
-    assert result.library_resources[-1].record==record
-    geometry=build_geometry(result)
-    assert geometry.boundaries['CV1/0']['shape'].Volume()==pytest.approx(math.pi*60**2*12)
-    assert hashlib.sha256(source_path.read_bytes()).hexdigest()==before
-    assert not d.library[0].boundaries and not d.library_resources

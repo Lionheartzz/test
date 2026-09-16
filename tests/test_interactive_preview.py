@@ -4,20 +4,22 @@ import json
 import time
 import pytest
 from fastapi.testclient import TestClient
-from manifold import catalog,engineering,server,store
+from manifold import engineering,server,store
+from manifold.engineering_db import get_definition
+from manifold.demo import CAVITY_ID
 from manifold.schema import Design
 from manifold.geometry import build_geometry,review_model
 from manifold.routing import resolve_design
 
 
 def editing_manifold():
-    definition=catalog.definition('metric:lib130:cavity:273')
+    definition=get_definition(CAVITY_ID)
     return Design(name='Two cavity interactive regression',
-        block=dict(length=160,width=100,height=150,material='Fixture'),library=[definition],
+        block=dict(length=160,width=100,height=150,material='Fixture'),
         features=[dict(id=n,kind='port',face='front',u=32*(i+1),v=75,circuit=n,
                        diameter=12,depth=16,tip_angle=118) for i,n in enumerate(('P','T','A','B'))]+
-                 [dict(id='CV1',kind='cavity',face='top',u=53,v=50,definition=definition.id,circuits=dict(port1='P',port2='A')),
-                  dict(id='CV2',kind='cavity',face='bottom',u=107,v=50,definition=definition.id,circuits=dict(port1='T',port2='B'))],
+                 [dict(id='CV1',kind='cavity',face='top',u=53,v=50,cavity_id=definition.id,interface_nets=dict(port1='P',port2='A')),
+                  dict(id='CV2',kind='cavity',face='bottom',u=107,v=50,cavity_id=definition.id,interface_nets=dict(port1='T',port2='B'))],
         nets=[dict(id=n,members=[n,member],routing='automatic') for n,member in
               [('P','CV1:port1'),('T','CV2:port1'),('A','CV1:port2'),('B','CV2:port2')]])
 
@@ -25,7 +27,7 @@ def editing_manifold():
 def test_moving_cavity_converges_below_watchdog_and_keeps_exact_layers(tmp_path,monkeypatch):
     monkeypatch.setattr(store,'OUTPUT',tmp_path/'output')
     worker=engineering.Executor();monkeypatch.setattr(engineering,'executor',worker);monkeypatch.setattr(server,'executor',worker)
-    d=editing_manifold();source=d.library[0].model_dump();evidence=[]
+    d=editing_manifold();source=get_definition(CAVITY_ID).model_dump();evidence=[]
     with TestClient(server.app) as client,ThreadPoolExecutor(max_workers=2) as pool:
         for u,v in [(107,50),(106,50),(97,53),(107,50)]:
             d.features[-1].u=u;d.features[-1].v=v
@@ -61,7 +63,7 @@ def test_moving_cavity_converges_below_watchdog_and_keeps_exact_layers(tmp_path,
             assert trace['operations']['operation.preview-solid']['seconds']<8
             assert 'validation' not in trace['operations'] and 'step.export' not in trace['operations']
             evidence.append(dict(position=[u,v],elapsed_s=round(elapsed,3),operations=trace['operations']))
-    assert d.library[0].model_dump()==source
+    assert get_definition(CAVITY_ID).model_dump()==source
     assert not (store.OUTPUT/'builds').exists() and not (store.OUTPUT/'route-selections').exists()
     print('INTERACTIVE_EDIT_EVIDENCE='+json.dumps(evidence))
 

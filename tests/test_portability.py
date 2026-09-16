@@ -1,11 +1,8 @@
-import copy
-import hashlib
 import json
 from fastapi.testclient import TestClient
-from manifold import catalog,network,store
+from manifold import network,store
 from manifold.demo import demo
 from manifold.server import app
-
 
 def test_lan_hosts_and_exact_same_origin_follow_current_machine(monkeypatch):
     monkeypatch.setattr(network,'local_names',lambda:{'127.0.0.1','localhost','192.168.40.7','new-pc'})
@@ -39,26 +36,3 @@ def test_exact_draft_solid_is_machined_without_committing(monkeypatch,tmp_path):
     assert store.PROJECT.read_bytes()==before
     files=[p for p in store.OUTPUT.rglob('*') if p.is_file()]
     assert files and all(p.parent.name=='cad-diagnostics' and p.suffix=='.json' for p in files)
-
-
-def test_pmc_interpretation_keeps_original_import_and_related_records():
-    id='inch:lib45:cavity:57'
-    definition=catalog.definition(id)
-    source=definition.native.record.model_dump()
-    relations=copy.deepcopy(definition.native.related_records)
-    path=catalog.records()[id][1];file_hash=hashlib.sha256(path.read_bytes()).hexdigest()
-    body=definition.model_dump()
-    body['native']['mapping_record']=copy.deepcopy(source)
-    body['native']['mapping_record']['geometry']['axial_profile'][0]['depth']['value']+=.001
-    response=TestClient(app).post('/api/library/project-native',json=body,headers={'X-PMC-Request':'local-console'})
-    assert response.status_code==200
-    mapped=response.json()
-    assert mapped['native']['record']==source
-    assert mapped['native']['related_records']==relations
-    assert mapped['native']['mapping_record']!=source
-    assert mapped['native']['source_sha256']==definition.native.source_sha256
-    assert hashlib.sha256(path.read_bytes()).hexdigest()==file_hash
-    assert catalog.get_record(id)==source
-    # A caller modifying a returned source object cannot modify the catalog cache.
-    detached=catalog.get_record(id);detached['geometry']['axial_profile'][0]['depth']['value']=999
-    assert catalog.get_record(id)==source

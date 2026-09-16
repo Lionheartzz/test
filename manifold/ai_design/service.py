@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime,timezone
 from .. import store
 from ..workflow import asset_path
-from .models import TaskInput,HydraulicRepresentation,ClaimReview,validate_context
+from .models import TaskInput,HydraulicRepresentation,validate_context
 from .providers import AnalysisRequest,DocumentContent,ProviderFailure,available_providers
 from .knowledge import UnavailableKnowledgeResolver,resolve_knowledge
 from .diagnostics import Diagnostics, TOKENS, failure_help
@@ -23,7 +23,9 @@ def identifier(value):
     if not re.fullmatch('[0-9a-f]{32}',value):raise ValueError('Invalid analysis ID')
     return value
 def path(key):return folder()/(identifier(key)+'.json')
-def run_path(key,run_id):return store.OUTPUT/'ai-design'/identifier(key)/(identifier(run_id)+'.json')
+def run_path(key,run_id):
+    identifier(run_id)
+    return store.OUTPUT/'ai-design'/identifier(key)/'current.json'
 def read(key):return json.loads(path(key).read_text(encoding='utf-8'))
 def revision(record):return digest(record)
 def check(record,expected):
@@ -33,9 +35,43 @@ def snapshot(record):
     attempt=record.get('runs',[])[-1] if record.get('runs') else None
     return {**record,'latest_attempt':attempt,'revision':revision(record),'stale':bool(latest and latest['input_revision']!=digest(record['inputs']))}
 def write(record,previous=None):
-    if previous:store.atomic_json(folder()/'history'/record['id']/(uuid.uuid4().hex+'.json'),previous)
     record['updated_at']=now();store.atomic_json(path(record['id']),record)
     return snapshot(record)
+
+
+def compact_result(result:HydraulicRepresentation):
+    """Drop transient observation provenance before persisting product intent."""
+    claims={row.id:row for row in result.claims}
+    def facts(ids):
+        rows={}
+        for key in ids:
+            claim=claims[key]
+            rows[claim.predicate]=claim.value if claim.status=='confirmed' else None
+        return rows
+    components=[]
+    for row in result.components:
+        values=facts(row.claim_ids)
+        components.append(dict(id=row.id,port_ids=row.port_ids,label=values.pop('label',row.id),facts=values,
+            identity_valid={name:bool(next((c for c in result.claims if c.subject_id==row.id and c.predicate==name and c.status=='confirmed' and c.kind in ('schematic','user_requirement')),None)) for name in ('manufacturer','model','cavity')}))
+    ports=[]
+    for row in result.ports:
+        values=facts(row.claim_ids)
+        ports.append(dict(id=row.id,component_id=row.component_id,label=values.pop('label',row.id),facts=values,
+            fact_kinds={claims[key].predicate:claims[key].kind for key in row.claim_ids},
+            fact_units={claims[key].predicate:claims[key].unit for key in row.claim_ids}))
+    nets=[]
+    for row in result.nets:
+        values=facts(row.claim_ids)
+        nets.append(dict(id=row.id,members=row.members,label=values.get('label') or row.id))
+    intent=[]
+    for row in result.design_intent:
+        claim=claims[row.claim_id]
+        intent.append(dict(id=row.id,category=row.category,target_labels=row.target_labels,property=row.property,
+            operator=row.operator,strength=row.strength,bound_entity_ids=row.bound_entity_ids,
+            value=claim.value if claim.status=='confirmed' else None,unit=claim.unit))
+    return dict(schema_version=2,components=components,ports=ports,nets=nets,design_intent=intent,
+                unresolved=[dict(id=row.id,subject_ids=row.subject_ids,reason=row.reason,description=row.description,question=row.question) for row in result.unresolved],
+                warnings=list(result.warnings))
 
 
 def verified_documents(inputs):
@@ -66,7 +102,7 @@ def save(inputs:TaskInput,key=None,expected=None):
     with store.project_lock():
         previous=read(key) if key else None
         if previous:check(previous,expected)
-        record={**previous,'inputs':inputs.model_dump()} if previous else dict(schema_version=1,id=uuid.uuid4().hex,inputs=inputs.model_dump(),created_at=now(),runs=[],latest_run=None,reviews={})
+        record={**previous,'inputs':inputs.model_dump()} if previous else dict(schema_version=2,id=uuid.uuid4().hex,inputs=inputs.model_dump(),created_at=now(),runs=[],latest_run=None)
         return write(record,previous)
 
 
@@ -120,7 +156,7 @@ def analyze(key,expected,provider_key):
         phase='knowledge_resolution'
         result=resolve_knowledge(result,UnavailableKnowledgeResolver())
         validate_context(result,inputs,provider_output=False)
-        run.update(status='completed',result=result.model_dump(),usage=usage)
+        run.update(status='completed',result=compact_result(result),usage=usage)
         phase='completed'
     except ProviderFailure as exc:
         run['error']=exc.code
@@ -136,7 +172,8 @@ def analyze(key,expected,provider_key):
     run['phase']=phase
     if run['error']:run['error_message']=failure_help(run['error'])
     run['latency_ms']=round((time.perf_counter()-started)*1000,2)
-    # Even stale/failed attempts retain immutable, bounded evidence; no raw model body.
+    # Persist only the current compact operational result; detailed observations
+    # and evidence exist only inside this analyze call.
     store.atomic_json(run_path(key,run_id),run)
     with store.project_lock():
         latest=read(key)
@@ -144,32 +181,16 @@ def analyze(key,expected,provider_key):
         summary={k:run[k] for k in ('id','created_at','input_revision','provider','status','error','latency_ms','phase')}
         for k in ('usage','diagnostics','error_message'):
             if k in run:summary[k]=run[k]
-        updated={**latest,'runs':[*latest['runs'],summary][-100:]}
+        updated={**latest,'runs':[summary]}
         if run['status']=='completed':updated['latest_run']=summary
         state=write(updated,latest)
     return dict(task=state,run=run)
-
-
-def review(key,run_id,expected,decisions:list[ClaimReview]):
-    run=load_run(key,run_id)
-    if run['status']!='completed':raise ValueError('Only completed analyses can be reviewed')
-    claims={c['id']:c for c in run['result']['claims']}
-    if len({d.claim_id for d in decisions})!=len(decisions):raise ValueError('Duplicate review claim')
-    for decision in decisions:
-        if decision.claim_id not in claims:raise ValueError('Review claim is missing')
-        if decision.status=='confirmed' and claims[decision.claim_id]['value'] is None:raise ValueError('Correct an unknown value before confirming it')
-    with store.project_lock():
-        current=read(key);check(current,expected)
-        reviews={k:dict(v) for k,v in current['reviews'].items()}
-        entries=reviews.setdefault(run_id,{})
-        for decision in decisions:entries[decision.claim_id]={**decision.model_dump(),'reviewed_at':now(),'origin':'engineer_review'}
-        return write({**current,'reviews':reviews},current)
 
 
 def export(key,run_id=None):
     record=read(key)
     chosen=run_id or (record.get('latest_run') or {}).get('id')
     run=load_run(key,chosen) if chosen else None
-    return dict(kind='pmc-ai-analysis',schema_version=1,task=snapshot(record),run=run,
-                asset_transfer='Assets remain separate SHA-256 addressed files; this JSON contains no document binaries.',
-                scope='Hydraulic understanding and proposed intent only. Not a manifold Design, CAD model or manufacturing approval.')
+    return dict(kind='pmc-ai-analysis',schema_version=2,task=snapshot(record),run=run,
+                asset_transfer='Assets remain separate local files; this JSON contains no document binaries.',
+                scope='Current normalized hydraulic intent only. Not a manifold Design, CAD model or manufacturing approval.')

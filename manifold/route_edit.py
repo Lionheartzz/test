@@ -13,7 +13,7 @@ def freeze(design,net_id,proposal=None):
     else:
         from .kinematics import resolve_parents
         base=resolve_parents(design)
-        if proposal.block!=base.block or proposal.library!=base.library or [f for f in proposal.features if not f.route_net]!=[f for f in base.features if not f.route_net]:
+        if proposal.block!=base.block or [f for f in proposal.features if not f.route_net]!=[f for f in base.features if not f.route_net]:
             raise ValueError('Displayed proposal is stale: refresh the preview before refining.')
         if [(n.id,n.members) for n in proposal.nets]!=[(n.id,n.members) for n in base.nets]:
             raise ValueError('Displayed proposal has different hydraulic ownership; refresh the preview.')

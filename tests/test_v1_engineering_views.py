@@ -5,7 +5,8 @@ import subprocess
 import sys
 import pytest
 from fastapi.testclient import TestClient
-from manifold import store, catalog
+from manifold import store
+from manifold.engineering_db import get_definition,search_definitions
 from manifold.schema import Design
 from manifold.geometry import build_geometry, review_model, tip_depth
 from manifold.validation import validate
@@ -22,10 +23,12 @@ def bores(cross=False, angle=118):
 
 
 def port():
-    definition=catalog.definition('metric:lib167:cavity:3')
-    return Design(name='V1 source-backed port',block=dict(length=120,width=120,height=120,material='Fixture'),library=[definition],
-        features=[dict(id='PORT',kind='port',face='top',u=60,v=60,circuit='P',definition=definition.id),
-                  dict(id='LATERAL',kind='drilling',face='left',u=60,v=95,circuit='P',diameter=6,depth=64,
+    rows=search_definitions(kind='port_definition',unit='metric',limit=100)['items']
+    definition=next(get_definition(row['id']) for row in rows if row['usable'] and len(get_definition(row['id']).cutting_primitives)>1)
+    depth=(definition.zones[0].start+definition.zones[0].end)/2
+    return Design(name='V1 source-backed port',block=dict(length=120,width=120,height=120,material='Fixture'),
+        features=[dict(id='PORT',kind='port',face='top',u=60,v=60,circuit='P',port_definition_id=definition.id),
+                  dict(id='LATERAL',kind='drilling',face='left',u=60,v=120-depth,circuit='P',diameter=6,depth=64,
                        tip_angle=180,plugged=True,connects_to=['PORT'])])
 
 
@@ -100,10 +103,11 @@ def test_F_source_port_complete_profile_separate_hydraulic_window(tmp_path):
     manufacturing_outputs(d,g,tmp_path)
     data=json.loads((tmp_path/'manufacturing.json').read_text())
     rows=[r for r in data['drill_chart'] if r['feature']=='PORT']
-    definition=d.library[0]
+    definition=get_definition(d.features[0].port_definition_id)
     assert len(rows)==len(definition.cutting_primitives or definition.stages)>1
-    assert max(r['diameter'] for r in rows)>d.features[0].diameter
-    assert data['native_recipes'] and data['machining_profiles'][0]['hydraulic_interfaces']
+    assert max(r['diameter'] for r in rows)>min(r['diameter'] for r in rows)
+    assert data['machining_profiles'][0]['definition']==definition.id
+    assert data['machining_profiles'][0]['hydraulic_interfaces']
 
 
 def test_automatic_transient_preview_freeze_refine_does_not_write(tmp_path,monkeypatch):

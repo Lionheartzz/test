@@ -1,6 +1,9 @@
+import json
+import sqlite3
 import pytest
 from fastapi.testclient import TestClient
-from manifold.schema import Design,ConstructionAccess,CavityDefinition
+from manifold.schema import Design,ConstructionAccess
+from manifold.engineering_db import initialize_schema, get_definition
 from manifold.routing import resolve_design,authorize_generated_contacts
 from manifold.route_edit import freeze,refine
 from manifold.geometry import build_geometry
@@ -84,14 +87,18 @@ def test_construction_access_uses_route_size_and_missing_flow_is_unresolved():
     assert route_sizing(d.nets[0],d.constraints.standard_drills)['status']=='UNRESOLVED_FLOW'
 
 
-def test_source_interface_is_not_enlarged_to_make_flow_pass():
+def test_source_interface_is_not_enlarged_to_make_flow_pass(tmp_path,monkeypatch):
+    path=tmp_path/'engineering.db';connection=sqlite3.connect(path);initialize_schema(connection)
+    stages=json.dumps([dict(start=0,end=20,diameter=8)])
+    primitives=json.dumps([dict(kind='cylinder',source_ref='qa',start=0,end=20,diameter=8,end_diameter=0,inner_diameter=0,offset_u=0,offset_v=0)])
+    interface=json.dumps(dict(id='flow',start=0,end=20,diameter=8,offset_u=0,offset_v=0,clip_to_cut=True))
+    connection.execute('INSERT INTO external_port_definitions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        ('QA_PORT','QA limited window','QA','metric','QA','Unspecified QA',stages,primitives,'[]','[]',interface,20,20,1,'',1))
+    connection.commit();connection.close();monkeypatch.setenv('PMC_ENGINEERING_DB',str(path))
     d=design()
-    d.library=[CavityDefinition(id='QA_PORT',label='QA limited window',manufacturer='QA',revision='1',provenance='demo',source='QA',thread_note='Unspecified QA',
-                   usage_role='external-port',usage_decision='QA external port',stages=[dict(start=0,end=20,diameter=8)],
-                   zones=[dict(id='flow',start=0,end=20,diameter=8)],clearance_diameter=20,clearance_height=20)]
-    raw=d.model_dump();raw['features'][0].update(definition='QA_PORT',diameter=None,depth=None)
-    d=Design.model_validate(raw);source=d.library[0].model_dump()
+    raw=d.model_dump();raw['features'][0].update(port_definition_id='QA_PORT',diameter=None,depth=None)
+    d=Design.model_validate(raw);source=get_definition('QA_PORT').model_dump()
     r,_=resolve_design(d,exact=False)
-    assert r.library[0].model_dump()==source
+    assert get_definition('QA_PORT').model_dump()==source
     result=report(r)
     assert any(c['rule']=='hydraulic_passage_area' and c['items']==['P1'] and c['status']=='FAIL' for c in result['checks'])

@@ -1,6 +1,7 @@
 """Focused contracts for drawings without rerouting or changing engineering authority."""
 import io
 import json
+import sqlite3
 import time
 from copy import deepcopy
 import pytest
@@ -428,24 +429,34 @@ def test_customer_portings_continue_without_losing_source_rows_or_notice():
     assert {a.sheet for a in edit.annotations if a.text=='FOR CUSTOMER REFERENCE ONLY'}=={s.id for s in edit.sheets[1:]}
 
 
-def test_pinned_operations_offsets_angles_and_uncertain_identity():
+def test_pinned_operations_offsets_angles_and_uncertain_identity(tmp_path,monkeypatch):
     from manifold.demo import demo
+    from manifold.engineering_db import get_definition,initialize_schema
     from manifold.drawing.generate import anchors
     from manifold.drawing.render import table_cells
     from manifold.drawing.schema import Table
     source=demo()
-    definition=source.library[0].model_dump()
+    definition=get_definition(source.features[0].cavity_id).model_dump()
+    definition['id']='QA_DRAWING_PROFILE'
     definition['clearance_diameter']=40 # The offset test profile needs its own explicit installation envelope.
     definition['cutting_primitives']=[dict(kind='cone',diameter=24,end_diameter=20,start=0,end=10,offset_u=4,offset_v=2),
                                       dict(kind='annulus',diameter=20,inner_diameter=8,start=10,end=20),
                                       dict(kind='cylinder',diameter=16,start=20,end=62)]
-    definition['machining_notes']='Illustrative source note, not vendor machining approval'
-    definition['tooling']=['Illustrative tool reference']
+    definition['machining']=[dict(note='Illustrative source note, not vendor machining approval',tool='Illustrative tool reference')]
+    path=tmp_path/'engineering.db';connection=sqlite3.connect(path);initialize_schema(connection)
+    connection.execute('INSERT INTO cavities VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        (definition['id'],definition['label'],definition['family'],definition['unit_system'],definition['manufacturer'],definition['thread_note'],
+         json.dumps(definition['stages']),json.dumps(definition['cutting_primitives']),json.dumps(definition['boundaries']),json.dumps(definition['machining']),
+         definition['clearance_diameter'],definition['clearance_height'],1,'',1))
+    for zone in definition['zones']:
+        connection.execute('INSERT INTO cavity_interfaces VALUES (?,?,?,?,?,?,?,?)',
+            (definition['id'],zone['id'],zone['start'],zone['end'],zone['diameter'],zone['offset_u'],zone['offset_v'],int(zone['clip_to_cut'])))
+    connection.commit();connection.close();monkeypatch.setenv('PMC_ENGINEERING_DB',str(path))
     d=Design(name='Pinned source mapping',block=source.block,
-             library=[definition],features=[dict(id='C1',kind='cavity',face='top',u=45,v=60,rotation=90,
-                definition=definition['id'],circuits=dict(upper='P',lower='A'),cartridge_model='UNCONFIRMED-PREFERENCE'),
+             features=[dict(id='C1',kind='cavity',face='top',u=45,v=60,rotation=90,
+                cavity_id=definition['id'],interface_nets={definition['zones'][0]['id']:'P',definition['zones'][1]['id']:'A'}),
                 dict(id='D1',kind='drilling',face='top',u=80,v=60,diameter=8,depth=20,direction=[.6,0,-.8],circuit='P')],
-             components=[dict(id='V1',feature_id='C1',status='unconfirmed',cartridge_model='UNCONFIRMED-PREFERENCE')])
+             schematic_intent=dict(components=[dict(id='V1',placement_id='C1',cavity_id=definition['id'])]))
     data,rows,operations=anchors(dict(resolved=d.model_dump(),manufacturing={}))
     assert data['F:C1:step:1:start']['point']==pytest.approx([43,64,100])
     assert data['F:C1:step:1:end']['point']==pytest.approx([43,64,90])
@@ -453,15 +464,14 @@ def test_pinned_operations_offsets_angles_and_uncertain_identity():
     cylinder=next(op for op in operations if op['id']=='C1:3')
     assert cylinder['end_diameter'] is None and cylinder['inner_diameter'] is None
     assert data['F:D1:end']['point']==pytest.approx([92,60,84])
-    assert next(r for r in rows if r['id']=='C1')['model']=='Identity pending review'
+    assert next(r for r in rows if r['id']=='C1')['model']==''
     table=Table(id='schedule',sheet='overview',kind='machining',position=(20,30),width=540)
     _,cells=table_cells(table,operations)
     text=' '.join(line for row in cells for cell in row for line in cell)
     assert 'ROTATION 90°' in text and 'LOCAL OFFSET U,V 4, 2 mm' in text
     assert 'inner Ø8' in text and 'AXIS 0.6, 0, -0.8' in text
-    assert 'DEMO-2Z @ 1' in text and definition['machining_notes'] in text and definition['tooling'][0] in text
+    assert definition['label'] in text and definition['machining'][0]['note'] in text and definition['machining'][0]['tool'] in text
     assert '→ Ø0' not in text and 'inner Ø0' not in text
-    assert 'UNCONFIRMED-PREFERENCE' not in text
 
 
 def test_dense_table_pagination_accounts_for_wrapped_rows(drawing):

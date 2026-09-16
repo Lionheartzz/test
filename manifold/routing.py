@@ -7,8 +7,15 @@ from .schema import Feature, ConstructionAccess
 from .kinematics import pose, dimensions, FACE_AXES, resolve_parents
 
 
+def port_interface_diameter(feature, definitions):
+    if feature.port_definition_id:
+        return definitions[feature.port_definition_id].zones[0].diameter
+    return feature.diameter
+
+
 def terminal_points(design):
-    lib = {d.id: d for d in design.library}
+    from .engineering_db import definitions_for_design
+    lib = definitions_for_design(design)
     points = {}
     for f in design.features:
         if f.suppressed or f.kind in ('drilling','mounting'):
@@ -38,6 +45,8 @@ def spanning_pairs(points):
 
 
 def propose(design, net, order, entry=None, detour='direct'):
+    from .engineering_db import definitions_for_design
+    definitions=definitions_for_design(design)
     points = terminal_points(design)
     pairs = spanning_pairs(sorted(set(points[m] for m in net.members if m in points)))
     lines = {}
@@ -75,7 +84,8 @@ def propose(design, net, order, entry=None, detour='direct'):
                 continue
             u,v,_,sign = FACE_AXES[face]
             coaxial = any(f.kind == 'port' and not f.suppressed and f.circuit == net.id and f.face == face
-                          and abs(f.u-p[u]) < 1e-6 and abs(f.v-p[v]) < 1e-6 and f.diameter >= net.diameter for f in design.features)
+                          and abs(f.u-p[u]) < 1e-6 and abs(f.v-p[v]) < 1e-6
+                          and port_interface_diameter(f,definitions) >= net.diameter for f in design.features)
             depth = hi + net.diameter/2 if sign > 0 else sizes[axis]-lo+net.diameter/2
             preference_value = entry or net.entry_preference
             preference = 0 if preference_value == 'nearest' or (preference_value == 'negative') == (sign > 0) else 10000
@@ -130,20 +140,23 @@ def cylinder_bounds(feature, block, start, end, diameter):
 
 def simple_routes(design,net):
     """Single-entry proposals may exploit offset intersection; exact checks decide adequacy."""
+    from .engineering_db import definitions_for_design
+    definitions=definitions_for_design(design)
     points=terminal_points(design);targets=[points[m] for m in net.members if m in points]
     if len(targets)<2 or net.construction_access:
         return []
     routes=[];digest=hashlib.sha256(net.id.encode()).hexdigest()[:8]
     for port in design.features:
-        if port.kind!='port' or port.suppressed or port.circuit!=net.id or port.diameter<net.diameter:
+        if port.kind!='port' or port.suppressed or port.circuit!=net.id or port_interface_diameter(port,definitions)<net.diameter:
             continue
         origin,direction=pose(port,design.block)
         depths=[sum((p[i]-origin[i])*direction[i] for i in range(3)) for p in targets]
         if min(depths)<=0:continue
-        radii={f.id:f.diameter/2 for f in design.features if f.kind=='port'}
+        radii={f.id:port_interface_diameter(f,definitions)/2 for f in design.features if f.kind=='port'}
         for f in design.features:
             if f.kind=='cavity':
-                definition=next(d for d in design.library if d.id==f.definition)
+                from .engineering_db import get_definition
+                definition=get_definition(f.definition)
                 radii.update({f'{f.id}:{z.id}':z.diameter/2 for z in definition.zones})
         if any(math.dist(points[m],tuple(origin[i]+direction[i]*sum((points[m][j]-origin[j])*direction[j] for j in range(3)) for i in range(3)))>=radii[m]+net.diameter/2-1e-6 for m in net.members if m in points):
             continue
@@ -172,7 +185,8 @@ def simple_routes(design,net):
 def proximity_risk(design, net, route):
     """Conservative cylinder/centerline screen. This is a ranking estimate, never validation."""
     risk = 0.0
-    lib = {d.id:d for d in design.library}
+    from .engineering_db import definitions_for_design
+    lib = definitions_for_design(design)
     dims = dimensions(design.block)
     for bore in route:
         a,b = segment(bore,design.block)
@@ -389,7 +403,7 @@ def _resolve_proposals(design):
     return resolved, candidates
 
 
-def alternative_proposals(best, target, routes, report, eligible, inspected):
+def alternative_proposals(best, target, routes, report, eligible, inspected, *, repair_only=True):
     """Conflict-directed bounded neighbourhood, shared by save and optimization.
 
     Reconsider either implicated net, plus paired moves to escape a one-net local
@@ -407,7 +421,12 @@ def alternative_proposals(best, target, routes, report, eligible, inspected):
                 owners.update(({f.route_net,f.circuit}|set(f.circuits.values())) & set(eligible))
         affected.update(owners)
         conflicts.update(itertools.combinations(sorted(owners),2))
-    net_ids=sorted(affected or eligible)
+    # A failure without an automatic-net owner cannot be repaired by routing.
+    # Never expand metadata, schematic, library-reference or fixed-geometry
+    # failures into a search across every otherwise eligible net.
+    net_ids=sorted(affected if repair_only else eligible)
+    if not net_ids:
+        return []
     pools={}; moves=[]
     for net_id in net_ids:
         context=target.model_copy(deep=True)

@@ -8,7 +8,7 @@ from manifold.kinematics import clamp_placement, placement_bounds, resolve_paren
 from manifold.routing import adopt_routes, resolve_design, authorize_generated_contacts
 from manifold.geometry import build_geometry
 from manifold.validation import validate
-from manifold.schema import Design
+from manifold.schema import Design, SchematicIntent
 from manifold import store, workflow
 from manifold.server import app
 
@@ -17,7 +17,7 @@ from manifold.server import app
 def test_whole_envelope_clamps_all_faces(face):
     d=demo();f=d.features[0];f.face=face
     b=placement_bounds(f,d)
-    assert clamp_placement(f,d,-100,-100)==(16,16)
+    assert clamp_placement(f,d,-100,-100)==(b['min_u'],b['min_v'])
     assert clamp_placement(f,d,5000,5000)==(b['max_u'],b['max_v'])
     assert clamp_placement(f,d,37.4,42.7)==(37,43)
 
@@ -66,16 +66,14 @@ def test_asset_library_and_actual_handoff_identity(tmp_path,monkeypatch):
     response=client.post('/api/assets',content=image.getvalue(),headers=headers)
     assert response.status_code==200
     asset=response.json();assert asset['name']=='schematic.png'
-    d=demo();d.schematics=[workflow.SchematicAsset(**asset)]
+    d=demo();d.schematic_intent=SchematicIntent(assets=[workflow.SchematicAsset(**asset)],components=[])
     h=workflow.prepare_handoff(d,store.revision(demo()))
     manifest=json.loads((__import__('pathlib').Path(h['request_path']).parent/'manifest.json').read_text())
     assert manifest['assets'][0]['sha256']==asset['sha256']
     assert h['status']=='READY_FOR_CODEX'
     assert client.post('/api/assets',content=b'not an image',headers=headers).status_code==422
     assert client.post('/api/assets',content=image.getvalue(),headers={**headers,'Origin':'https://evil.example'}).status_code==403
-    definition=d.library[0];first=workflow.save_library(definition);definition.revision='2';second=workflow.save_library(definition)
-    assert first['sha256']!=second['sha256']
-    assert len(list((path.parent/'library'/definition.id).glob('*.json')))==2
+    assert not (path.parent/'library').exists()
     with pytest.raises(ValueError,match='changed'):workflow.prepare_handoff(d,'0'*64)
 
 

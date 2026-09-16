@@ -6,9 +6,9 @@ from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import Field
-from .schema import Design, Strict, CavityDefinition
+from .schema import Design, Strict
 from .routing import adopt_routes
-from .workflow import save_asset, save_library, library_entries, prepare_handoff, asset_path, set_library_deleted
+from .workflow import save_asset, prepare_handoff, asset_path
 from .interchange import inspect_project
 from .store import ROOT, OUTPUT, read_design, revision, current, rebuild, engine_revision
 from .engineering import calculate,CalculationError,executor,preview_stream
@@ -17,6 +17,8 @@ from .network import host_allowed, same_origin, endpoints
 
 @asynccontextmanager
 async def lifespan(app):
+    from .engineering_db import validate_database
+    validate_database()
     try:yield
     finally:await asyncio.to_thread(executor.close)
 
@@ -116,6 +118,8 @@ async def build(payload: BuildRequest):
 @app.post('/api/check-design')
 def check_design(design: Design):
     """Normalize an editor draft without saving or running CAD."""
+    from .engineering_db import validate_references
+    validate_references(design)
     return design.model_dump()
 
 
@@ -199,41 +203,37 @@ async def refine_route(payload:RefineRequest):
 
 @app.get('/api/library')
 def library(include_deleted: bool = False, reusable_only: bool = True):
-    return library_entries(include_deleted,reusable_only)
+    from .engineering_db import search_definitions,get_definition
+    rows=search_definitions(kind='cavity',limit=100,include_inactive=include_deleted)
+    return [dict(definition=get_definition(row['id'],include_inactive=True).model_dump(),preferred=True,deleted=not row['active']) for row in rows['items']]
 
 
 @app.get('/api/catalog')
 def catalog_search(q: str = '', unit: str = '', kind: str = 'cavity', manufacturer: str = '',
                    cavity_type: str = '', thread: str = '', offset: int = Query(0,ge=0), limit: int = Query(40,ge=1,le=100),include_deleted: bool = False, family: str = ''):
-    from .catalog import search
-    return search(q,unit,kind,manufacturer,cavity_type,thread,offset,limit,include_deleted,family)
+    from .engineering_db import search_definitions
+    return search_definitions(query=' '.join(x for x in (q,manufacturer,cavity_type,thread,family) if x),unit=unit,kind=kind,offset=offset,limit=limit,include_inactive=include_deleted)
 
 
 @app.get('/api/catalog/manifest')
 def catalog_manifest():
-    from .catalog import manifest
-    return manifest()
+    from .engineering_db import validate_database
+    return validate_database()
 
 
 @app.get('/api/catalog/mapping-report')
 def catalog_mapping_report():
-    from .catalog import mapping_report
-    return mapping_report()
+    raise HTTPException(410,'Legacy mapping reports were removed; use the one-time import summary.')
 
 
 @app.get('/api/catalog/resources')
 def catalog_resources():
-    from .catalog import shared_resources
-    return shared_resources()
+    return []
 
 
 @app.get('/api/catalog/resource')
 def catalog_resource(id: str):
-    from .catalog import resource
-    try:
-        return resource(id)
-    except ValueError as exc:
-        raise HTTPException(404,str(exc))
+    raise HTTPException(410,'Independent legacy JSON resources are not runtime engineering data.')
 
 
 class BoundaryAssignment(Strict):
@@ -247,80 +247,51 @@ class BoundaryAssignment(Strict):
 
 @app.post('/api/assign-boundary')
 def assign_boundary(payload:BoundaryAssignment):
-    from .catalog import get_record,resource
-    from .boundaries import boundary_source,boundary_shape
-    from .schema import ComponentBoundary,EngineeringLibraryResource,EngineeringReview
-    try:
-        record=get_record(payload.source_id)
-        if record.get('kind')!='assembly_envelope':raise ValueError('Choose an assembly envelope record')
-        source=boundary_source(record)
-        shape=boundary_shape(source['source_raw'],source['source_type'],25.4 if record.get('unit_system')=='inch' else 1)
-        if not shape:raise ValueError('Source boundary syntax is preserved but not mapped. Enter a separately reviewed definition; no geometry has been guessed.')
-        draft=payload.design.model_copy(deep=True)
-        definition=next((d for d in draft.library if d.id==payload.definition_id),None)
-        if definition is None:raise ValueError('Select a pinned cavity definition in this project')
-        definition.boundaries.append(ComponentBoundary(**shape,**source,category=payload.category,height=payload.height,status='engineer-confirmed',association='engineer-selected'))
-        if not any(r.id==payload.source_id for r in draft.library_resources):
-            draft.library_resources.append(EngineeringLibraryResource.model_validate(resource(payload.source_id)))
-        import uuid
-        draft.review_items.append(EngineeringReview(id='ENV_'+uuid.uuid4().hex[:16],kind='source',subject=definition.id,
-            description='Engineer associated an independent assembly envelope with this cavity. Verify orientation, role and height against the installation.',
-            proposed_value=payload.category+'; '+payload.decision))
-        if definition.lineage:definition.lineage.kind='pmc-derived'
-        return Design.model_validate(draft.model_dump()).model_dump()
-    except ValueError as exc:raise HTTPException(422,str(exc))
+    raise HTTPException(410,'Boundary editing is disabled until it writes a new stable SQLite definition ID.')
 
 
 @app.get('/api/catalog/record')
 def catalog_record(id: str):
-    from .catalog import get_record, related, digest
+    from .engineering_db import get_definition
     try:
-        record = get_record(id)
-        return dict(record=record,related_records=related(record),sha256=digest(record))
+        return dict(definition=get_definition(id,include_inactive=True).model_dump())
     except ValueError as exc:
         raise HTTPException(404,str(exc))
 
 
 @app.get('/api/catalog/definition')
 def catalog_definition(id: str):
-    from .catalog import definition, pmc_id
+    from .engineering_db import get_definition
     try:
-        existing = [i['definition'] for i in library_entries() if i['preferred'] and i['definition']['id'] == pmc_id(id)]
-        if existing:
-            return existing[-1]
-        return definition(id).model_dump()
+        return get_definition(id).model_dump()
     except ValueError as exc:
         raise HTTPException(422,str(exc))
 
 
-@app.post('/api/library')
-def library_save(definition: CavityDefinition):
-    try:
-        return save_library(definition)
-    except (ValueError,RuntimeError) as exc:
-        raise HTTPException(409,str(exc))
+@app.get('/api/cartridges')
+def cartridge_search(q: str = '',offset: int = Query(0,ge=0),limit: int = Query(40,ge=1,le=100)):
+    from .engineering_db import search_cartridges
+    return search_cartridges(q,offset,limit)
 
 
-@app.post('/api/library/project-native')
-def library_project_native(definition: CavityDefinition):
-    from .catalog import map_record
-    if not definition.native:
-        raise HTTPException(422,'Native source record is required')
-    try:
-        native=definition.native
-        mapped = map_record((native.mapping_record or native.record).model_dump(),
-                            native.mapping_related_records if native.mapping_related_records is not None else native.related_records,native.datum_mode)
-        for key in ('id','label','source','manufacturer','cartridge_models','revision','provenance','machining_notes','tooling','lineage','compatible_cartridges','usage_role','usage_decision'):
-            setattr(mapped,key,getattr(definition,key))
-        mapped.native.source_sha256 = definition.native.source_sha256
-        mapped.native.derived_from = definition.native.derived_from
-        mapped.native.record = native.record.model_copy(deep=True)
-        mapped.native.related_records = native.model_copy(deep=True).related_records
-        mapped.native.mapping_record = native.mapping_record.model_copy(deep=True) if native.mapping_record else None
-        mapped.native.mapping_related_records = native.model_copy(deep=True).mapping_related_records
-        return mapped.model_dump()
-    except ValueError as exc:
-        raise HTTPException(422,str(exc))
+@app.get('/api/compatibility')
+def compatibility(cartridge_id: str,cavity_id: str):
+    from .engineering_db import compatible
+    return dict(cartridge_id=cartridge_id,cavity_id=cavity_id,compatible=compatible(cartridge_id,cavity_id))
+
+
+@app.get('/api/cartridges/{cartridge_id}/cavities')
+def cartridge_cavities(cartridge_id: str):
+    from .engineering_db import compatible_cavity_ids,get_definition
+    return [get_definition(identifier).model_dump() for identifier in compatible_cavity_ids(cartridge_id)]
+
+
+@app.get('/api/cavities/{cavity_id}/cartridges')
+def cavity_cartridges(cavity_id: str):
+    from .engineering_db import get_definition,compatible_cartridges
+    try:get_definition(cavity_id)
+    except ValueError as exc:raise HTTPException(404,str(exc))
+    return {'cavity_id':cavity_id,'items':compatible_cartridges(cavity_id)}
 
 
 class LibraryVisibility(Strict):
@@ -330,10 +301,7 @@ class LibraryVisibility(Strict):
 
 @app.post('/api/library/visibility')
 def library_visibility(payload: LibraryVisibility):
-    try:
-        return set_library_deleted(payload.id,payload.deleted)
-    except (ValueError,RuntimeError) as exc:
-        raise HTTPException(409,str(exc))
+    raise HTTPException(410,'Master definitions are managed by explicit database operations.')
 
 
 @app.post('/api/assets')

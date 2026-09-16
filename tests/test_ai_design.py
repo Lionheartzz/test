@@ -46,18 +46,14 @@ def test_mock_circuit_and_original_requirements_are_separate_from_cad(client,tmp
     assert run['inputs']['engineering_requirements']==original
     assert len(r['components'])==1 and len(r['ports'])==4 and len(r['nets'])==2
     assert len(r['design_intent'])==4
-    assert any(c['predicate']=='width' and c['value']==150.5 and c['unit']=='mm' for c in r['claims'])
-    assert all(c['status']!='confirmed' for c in r['claims'])
-    assert all(k['status']=='unresolved' and not k['candidates'] for k in r['knowledge'])
+    width=next(i for i in r['design_intent'] if i['property']=='width')
+    assert width['value'] is None and width['unit']=='mm'
+    assert not any(key in r for key in ('claims','evidence','knowledge'))
     assert any('忽略' in u['description'] for u in r['unresolved'])
     assert not (tmp_path/'projects'/'saved').exists() and not (tmp_path/'projects'/'library').exists()
     assert not (tmp_path/'output'/'builds').exists()
     assert run['usage']['cost'] is None and run['usage']['input_tokens'] is None
     assert run['latency_ms']>=0
-    assert any(e['document_id']=='DOC_1' and e['bbox'] for e in r['evidence'])
-    for e in r['evidence']:
-        if e['requirement_span']:
-            a,b=e['requirement_span'];assert original[a:b]==e['quote']
     reread=client.get(f"/api/ai-design/tasks/{task['id']}").json()
     assert reread['latest_run']['id']==run['id'] and not reread['stale']
     exported=client.get(f"/api/ai-design/tasks/{task['id']}/export").json()
@@ -89,40 +85,6 @@ def test_provider_receives_multidocument_bytes_and_requirements(client,monkeypat
     assert request.result_schema['properties']['schema_version']['const']==1
     assert all(d.sha256==hashlib.sha256(d.data).hexdigest() for d in request.documents)
     assert saved['inputs']['documents'][2]['page_count'] is None
-
-def test_source_and_topology_validation_rejects_fabricated_references(client):
-    response=analyze(client,create(client));raw=response['run']['result'];inputs=TaskInput.model_validate(response['run']['inputs'])
-    raw['knowledge']=[];raw['unresolved']=[x for x in raw['unresolved'] if x['reason']!='knowledge_unavailable']
-    r=HydraulicRepresentation.model_validate(raw);validate_context(r,inputs)
-    for mutate in (
-        lambda d:d['nets'][0]['members'].append('MISSING'),
-        lambda d:d['nets'][1]['members'].append(d['nets'][0]['members'][0]),
-        lambda d:d['claims'][0].update(confidence=1.1),
-        lambda d:d['claims'][0].update(kind='schematic'),
-        lambda d:d['evidence'][0].update(quote='forged original requirement'),
-        lambda d:d['evidence'][-1].update(document_id='MISSING'),
-        lambda d:d['evidence'][-1].update(page=2),
-        lambda d:d['evidence'][-1].update(bbox=[.9,.9,.4,.4]),
-        lambda d:d.update(geometry={'invented_cavity':True}),
-    ):
-        bad=json.loads(json.dumps(raw));mutate(bad)
-        with pytest.raises(ValueError):validate_context(HydraulicRepresentation.model_validate(bad),inputs)
-    # An inference may cite an actual drawing, while retaining inference provenance.
-    inferred=json.loads(json.dumps(raw));inferred['claims'][0]['kind']='ai_inference'
-    validate_context(HydraulicRepresentation.model_validate(inferred),inputs)
-
-def test_review_keeps_original_result_and_requires_cas(client):
-    response=analyze(client,create(client));task=response['task'];run=response['run']
-    original=json.loads(service.run_path(task['id'],run['id']).read_text())
-    claim=next(c for c in run['result']['claims'] if c['predicate']=='width')
-    url=f"/api/ai-design/tasks/{task['id']}/runs/{run['id']}/review"
-    decision=dict(claim_id=claim['id'],status='corrected',corrected_value=140,corrected_unit='mm',decision='Engineer corrected the width interpretation.')
-    assert client.post(url,json=dict(expected_revision='0'*64,decisions=[decision]),headers=HEADERS).status_code==409
-    reviewed=client.post(url,json=dict(expected_revision=task['revision'],decisions=[decision]),headers=HEADERS)
-    assert reviewed.status_code==200,reviewed.text
-    assert reviewed.json()['reviews'][run['id']][claim['id']]['corrected_value']==140
-    assert json.loads(service.run_path(task['id'],run['id']).read_text())==original
-    assert list((service.folder()/'history'/task['id']).glob('*.json'))
 
 def test_stale_analysis_is_retained_without_overwriting_new_input(client,monkeypatch):
     task=create(client)

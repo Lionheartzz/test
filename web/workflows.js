@@ -1,115 +1,87 @@
 import {aiDesign} from './ai-design.js';
-import {isCavity,definitionRole} from './definition-role.js';
+import {isCavity} from './definition-role.js';
 import {customPort,portSetup} from './port-setup.js';
 import {guided} from './guided.js';
-import {profileEditor} from './profile.js';
-import {libraryUI,structuredFields} from './library-ui.js';
+import {libraryUI} from './library-ui.js';
 import {projectUI} from './project-ui.js';
 import {clamp,syncNets} from './kinematics.js';
-export function workflows(ctx){
-const {adoptRoute,$,element,field,action,api,post,get,state,change,set,newId,select,notice,resolved}=ctx;
-const content=$('workflow-content'),dialog=$('workflow-dialog');
-const guard=fn=>async()=>{try{await fn();$('workflow-error').textContent='';}catch(e){$('workflow-error').textContent=e.message;}};
-function open(title){$('workflow-title').textContent=title;content.replaceChildren();$('workflow-error').textContent='';if(!dialog.open)dialog.showModal();}
-$('workflow-close').onclick=()=>dialog.close();
-function insertNow(def,face='top',mapping=null,index=0){
-  if(!isCavity(def))throw Error('This definition is for external-port use. Create an engineer-confirmed cartridge-cavity revision to reuse it.');
-  def=structuredClone(def);const ok=change(()=>{const d=get();let existing=d.library.find(x=>x.id===def.id);if(existing&&JSON.stringify(existing)!==JSON.stringify(def)){def.catalog_id=def.catalog_id||def.id;def.id=def.id.slice(0,27)+'_r'+Date.now().toString(36);existing=null;}if(!existing)d.library.push(structuredClone(def));const f={id:newId('CV'),kind:'cavity',face,u:d.block.length/2+index*(def.clearance_diameter+5),v:d.block.width/2,definition:def.id,circuits:mapping||Object.fromEntries(def.zones.map((z,i)=>[z.id,d.nets[i%d.nets.length]?.id||'P'])),connects_to:[],suppressed:false,rotation:0,cartridge_model:def.cartridge_models[0]||'',schematic_id:'',parent_id:null,local_offset:[0,0],machining_id:''};[f.u,f.v]=clamp(f,d,f.u,f.v);d.features.push(f);if(def.native){d.review_items??=[];d.review_items.push({id:'MAP_'+f.id+'_'+Date.now().toString(36),kind:'connection',subject:f.id,description:'Review the imported cavity interface-to-net assignments and installation envelope.',proposed_value:Object.entries(f.circuits).map(([p,n])=>p+' → '+n).join(', '),severity:'review',status:'open',resolution:''});}syncNets(d);select(f.id);});if(ok)dialog.close();else $('workflow-error').textContent=$('notice').textContent;
-}
-function insert(def){
-  let face='top',quantity=1;const mapping=Object.fromEntries(def.zones.map((z,i)=>[z.id,get().nets[i%get().nets.length]?.id||'P']));
-  open('Place '+def.label);content.append(element('p',`Source ${def.lineage?.kind||def.provenance} · geometry ${def.native?.geometry_status||def.provenance}. Initial placement is editable and requires exact validation.`));
-  field(content,'Quantity',quantity,v=>quantity=v,null,true);field(content,'Mounting face',face,v=>face=v,Object.fromEntries(['top','bottom','front','back','left','right'].map(x=>[x,x])));
-  for(const z of def.zones)field(content,'Interface '+z.id+' → Net',mapping[z.id],v=>mapping[z.id]=v,Object.fromEntries(get().nets.map(n=>[n.id,n.id])));
-  for(const c of def.compatible_cartridges||[])content.append(element('p',`${c.model} · ${c.status} · ${c.source}`));
-  if(!def.compatible_cartridges?.length)content.append(element('p','Cartridge compatibility unknown. Manual cavity selection requires engineering review.'));
-  action(content,'Add cavities to draft',()=>{if(!Number.isInteger(quantity)||quantity<1||quantity>20){$('workflow-error').textContent='Quantity must be 1–20.';return;}for(let i=0;i<quantity;i++)insertNow(def,face,{...mapping},i);});
-}
-function editor(source,projectScope=false){
-  const def=structuredClone(source);if(def.native)def.native.derived_from=def.native.record.id+'@'+def.native.source_sha256;if(def.native)def.revision='PMC-'+(Number(/^PMC-(\d+)$/.exec(def.revision)?.[1]||0)+1);open(projectScope?'Cavity definition · current project':'Cavity definition · reusable local revision');
-  if(def.native){def.lineage={...(def.lineage||{}),kind:'pmc-derived',original_source:def.lineage?.original_source||def.source,source_sha256:def.native.source_sha256,derived_from:def.native.derived_from,revision_history:[...(def.lineage?.revision_history||[]),source.revision].slice(-100)};}
-  profileEditor(ctx,content,def);
-  const boundaryBox=element('details');boundaryBox.append(element('summary','Mounting / external body / service boundaries'));content.append(boundaryBox);def.boundaries??=[];structuredFields(ctx,boundaryBox,def.boundaries,'Component boundary');boundaryBox.append(element('p','Height 0 is a planar region only. Enter a sourced or engineer-confirmed height for an external body, service or tool volume. Native source records remain pinned.'));
-  const grid=element('div',null,'editor-grid');content.append(grid);
-  for(const [key,label]of [['id','Definition ID'],['label','Label'],['manufacturer','Manufacturer'],['revision','Revision'],['valve_function','Valve function'],['source','Drawing / source reference'],['thread_note','Thread / tolerance notes'],['machining_notes','Machining notes']]){if(projectScope&&key==='id'){grid.append(element('p','Pinned ID: '+def.id));continue;}field(grid,label,def[key],v=>def[key]=v);}
-  field(grid,'Cartridge models (comma separated)',def.cartridge_models.join(', '),v=>def.cartridge_models=v.split(',').map(s=>s.trim()).filter(Boolean));
-  field(content,'Engineering usage role',definitionRole(def),v=>def.usage_role=v,{'cartridge-cavity':'Cartridge cavity','external-port':'External-port machining'});field(content,'Usage role decision / source',def.usage_decision||'',v=>def.usage_decision=v);content.append(element('p','Changing the source role requires an explicit engineering decision. A single hydraulic window does not establish external-port suitability.'));
-  const compatibility=element('section',null,'library-card');content.append(compatibility);compatibility.append(element('h3','Known cartridge compatibility'),element('p','Record only documented relationships. Legacy model names are unconfirmed; manual selection remains available for engineering review.'));
-  def.compatible_cartridges??=[];
-  for(const [i,c]of def.compatible_cartridges.entries()){for(const k of ['model','manufacturer','source'])field(compatibility,`Compatibility ${i+1} ${k}`,c[k],v=>c[k]=v);field(compatibility,`Compatibility ${i+1} status`,c.status,v=>c.status=v,{unconfirmed:'Unconfirmed',documented:'Documented source','engineer-confirmed':'Engineer confirmed'});}
-  action(compatibility,'Add compatibility relationship',()=>{def.compatible_cartridges.push({model:'Unspecified',manufacturer:'',source:'Engineering review required',status:'unconfirmed'});editor(def,projectScope);});
-  if(def.lineage)content.append(element('p',`${def.lineage.kind} · original ${def.lineage.original_source} · source SHA ${def.lineage.source_sha256||'none'} · derived ${def.lineage.derived_from||'none'} · revisions ${(def.lineage.revision_history||[]).join(', ')}`));
+import {hydrateDesign} from './domain.js';
 
-  field(grid,'Provenance',def.provenance,v=>{def.provenance=v;def.demo_only=v==='demo';},{demo:'Demo dimensions',candidate:'Candidate · requires drawing review','drawing-verified':'Drawing verified by engineer'});
-  field(grid,'Service envelope diameter / mm',def.clearance_diameter,v=>def.clearance_diameter=v,null,true);field(grid,'Service envelope height / mm',def.clearance_height,v=>def.clearance_height=v,null,true);
-  function rows(key){const box=element('section',null,'definition-section');box.append(element('h3',key==='stages'?'Cutting stages':'Installed hydraulic interface windows'));const holder=element('div');box.append(holder);content.append(box);function draw(){holder.replaceChildren();for(const [i,s]of def[key].entries()){const row=element('div',null,'editor-grid');holder.append(row);if(key==='zones'){field(row,`Window ${i+1} ID`,s.id,v=>s.id=v);field(row,`Window ${i+1} offset U`,s.offset_u||0,v=>s.offset_u=v,null,true);field(row,`Window ${i+1} offset V`,s.offset_v||0,v=>s.offset_v=v,null,true);field(row,`Window ${i+1} profile clipping`,String(s.clip_to_cut||false),v=>s.clip_to_cut=v==='true',{'false':'Cylinder window','true':'Clip to exact cut profile'});}for(const k of ['start','end','diameter'])field(row,`${key} ${i+1} ${k}`,s[k],v=>s[k]=v,null,true);action(row,'Remove row',()=>{def[key].splice(i,1);draw();});}}draw();action(box,'Add '+(key==='stages'?'stage':'interface'),()=>{const end=def[key].at(-1)?.end||0;def[key].push({...(key==='zones'?{id:'zone'+(def[key].length+1)}:{}),start:end,end:end+10,diameter:10});draw();});}
-  if(def.native){const box=element('section',null,'library-card');content.append(box);box.append(element('h3','Native MDTools record · '+def.native.record.unit_system),element('p',def.native.derived_from?'Source: PMC modified from MDTools 930 · '+def.revision:'Source: Imported from MDTools 930'),element('p','Complete source and footprint records stay pinned. Editing creates a PMC revision; original source files remain unchanged. Geometry projection and machining decisions are independent.'));field(box,'Geometry mapping status',def.native.geometry_status,v=>def.native.geometry_status=v,{'draft-projection':'Draft · mapping review required','imported-dimensional':'Imported dimensional mapping','engineer-mapped':'Mapped by engineer'});field(box,'Geometry decision',def.native.mapping_decision,v=>def.native.mapping_decision=v);field(box,'Depth datum',def.native.datum_mode,v=>def.native.datum_mode=v,{'step0-relative':'Steps 1–11 from Step 0','surface-relative':'Source depths from surface'});field(box,'Machining status',def.native.machining_status,v=>def.native.machining_status=v,{unresolved:'Imported recipe · review required','engineer-reviewed':'Reviewed by engineer'});field(box,'Machining decision',def.native.machining_decision,v=>def.native.machining_decision=v);const original=element('details');original.append(element('summary','Original MDTools record · preserved / read-only'));const sourceText=element('pre',JSON.stringify({record:def.native.record,related_records:def.native.related_records},null,2));sourceText.className='native-inspection';original.append(sourceText);box.append(original);def.native.mapping_record??=structuredClone(def.native.record);def.native.mapping_related_records??=structuredClone(def.native.related_records);const mapping=element('details');mapping.append(element('summary','PMC interpretation copy · editable'));box.append(mapping);structuredFields(ctx,mapping,{record:def.native.mapping_record,related_records:def.native.mapping_related_records},'PMC interpretation',()=>{def.native.geometry_status='draft-projection';def.native.machining_status='unresolved';});action(box,'Rebuild CAD mapping from PMC interpretation',guard(async()=>editor(await post('/api/library/project-native',def),projectScope)));}
-  if(def.cutting_primitives?.length){const box=element('details');box.append(element('summary','Derived compatibility envelope · read-only'),element('p',def.stages.map(s=>`Ø${s.diameter.toFixed(4)} / ${s.start.toFixed(4)}–${s.end.toFixed(4)} mm`).join('; ')));content.append(box);}else rows('stages');rows('zones');
-  if(def.cutting_primitives?.length){const box=element('section',null,'library-card');box.append(element('h3','Explicit CAD cuts · mm'),element('p','Cylinders, conical seats and annular grooves with local footprint offsets. These operations drive exact CAD; legacy stages remain the compatibility envelope.'));content.append(box);structuredFields(ctx,box,def.cutting_primitives,'CAD cuts');action(box,'Add annular cut',()=>{def.cutting_primitives.push({kind:'annulus',source_ref:'PMC custom groove',start:0,end:2,diameter:20,inner_diameter:16,end_diameter:0,offset_u:0,offset_v:0});editor(def,projectScope);});}content.append(element('p',projectScope?'Apply updates this project’s pinned definition and marks affected component mappings for review. Exact checks run on Save & Validate.':'Saving checks the library schema. Exact mapped-interface checks run on Save & Validate. Existing project definitions remain pinned.'));
-  if(projectScope){action(content,'Apply to current project',guard(async()=>{
-    const baseline=JSON.stringify(get()),candidate=structuredClone(get());candidate.library[candidate.library.findIndex(x=>x.id===source.id)]=def;
-    const affected=candidate.features.filter(f=>f.kind==='cavity'&&f.definition===source.id);for(const f of candidate.features.filter(f=>f.kind==='port'&&f.definition===source.id)){[f.u,f.v]=clamp(f,candidate,f.u,f.v);}
-    const apply=async()=>{if(JSON.stringify(get())!==baseline)throw Error('Project changed while editing. Reopen the pinned definition.');for(const f of affected){if(Object.values(f.circuits).some(n=>!n))throw Error('Choose a net for every interface');[f.u,f.v]=clamp(f,candidate,f.u,f.v);const valid=new Set(def.zones.map(z=>f.id+':'+z.id));for(const bore of candidate.features)bore.connects_to=bore.connects_to.filter(t=>!t.startsWith(f.id+':')||valid.has(t));for(const c of candidate.components)if(c.feature_id===f.id)c.status='unconfirmed';}syncNets(candidate);const checked=await post('/api/check-design',candidate);if(JSON.stringify(get())!==baseline)throw Error('Project changed during validation. Reopen the pinned definition.');if(change(()=>set(checked)))dialog.close();};
-    const missing=[];for(const f of affected){const old=f.circuits;f.circuits=Object.fromEntries(def.zones.map(z=>[z.id,old[z.id]||'']));for(const z of def.zones)if(!f.circuits[z.id])missing.push([f,z]);}
-    if(missing.length){open('Confirm new interface mappings');for(const [f,z]of missing)field(content,f.id+' · '+z.id,'',v=>f.circuits[z.id]=v,{'':'Choose a net',...Object.fromEntries(candidate.nets.map(n=>[n.id,n.id]))});action(content,'Apply mapped definition',guard(apply));}else await apply();
-  }));return;}
-  action(content,'Save library revision',guard(async()=>{await post('/api/library',def);await library();}));
-}
-const library=libraryUI(ctx,{open,editor,insert});
-projectUI({...ctx,editDefinition:def=>editor(def,true)});
-guided(ctx,open,library,nets);
-$('library-open').onclick=guard(library);
-$('add-mounting').onclick=()=>{
-  let face='top',diameter=12,depth=20,through=false;
-  open('Add plain mounting hole');field(content,'Face',face,v=>face=v,{top:'Top',bottom:'Bottom',front:'Front',back:'Back',left:'Left',right:'Right'});
-  field(content,'Diameter / mm',diameter,v=>diameter=v,null,true);field(content,'Blind cylinder depth / mm',depth,v=>depth=v,null,true);field(content,'Hole termination',String(through),v=>through=v==='true',{false:'Blind',true:'Through block'});
-  content.append(element('p','Creates an explicit non-hydraulic plain bore. Position and verify it in the manifold before drawing. Thread geometry and fastener compatibility are not supplied.'));
-  action(content,'Add mounting hole',guard(async()=>{const baseline=JSON.stringify(get()),d=structuredClone(get()),dims=[d.block.length,d.block.width,d.block.height],axes={top:[0,1,2],bottom:[0,1,2],front:[0,2,1],back:[0,2,1],left:[1,2,0],right:[1,2,0]}[face],id='MNT_'+crypto.randomUUID().replaceAll('-','');
-    d.features.push({id,kind:'mounting',face,u:dims[axes[0]]/2,v:dims[axes[1]]/2,diameter,depth:through?dims[axes[2]]:depth,through,tip_angle:through?180:118});
-    const checked=await post('/api/check-design',d);if(JSON.stringify(get())!==baseline)throw Error('Draft changed while adding mounting hole. Retry.');if(change(()=>set(checked))){select(id);dialog.close();notice('Mounting hole added. Position it and Save & Validate before drawing.');}
-  }));
-};
-$('add-port').onclick=()=>{
-  const p=customPort();let net=get().nets[0]?.id||'P';
-  const render=()=>{open('Add external port');field(content,'Hydraulic net',net,v=>{net=v;render();},Object.fromEntries(get().nets.map(n=>[n.id,n.id])));portSetup(ctx,content,p,net,render);
-    action(content,'Add port to draft',guard(async()=>{if(p.mode!=='custom'&&!p.definition)throw Error('Select a machining definition first.');const baseline=JSON.stringify(get()),d=structuredClone(get());const id='PORT_'+crypto.randomUUID().replaceAll('-','');
-      const f={id,kind:'port',face:p.face,u:0,v:0,circuit:net,diameter:p.diameter,depth:p.depth,clearance_diameter:p.clearance,size:p.size.slice(0,80),port_type:p.definition?p.definition.label:'Custom straight bore'};
-      if(p.definition){const def=structuredClone(p.definition),existing=d.library.find(x=>x.id===def.id);if(existing&&JSON.stringify(existing)!==JSON.stringify(def)){def.catalog_id=def.catalog_id||def.id;def.id=def.id.slice(0,27)+'_r'+Date.now().toString(36);}if(!d.library.some(x=>x.id===def.id))d.library.push(def);f.definition=def.id;}
-      const axes={top:['length','width'],bottom:['length','width'],left:['width','height'],right:['width','height'],front:['length','height'],back:['length','height']}[p.face];[f.u,f.v]=clamp(f,d,d.block[axes[0]]/2,d.block[axes[1]]/2);d.features.push(f);syncNets(d);
-      const checked=await post('/api/check-design',d);if(JSON.stringify(get())!==baseline)throw Error('Draft changed while preparing the port. Retry.');if(change(()=>set(checked))){select(id);dialog.close();notice('External port added with its selected machining definition. Review position and fitting installation.');}
-    }));
-  };render();
-};
-function nets(){open('Hydraulic Nets · intent and derived connections');content.append(element('p','Automatic routes connect declared interfaces with orthogonal face drillings. Route length and plug count rank candidates; exact validation decides whether a route is acceptable.'));
-  action(content,'Adopt automatic routing (replace manual drillings)',guard(async()=>{const d=await post('/api/adopt-routing',get());change(()=>set(d));nets();}));
-  action(content,'Optimize routes with exact checks',guard(async()=>{const button=document.activeElement;button.disabled=true;try{if(!state().project_id)throw Error('Save Project before running exact route optimization.');const baseline=JSON.stringify(get());const r=await post('/api/optimize-routes',{design:get(),project_id:state().project_id,expected_revision:state().revision,max_attempts:6});if(JSON.stringify(get())!==baseline)throw Error('Draft changed during optimization. Result was not applied; run again from the current draft.');change(()=>set(r.design));nets();content.prepend(element('p',`${r.attempts.length} exact candidates · FAIL ${r.baseline.FAIL} → ${r.final.FAIL} · WARNING ${r.baseline.WARNING} → ${r.final.WARNING}. Evidence ${r.optimization_id}. Save & Validate to commit.`));}finally{button.disabled=false;}}));
-  const newNet=element('div',null,'action-row'),name=element('input');name.setAttribute('aria-label','New net ID');name.placeholder='NET_P';newNet.append(name);action(newNet,'Add net',()=>{if(!/^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(name.value)||get().nets.some(n=>n.id===name.value)){$('workflow-error').textContent='Use a unique engineering ID';return;}change(()=>get().nets.push({id:name.value,label:name.value,members:[],routing:'automatic',diameter:8}));nets();});content.append(newNet);
-  for(const n of get().nets){const card=element('section',null,'library-card');content.append(card);card.append(element('h3',n.id),element('p',n.members.join(' ↔ ')||'No interfaces assigned'));const edit=(label,value,fn,o=null,num=false)=>field(card,label,value,v=>{if(change(()=>fn(v)))nets();},o,num);
-    const color=field(card,'Display color · '+n.id,n.color||'#65e4b1',v=>change(()=>n.color=v));color.type='color';
-    card.append(element('p','Routing: '+n.routing+' · use Freeze or Reroute below to preserve engineer control.'));edit('Diameter sizing · '+n.id,n.diameter_mode||'automatic',v=>{n.diameter_mode=v;n.routing_variant=null;}, {automatic:'Automatic from flow',manual:'Engineer override'});
-    const area=n.flow_lpm?n.flow_lpm*1000/60/(n.velocity_limit||6):null,required=area?Math.sqrt(4*area/Math.PI):null;
-    const selected=required?[...get().constraints.standard_drills].sort((a,b)=>a-b).find(d=>d>=required):null;
-    edit('Drill diameter · '+n.id,(n.diameter_mode!=='manual'&&n.routing==='automatic'&&selected)?selected:n.diameter,v=>{n.diameter=v;n.diameter_mode='manual';n.routing_variant=null;},null,true);
-    card.append(element('p',n.routing==='manual'?'Authored / frozen geometry: flow changes validate capacity; choose Automatic from flow and Reroute to resize.':n.diameter_mode==='manual'?`Engineer override: Ø${n.diameter} mm · exact checks verify hydraulic capacity.`:!required?'Hydraulic sizing unresolved: no flow supplied. Diameter is an unsized proposal.':!selected?`Hydraulic sizing blocked: requires Ø${required.toFixed(3)} mm; no suitable standard drill.`:`Flow sized: requires Ø${required.toFixed(3)} mm · selected standard Ø${selected} mm. Exact openings must also pass.`));
-    edit('Velocity limit m/s · '+n.id,n.velocity_limit||6,v=>n.velocity_limit=v,null,true);edit('Drilling mode · '+n.id,n.drilling_mode||'orthogonal',v=>{n.drilling_mode=v;n.routing_variant=null;},{orthogonal:'Orthogonal only','allow-angled':'Allow angled proposals',simplest:'Prefer simplest manufacturable proposal'});edit('First routing axis · '+n.id,n.preferred_axis||'auto',v=>n.preferred_axis=v,{auto:'Compare all axes',x:'X',y:'Y',z:'Z'});edit('Entry preference · '+n.id,n.entry_preference||'nearest',v=>n.entry_preference=v,{nearest:'Nearest / reuse port',negative:'Negative face',positive:'Positive face'});edit('Flow L/min · '+n.id,n.flow_lpm,v=>n.flow_lpm=v,null,true);edit('Pressure bar · '+n.id,n.pressure_bar,v=>n.pressure_bar=v,null,true);
-    action(card,'Reroute '+n.id,guard(async()=>{change(()=>{const d=get(),ids=new Set(d.features.filter(f=>f.route_net===n.id||f.frozen_net===n.id).map(f=>f.id));d.features=d.features.filter(f=>!ids.has(f.id));for(const f of d.features)f.connects_to=f.connects_to.filter(t=>!ids.has(t));n.routing='automatic';n.routing_variant=null;});nets();}));
-    for(const f of get().features.filter(f=>f.frozen_net===n.id))action(card,'Edit segment '+f.id,()=>{select(f.id);dialog.close();});
-    if(n.routing==='automatic')action(card,'Freeze '+n.id+' geometry for manual override',guard(async()=>{if(await adoptRoute(n.id))nets();else throw Error($('notice').textContent);}));
+export function workflows(ctx){
+  const {adoptRoute,$,element,field,action,api,post,get,state,change,set,newId,select,notice,resolved}=ctx;
+  const content=$('workflow-content'),dialog=$('workflow-dialog');
+  const guard=fn=>async()=>{try{await fn();$('workflow-error').textContent='';}catch(e){$('workflow-error').textContent=e.message;}};
+  function open(title){$('workflow-title').textContent=title;content.replaceChildren();$('workflow-error').textContent='';if(!dialog.open)dialog.showModal();}
+  $('workflow-close').onclick=()=>dialog.close();
+  const definitions=()=>Object.fromEntries((get().library||[]).map(d=>[d.id,d]));
+  function remember(def){if(!get().library.some(row=>row.id===def.id))get().library.push(structuredClone(def));}
+
+  function insertNow(def,face='top',mapping=null,index=0){
+    if(!isCavity(def)||!def.usable)throw Error(def.unusable_reason||'Select a usable cavity definition.');
+    const ok=change(()=>{const d=get();remember(def);const f={id:newId('CV'),kind:'cavity',face,u:d.block.length/2+index*(def.clearance_diameter+5),v:d.block.width/2,cavity_id:def.id,port_definition_id:null,interface_nets:mapping||Object.fromEntries(def.zones.map((z,i)=>[z.id,d.nets[i%d.nets.length]?.id||'P'])),connects_to:[],suppressed:false,rotation:0,cartridge_id:null,schematic_id:'',parent_id:null,local_offset:[0,0],machining_id:''};[f.u,f.v]=clamp(f,d,f.u,f.v);d.features.push(f);syncNets(d);select(f.id);});
+    if(ok)dialog.close();else $('workflow-error').textContent=$('notice').textContent;
   }
-  const route=resolved();if(route){const details=element('details');details.append(element('summary','Inspect generated drilling coordinates'));for(const f of route.features.filter(f=>f.route_net)){details.append(element('p',`${f.id} · ${f.route_net} · ${f.face} U${f.u.toFixed(2)} V${f.v.toFixed(2)} · Ø${f.diameter} × ${f.depth.toFixed(2)} · ${f.plugged?'plug':'external port'}${f.direction?' · axis '+f.direction.map(x=>x.toFixed(3)).join(', '):''}`));action(details,'Freeze and edit '+f.id,guard(async()=>{if(await adoptRoute(f.route_net,f.id))dialog.close();else throw Error($('notice').textContent);}));}content.append(details);}
-}
-$('nets-open').onclick=nets;
-function schematic(){open('Schematic assets');content.append(element('p','Attach a PDF, PNG or JPEG to the editable project. Import an AI-generated PMC Project JSON from any provider, then resolve Engineering Review items. This local version does not call an AI service.'));
-  action(content,'Analyze schematics with engineering requirements',()=>ai.open());
-  const input=element('input');input.type='file';input.accept='.pdf,.png,.jpg,.jpeg';input.setAttribute('aria-label','Upload schematic');content.append(input);input.onchange=guard(async()=>{const f=input.files[0];if(!f)return;const asset=await api('/api/assets',{method:'POST',headers:{'Content-Type':f.type,'X-PMC-Request':'local-console','X-File-Name':encodeURIComponent(f.name)},body:f});change(()=>{if(!get().schematics.some(a=>a.sha256===asset.sha256))get().schematics.push(asset);});schematic();});
-  for(const a of get().schematics){const card=element('div',null,'library-card');card.append(element('h3',a.name));const link=element('a','Open local asset');link.href='/api/assets/'+a.sha256;link.target='_blank';link.rel='noopener';card.append(link,element('p','SHA-256 '+a.sha256));if(a.media_type.startsWith('image/')){const img=element('img');img.src=link.href;img.alt=a.name;img.className='schematic-preview';card.append(img);}content.append(card);}
-  const components=element('section');components.append(element('h3','Schematic component mapping'));content.append(components);
-  for(const c of get().components){const row=element('div',null,'library-card');row.append(element('strong',c.id+' · '+c.function));field(row,'Placed feature · '+c.id,c.feature_id||'',v=>change(()=>{c.feature_id=v||null;}),{'':'Not placed',...Object.fromEntries(get().features.filter(f=>f.kind==='cavity').map(f=>[f.id,f.id]))});field(row,'Confirmation · '+c.id,c.status,v=>change(()=>c.status=v),{unconfirmed:'Unconfirmed',confirmed:'Confirmed by engineer'});row.append(element('p',JSON.stringify(c.ports)));components.append(row);}
-  action(components,'Map placed cartridges as schematic components',()=>{change(()=>{for(const f of get().features.filter(f=>f.kind==='cavity'))if(!get().components.some(c=>c.feature_id===f.id))get().components.push({id:f.id,label:f.id,function:'Requires schematic review',cartridge_model:f.cartridge_model,cavity_definition:f.definition,ports:{...f.circuits},feature_id:f.id,status:'unconfirmed'});});schematic();});
-  const optional=element('details');optional.append(element('summary','Optional · Codex handoff'));content.append(optional);
-  action(optional,'Prepare Codex handoff',guard(async()=>{if(!state().project_id)throw Error('Save Project before preparing a handoff.');const h=await post('/api/handoff',{project_id:state().project_id,expected_revision:state().revision,design:get()});const box=element('div',null,'library-card');box.append(element('h3','Ready for Codex · awaiting agent'),element('p',h.message));const text=element('textarea');text.value=h.prompt;text.readOnly=true;text.setAttribute('aria-label','Codex handoff prompt');box.append(text);action(box,'Copy Codex prompt',guard(async()=>{await navigator.clipboard.writeText(h.prompt);notice('Handoff prompt copied. Paste it into the current Codex task.');}));content.append(box);}));
-}
-const ai=aiDesign(ctx,open);
-$('schematic-open').onclick=schematic;
-return {editDefinition:def=>editor(def,true)};
+  function insert(def){
+    let face='top',quantity=1;const mapping=Object.fromEntries(def.zones.map((z,i)=>[z.id,get().nets[i%get().nets.length]?.id||'P']));
+    open('Place '+def.label);content.append(element('p','This places the selected cavity ID. Cartridge assignment and schematic intent remain empty unless you add them explicitly.'));
+    field(content,'Quantity',quantity,v=>quantity=v,null,true);field(content,'Mounting face',face,v=>face=v,Object.fromEntries(['top','bottom','front','back','left','right'].map(x=>[x,x])));
+    for(const z of def.zones)field(content,'Interface '+z.id+' → Net',mapping[z.id],v=>mapping[z.id]=v,Object.fromEntries(get().nets.map(n=>[n.id,n.id])));
+    action(content,'Add cavities to draft',()=>{if(!Number.isInteger(quantity)||quantity<1||quantity>20){$('workflow-error').textContent='Quantity must be 1–20.';return;}for(let i=0;i<quantity;i++)insertNow(def,face,{...mapping},i);});
+  }
+
+  const library=libraryUI(ctx,{open,insert});
+  projectUI(ctx);
+  guided(ctx,open,library,nets);
+  $('library-open').onclick=guard(library);
+
+  $('add-mounting').onclick=()=>{
+    let face='top',diameter=12,depth=20,through=false;
+    open('Add plain mounting hole');field(content,'Face',face,v=>face=v,{top:'Top',bottom:'Bottom',front:'Front',back:'Back',left:'Left',right:'Right'});
+    field(content,'Diameter / mm',diameter,v=>diameter=v,null,true);field(content,'Blind cylinder depth / mm',depth,v=>depth=v,null,true);field(content,'Hole termination',String(through),v=>through=v==='true',{false:'Blind',true:'Through block'});
+    content.append(element('p','Creates an explicit non-hydraulic plain bore. Thread geometry and fastener compatibility are not inferred.'));
+    action(content,'Add mounting hole',guard(async()=>{const baseline=JSON.stringify(get()),d=structuredClone(get()),dims=[d.block.length,d.block.width,d.block.height],axes={top:[0,1,2],bottom:[0,1,2],front:[0,2,1],back:[0,2,1],left:[1,2,0],right:[1,2,0]}[face],id='MNT_'+crypto.randomUUID().replaceAll('-','');
+      d.features.push({id,kind:'mounting',face,u:dims[axes[0]]/2,v:dims[axes[1]]/2,diameter,depth:through?dims[axes[2]]:depth,through,tip_angle:through?180:118});
+      const checked=await post('/api/check-design',d);if(JSON.stringify(get())!==baseline)throw Error('Draft changed while adding mounting hole. Retry.');if(change(()=>set(hydrateDesign(checked,definitions())))){select(id);dialog.close();notice('Mounting hole added. Position it and Save & Validate before drawing.');}
+    }));
+  };
+
+  $('add-port').onclick=()=>{
+    const p=customPort();let net=get().nets[0]?.id||'P';
+    const render=()=>{open('Add external port');field(content,'Hydraulic net',net,v=>{net=v;render();},Object.fromEntries(get().nets.map(n=>[n.id,n.id])));portSetup(ctx,content,p,net,render);
+      action(content,'Add port to draft',guard(async()=>{if(p.mode!=='custom'&&!p.definition)throw Error('Select a machining definition first.');const baseline=JSON.stringify(get()),d=structuredClone(get()),id='PORT_'+crypto.randomUUID().replaceAll('-','');
+        const f={id,kind:'port',face:p.face,u:0,v:0,circuit:net,diameter:p.diameter,depth:p.depth,clearance_diameter:p.clearance,size:p.size.slice(0,80),port_type:p.definition?p.definition.label:'Custom straight bore'};
+        if(p.definition){remember(p.definition);f.port_definition_id=p.definition.id;f.diameter=Math.min(...p.definition.stages.map(x=>x.diameter));f.depth=p.definition.zones[0].end;f.clearance_diameter=p.definition.clearance_diameter;f.clearance_height=p.definition.clearance_height;f.tip_angle=180;}
+        const axes={top:['length','width'],bottom:['length','width'],left:['width','height'],right:['width','height'],front:['length','height'],back:['length','height']}[p.face];[f.u,f.v]=clamp(f,get(),get().block[axes[0]]/2,get().block[axes[1]]/2);d.features.push(f);syncNets(d);
+        const checked=await post('/api/check-design',d);if(JSON.stringify(get())!==baseline)throw Error('Draft changed while preparing the port. Retry.');if(change(()=>set(hydrateDesign(checked,definitions())))){select(id);dialog.close();notice('External port added. Review position and fitting installation.');}
+      }));
+    };render();
+  };
+
+  function netMembers(d,netId){const members=[];for(const f of d.features){if(f.suppressed)continue;if(f.kind==='cavity'){for(const [id,net]of Object.entries(f.interface_nets||{}))if(net===netId)members.push(f.id+':'+id);}else if(f.kind==='port'&&f.circuit===netId)members.push(f.id);}return members;}
+  function nets(){
+    open('Hydraulic Nets · intent and derived connections');content.append(element('p','Net members are derived from cavity interface assignments and external ports. Automatic routing proposes geometry; exact validation decides whether it is acceptable.'));
+    action(content,'Adopt automatic routing',guard(async()=>{const d=await post('/api/adopt-routing',get());change(()=>set(hydrateDesign(d,definitions())));nets();}));
+    action(content,'Optimize routes with exact checks',guard(async()=>{if(!state().project_id)throw Error('Save Project before running exact route optimization.');const baseline=JSON.stringify(get());const r=await post('/api/optimize-routes',{design:get(),project_id:state().project_id,expected_revision:state().revision,max_attempts:6});if(JSON.stringify(get())!==baseline)throw Error('Draft changed during optimization.');change(()=>set(hydrateDesign(r.design,definitions())));nets();content.prepend(element('p',`${r.attempts.length} exact candidates · FAIL ${r.baseline.FAIL} → ${r.final.FAIL}. Save & Validate to commit.`));}));
+    const newNet=element('div',null,'action-row'),name=element('input');name.setAttribute('aria-label','New net ID');name.placeholder='NET_P';newNet.append(name);action(newNet,'Add net',()=>{if(!/^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(name.value)||get().nets.some(n=>n.id===name.value)){$('workflow-error').textContent='Use a unique engineering ID';return;}change(()=>get().nets.push({id:name.value,label:name.value,routing:'automatic',diameter:8}));nets();});content.append(newNet);
+    for(const n of get().nets){const card=element('section',null,'library-card');content.append(card);card.append(element('h3',n.id),element('p',netMembers(get(),n.id).join(' ↔ ')||'No interfaces assigned'));const edit=(label,value,fn,o=null,num=false)=>field(card,label,value,v=>{if(change(()=>fn(v)))nets();},o,num);
+      edit('Diameter sizing · '+n.id,n.diameter_mode||'automatic',v=>{n.diameter_mode=v;n.routing_variant=null;},{automatic:'Automatic from flow',manual:'Engineer override'});edit('Drill diameter · '+n.id,n.diameter,v=>{n.diameter=v;n.diameter_mode='manual';n.routing_variant=null;},null,true);edit('Velocity limit m/s · '+n.id,n.velocity_limit||6,v=>n.velocity_limit=v,null,true);edit('Flow L/min · '+n.id,n.flow_lpm,v=>n.flow_lpm=v,null,true);edit('Pressure bar · '+n.id,n.pressure_bar,v=>n.pressure_bar=v,null,true);
+      action(card,'Reroute '+n.id,()=>{change(()=>{const ids=new Set(get().features.filter(f=>f.route_net===n.id||f.frozen_net===n.id).map(f=>f.id));get().features=get().features.filter(f=>!ids.has(f.id));for(const f of get().features)f.connects_to=f.connects_to.filter(t=>!ids.has(t));n.routing='automatic';n.routing_variant=null;});nets();});
+      if(n.routing==='automatic')action(card,'Freeze '+n.id+' for manual editing',guard(async()=>{if(await adoptRoute(n.id))nets();else throw Error($('notice').textContent);}));
+    }
+    const route=resolved();if(route){const details=element('details');details.append(element('summary','Inspect generated drilling coordinates'));for(const f of route.features.filter(f=>f.route_net))details.append(element('p',`${f.id} · ${f.route_net} · ${f.face} U${f.u.toFixed(2)} V${f.v.toFixed(2)} · Ø${f.diameter} × ${f.depth.toFixed(2)}`));content.append(details);}
+  }
+  $('nets-open').onclick=nets;
+
+  function schematic(){
+    open('Schematic Intent');const d=get(),intent=d.schematic_intent;
+    content.append(element('p',intent?'Schematic conformance applies because this project contains explicit intent.':'This project has no schematic intent. Cavity placement alone does not create schematic components or conformance requirements.'));
+    const input=element('input');input.type='file';input.accept='.pdf,.png,.jpg,.jpeg';input.setAttribute('aria-label','Upload schematic');content.append(input);input.onchange=guard(async()=>{const f=input.files[0];if(!f)return;const asset=await api('/api/assets',{method:'POST',headers:{'Content-Type':f.type,'X-PMC-Request':'local-console','X-File-Name':encodeURIComponent(f.name)},body:f});change(()=>{d.schematic_intent??={assets:[],components:[]};if(!d.schematic_intent.assets.some(a=>a.sha256===asset.sha256))d.schematic_intent.assets.push(asset);});schematic();});
+    if(intent){action(content,'Remove all schematic intent',()=>{change(()=>d.schematic_intent=null);schematic();});for(const a of intent.assets){const card=element('div',null,'library-card');card.append(element('h3',a.name));const link=element('a','Open local asset');link.href='/api/assets/'+a.sha256;link.target='_blank';link.rel='noopener';card.append(link);content.append(card);}
+      const components=element('section');components.append(element('h3','Schematic components'));content.append(components);for(const c of intent.components){const row=element('div',null,'library-card');row.append(element('strong',c.id+' · '+(c.function||'Schematic component')));field(row,'Placement · '+c.id,c.placement_id||'',v=>change(()=>{c.placement_id=v||null;c.cavity_id=v?(d.features.find(f=>f.id===v)?.cavity_id||null):null;}),{'':'Not implemented',...Object.fromEntries(d.features.filter(f=>f.kind==='cavity').map(f=>[f.id,f.id]))});components.append(row);}
+      action(components,'Add schematic component',()=>{change(()=>{let i=1;while(intent.components.some(c=>c.id==='COMP'+i))i++;intent.components.push({id:'COMP'+i,label:'Component '+i,function:'',cartridge_id:null,cavity_id:null,interface_nets:{},placement_id:null});});schematic();});
+    }
+    action(content,'Analyze schematics with AI Design',()=>ai.open());
+  }
+  const ai=aiDesign(ctx,open);$('schematic-open').onclick=schematic;
+  return {editDefinition:()=>notice('Engineering definitions are read-only runtime SQLite data. Create a new stable definition through the operator import process.',true)};
 }

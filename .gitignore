@@ -12,10 +12,13 @@ projects/assets/
 projects/handoffs/
 /PMC_MDTools_Library/
 /projects/library/
+/projects/legacy-backup/
 /projects/saved/
 /projects/ai-design/
 /projects/drawings/
 /projects/drawing-templates/
 /.pmc-local/
+/data/*.db
+/data/*.db-*
 .env
 .env.*

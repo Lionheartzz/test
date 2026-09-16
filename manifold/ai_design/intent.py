@@ -6,27 +6,14 @@ from .library_resolution import value
 FACES = {'left', 'right', 'top', 'bottom', 'front', 'back'}
 
 
-def effective_result(run, reviews):
-    result = copy.deepcopy(run['result'])
-    for claim in result['claims']:
-        decision = reviews.get(claim['id'])
-        if not decision:
-            continue
-        claim['engineer_review'] = decision
-        if decision['status'] == 'rejected':
-            claim.update(value=None, status='unresolved')
-        elif decision['status'] == 'corrected':
-            claim.update(value=decision['corrected_value'], unit=decision['corrected_unit'], status='confirmed')
-        else:
-            claim['status'] = 'confirmed'
-    return result
+def effective_result(run):
+    return copy.deepcopy(run['result'])
 
 
 def interpret(result, options):
     settings = dict(maximum=[2000.0]*3, minimum=[1.0]*3, port_faces={}, component_faces={},
                     hard_port_faces={}, hard_component_faces={}, forbidden=[], material='Unspecified - review required',
                     priority='fewer_plugs', flows={}, pressures={}, dispositions=[], conflicts=[])
-    claims = {c['id']: c for c in result['claims']}
     port_labels = {p['id']: str(value(result, p['id'], 'label') or p['id']) for p in result['ports'] if p['component_id'] is None}
     component_labels = {c['id']: str(value(result, c['id'], 'label') or c['id']) for c in result['components']}
     seen = {}
@@ -49,25 +36,23 @@ def interpret(result, options):
     # Only terminal operating values have an unambiguous net scope. Component
     # ratings, settings and inferred values must not become drilling design loads.
     port_ids = {p['id'] for p in result['ports']}
-    for claim in result['claims']:
-        category = {'flow': 'flow', 'flow_lpm': 'flow', 'working_pressure': 'pressure'}.get(claim['predicate'])
-        if not category or claim['subject_id'] not in port_ids or claim.get('kind') not in ('schematic', 'user_requirement'):
-            continue
-        number, unit = claim['value'], (claim.get('unit') or '').lower()
-        scales = {'bar': 1, 'psi': 0.0689475729} if category == 'pressure' else {'l/min': 1, 'lpm': 1, 'gpm': 3.785411784}
-        if claim.get('status') != 'confirmed' or isinstance(number, bool) or not isinstance(number, (int, float)) or unit not in scales:
-            continue
-        number *= scales[unit]
-        if not 0 < number <= (2000 if category == 'pressure' else 10000):
-            continue
-        settings['pressures' if category == 'pressure' else 'flows'][(claim['subject_id'],)] = number
-        settings['dispositions'].append(dict(intent_id=claim['id'], category=category, property=claim['predicate'],
-            value=claim['value'], unit=claim['unit'], targets=[claim['subject_id']], strength='requirement',
-            status='partially_applied', message='Explicit terminal operating value used for net metadata and flow screening; component ratings and pressure loss still require review.'))
+    for port in result['ports']:
+        for predicate,number in port.get('facts',{}).items():
+            category = {'flow': 'flow', 'flow_lpm': 'flow', 'working_pressure': 'pressure'}.get(predicate)
+            if not category or port.get('fact_kinds',{}).get(predicate) not in ('schematic','user_requirement'):
+                continue
+            unit=(port.get('fact_units',{}).get(predicate) or '').lower()
+            scales = {'bar': 1, 'psi': 0.0689475729} if category == 'pressure' else {'l/min': 1, 'lpm': 1, 'gpm': 3.785411784}
+            if isinstance(number,bool) or not isinstance(number,(int,float)) or unit not in scales:continue
+            number*=scales[unit]
+            if not 0<number<=(2000 if category=='pressure' else 10000):continue
+            settings['pressures' if category=='pressure' else 'flows'][(port['id'],)]=number
+            settings['dispositions'].append(dict(intent_id='OPERATING_'+port['id']+'_'+predicate,category=category,property=predicate,
+                value=port['facts'][predicate],unit=unit,targets=[port['id']],strength='requirement',status='partially_applied',
+                message='Explicit terminal operating value used for net metadata and flow screening.'))
 
     for intent in result['design_intent']:
-        claim = claims[intent['claim_id']]
-        val, unit = claim['value'], claim.get('unit', '')
+        val, unit = intent.get('value'), intent.get('unit', '')
         category, prop, op = intent['category'], intent['property'], intent['operator']
         row = dict(intent_id=intent['id'], category=category, property=prop, value=val, unit=unit,
                    targets=intent['target_labels'], strength=intent['strength'], status='unsupported',

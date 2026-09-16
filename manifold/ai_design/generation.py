@@ -30,8 +30,7 @@ def context(key, run_id, expected):
     if run['input_revision'] != service.digest(record['inputs']):
         raise ValueError('Analysis is stale. Analyze the current inputs before generation.')
     inputs = TaskInput.model_validate(record['inputs'])
-    reviews = copy.deepcopy(record['reviews'].get(run_id, {}))
-    return record, run, inputs, effective_result(run, reviews), reviews
+    return record, run, inputs, effective_result(run),
 
 
 def topology(result, options):
@@ -55,9 +54,8 @@ def topology(result, options):
                 name = target
                 target = 'ENGINEER_' + hashlib.sha256(name.encode()).hexdigest()[:12]
                 if target not in by_id:
-                    by_id[target] = dict(id=target, members=[], claim_ids=[])
+                    by_id[target] = dict(id=target, members=[], label=name)
                     result['nets'].append(by_id[target])
-                    result['claims'].append(dict(id='LABEL_' + target, subject_id=target, predicate='label', value=name))
         for net in result['nets']:
             net['members'] = [p for p in net['members'] if p != port_id]
         by_id[target]['members'].append(port_id)
@@ -98,7 +96,7 @@ def prepare(inputs, result, options):
             if not decision:
                 blocked.append(f'{library.value(result,key,"label") or key}: confirm the selected cavity and interface mapping.')
         else:
-            usable = [row for row in choices if row['geometry_status'] != 'draft-projection' and not row['demo_only']]
+            usable = [row for row in choices if row['usable']]
             mapping = library.matching_zones(result, component, usable[0]['zones']) if len(usable) == 1 else None
             if mapping:
                 row = usable[0]
@@ -109,12 +107,14 @@ def prepare(inputs, result, options):
                 definition, mapping, decision = None, {}, ''
                 blocked.append(f'{library.value(result,key,"label") or key}: {resolution["message"]} {resolution["action"]}')
         if definition:
-            if definition.usage_role != 'cartridge-cavity':
+            if definition.kind != 'cavity':
                 raise ValueError('An external-port definition cannot be used as a cartridge cavity')
             if set(mapping) != {z.id for z in definition.zones} or set(mapping.values()) != set(component['port_ids']) or len(set(mapping.values())) != len(mapping):
                 blocked.append(f'{key}: map every cavity window to exactly one distinct schematic component port.')
+        cartridge_id=next((row.get('cartridge_id') for row in choices if definition and row['key']=='db:'+definition.id),None)
         components.append(dict(id=key, label=library.value(result,key,'label') or key,
                                model=library.identity_value(result,key,'model') or '',
+                               cartridge_id=cartridge_id,
                                function=library.value(result,key,'functional_type') or '',
                                choices=choices, definition=definition, mapping=dict(mapping or {}),
                                automatic=automatic, decision=decision, resolution=resolution))
@@ -124,7 +124,7 @@ def prepare(inputs, result, options):
             continue
         selected = options.port_definitions.get(port['id'])
         definition = library.load(inputs, selected.definition_key, selected.definition_sha256) if selected else None
-        if definition and (definition.usage_role != 'external-port' or len(definition.zones) != 1):
+        if definition and (definition.kind != 'external-port' or len(definition.zones) != 1):
             raise ValueError('External ports require a source external-port definition with one hydraulic interface')
         if definition and not selected.decision.strip():
             blocked.append(f'{port["id"]}: confirm the external-port definition choice.')
@@ -149,7 +149,7 @@ def prepare(inputs, result, options):
 
 
 def preflight(key, request):
-    _, _, inputs, result, _ = context(key, request.run_id, request.expected_revision)
+    _, _, inputs, result = context(key, request.run_id, request.expected_revision)
     plan = prepare(inputs, result, request.options)
     def entry(row):
         return {**{k:v for k,v in row.items() if k != 'definition'},
@@ -168,20 +168,13 @@ def fid(generation_id, key, prefix):
 def candidate(plan, generation_id, variant):
     options, settings, inputs, result = (plan[x] for x in ('options','settings','inputs','result'))
     wall = options.minimum_wall
-    libraries = {}
     aliases = {}
     for row in [*plan['components'], *plan['external']]:
         definition = row['definition']
         if definition:
-            sha = service.digest(definition.model_dump())
-            if sha not in libraries:
-                definition = definition.model_copy(deep=True)
-                # Two selected revisions of one catalog ID can coexist without a reference collision.
-                if any(d.id == definition.id for d in libraries.values()):
-                    definition.id = fid(generation_id,sha,'DEF')
-                libraries[sha] = definition
-            aliases[row['id']] = libraries[sha].id
-    defs = list(libraries.values())
+            aliases[row['id']] = definition.id
+    defs = [row['definition'] for row in [*plan['components'],*plan['external']] if row['definition']]
+    defs = list({d.id:d for d in defs}.values())
     by_definition = {d.id:d for d in defs}
     ncomponents = len(plan['components'])
     radii = [c['definition'].clearance_diameter/2 for c in plan['components']]
@@ -199,12 +192,12 @@ def candidate(plan, generation_id, variant):
     sizes = [max(lo,min(hi,math.ceil(size*scale/5)*5)) for size,lo,hi in zip(base,settings['minimum'],settings['maximum'])]
     block = dict(zip(('length','width','height'),sizes))
     block['material'] = settings['material']
-    raw = dict(name=(inputs.title[:100] + ' - AI Draft'), project_context=inputs.project_context, block=block,
-               library=[d.model_dump() for d in defs], features=[], components=[], nets=[],
-               schematics=[d.asset.model_dump() for d in inputs.documents], rules=dict(minimum_wall=wall),
+    assets=[d.asset.model_dump() for d in inputs.documents]
+    raw = dict(schema_version=2,name=(inputs.title[:100] + ' - AI Draft'), project_context=inputs.project_context, block=block,
+               features=[], nets=[],schematic_intent=dict(assets=assets,components=[]), rules=dict(minimum_wall=wall),
                constraints=dict(envelope_max=settings['maximum'],envelope_min=settings['minimum'],
                    forbidden_drilling_faces=settings['forbidden'],priority=settings['priority'],
-                   notes='Original requirements and execution dispositions are linked from origin.ai_trace.'))
+                   notes='AI-generated draft from the current normalized schematic intent.'))
     design = Design.model_validate(raw)
     feature_map, terminal_map, net_ids = {}, {}, {}
     used_nets = set()
@@ -226,16 +219,15 @@ def candidate(plan, generation_id, variant):
             key=c['id'];definition=by_definition[aliases[key]]
             f=Feature(id=fid(generation_id,key,'CV'),kind='cavity',face=face,
                       u=sizes[u_axis]*(i%local_cols+1)/(local_cols+1),
-                      v=sizes[v_axis]*(i//local_cols+1)/(local_rows+1),definition=definition.id,
-                      circuits={zone:net_ids[plan['port_net'][port]] for zone,port in c['mapping'].items()},
-                      cartridge_model=str(c['model'])[:120],schematic_id=key)
-            f.u,f.v=clamp_placement(f,design,f.u,f.v,snap=0)
+                      v=sizes[v_axis]*(i//local_cols+1)/(local_rows+1),cavity_id=definition.id,
+                      interface_nets={zone:net_ids[plan['port_net'][port]] for zone,port in c['mapping'].items()},
+                      cartridge_id=c.get('cartridge_id'),schematic_id=key)
+            f.u,f.v=clamp_placement(f,design,f.u,f.v,snap=0,definitions=by_definition)
             design.features.append(f);feature_map[key]=f.id
             for zone,port in c['mapping'].items():terminal_map[port]=f.id+':'+zone
             from ..schema import SchematicComponent
-            design.components.append(SchematicComponent(id=key[:39],label=str(c['label'])[:160],function=str(c['function'])[:200],
-                cartridge_model=str(c['model'])[:120],cavity_definition=definition.id,feature_id=f.id,ports=f.circuits,
-                status='unconfirmed' if c['automatic'] else 'confirmed'))
+            design.schematic_intent.components.append(SchematicComponent(id=key[:39],label=str(c['label'])[:160],function=str(c['function'])[:200],
+                cartridge_id=c.get('cartridge_id'),cavity_id=definition.id,placement_id=f.id,interface_nets=f.circuits))
             if key in settings['hard_component_faces']:design.constraints.required_feature_faces[f.id]=face
     points=terminal_points(design)
     default_faces=('left','right','front','back')
@@ -263,7 +255,7 @@ def candidate(plan, generation_id, variant):
                     circuit=net_ids[source_net],schematic_id=str(p['label'])[:80])
         if p['definition']:
             definition=by_definition[aliases[key]]
-            kwargs.update(definition=definition.id,diameter=min(s.diameter for s in definition.stages),
+            kwargs.update(port_definition_id=definition.id,diameter=min(s.diameter for s in definition.stages),
                           depth=definition.zones[0].end,clearance_diameter=definition.clearance_diameter,
                           clearance_height=definition.clearance_height,tip_angle=180,
                           port_type=definition.label,size=definition.thread_note[:80])
@@ -271,11 +263,11 @@ def candidate(plan, generation_id, variant):
             kwargs.update(diameter=options.port_diameter,depth=options.port_depth,tip_angle=180,
                           clearance_diameter=max(20,options.port_diameter+6),clearance_height=20,
                           port_type='Provisional straight bore - no thread specified',size=f'Draft bore {options.port_diameter:g} mm')
-        f=Feature(**kwargs);f.u,f.v=clamp_placement(f,design,f.u,f.v,snap=0)
+        f=Feature(**kwargs);f.u,f.v=clamp_placement(f,design,f.u,f.v,snap=0,definitions=by_definition)
         # Separate mouths sharing a face. Exact installed-envelope checks still decide.
         for previous in used_ports:
             if previous.face==face and math.hypot(f.u-previous.u,f.v-previous.v)<(f.clearance_diameter+previous.clearance_diameter)/2+2:
-                f.u,f.v=clamp_placement(f,design,f.u,f.v+(f.clearance_diameter+previous.clearance_diameter)/2+wall,snap=0)
+                f.u,f.v=clamp_placement(f,design,f.u,f.v+(f.clearance_diameter+previous.clearance_diameter)/2+wall,snap=0,definitions=by_definition)
         used_ports.append(f);design.features.append(f);terminal_map[key]=f.id;feature_map[key]=f.id
         if key in settings['hard_port_faces']:design.constraints.required_feature_faces[f.id]=face
         design.constraints.preferred_port_faces[f.circuit]=face
@@ -291,40 +283,6 @@ def candidate(plan, generation_id, variant):
     return Design.model_validate(design.model_dump()),feature_map,terminal_map
 
 
-def review_items(plan, design, feature_map):
-    from ..schema import EngineeringReview
-    items=[]
-    def add(kind,subject,description,severity='review',decision=''):
-        items.append(EngineeringReview(id='AI_REVIEW_'+str(len(items)+1),kind=kind,subject=str(subject)[:120],
-            description=description[:2000],severity=severity,status='accepted' if decision else 'open',resolution=decision[:2000]))
-    add('source','AI generation','AI-generated Draft. Review schematic interpretation, placement and all engineering assumptions. Geometry checks are not production approval.')
-    for c in plan['components']:
-        add('component',feature_map[c['id']],str(c['label'])+': '+c['decision'],decision='' if c['automatic'] else c['decision'])
-        if c['definition'].native and c['definition'].native.geometry_status=='draft-projection':
-            add('dimension',feature_map[c['id']],'Selected source definition still has unresolved geometry mapping. This draft cannot establish cartridge geometry.',severity='blocking')
-        if c['definition'].demo_only:
-            add('dimension',feature_map[c['id']],'Engineer-selected demonstration cavity. Not a vendor machining specification.',severity='blocking')
-        add('component',feature_map[c['id']],'Cartridge compatibility, pressure/flow ratings, seals and actual service envelope require source review; no values were invented.')
-    for p in plan['external']:
-        if not p['definition']:
-            add('dimension',feature_map[p['id']],str(p['label'])+': provisional unthreaded straight bore. Requested specification: '+
-                (str(p['specification']) or 'not supplied')+'. Select/confirm a real machining definition before manufacture.')
-    for row in plan['settings']['dispositions']:
-        if row['status']!='applied':
-            add('assumption',row['intent_id'],row['property']+': '+row['message'],
-                severity='blocking' if row['strength']=='requirement' and row['status'] in ('unsupported','conflict','review_required') else 'review')
-    for item in plan['result']['unresolved'][:30]:
-        add('source','schematic',item['description'])
-    if plan['settings']['material'].startswith('Unspecified'):
-        add('dimension','block','Material is unspecified. No pressure/material capability has been inferred.')
-    if plan['options'].net_overrides:
-        add('connection','schematic','Engineer revised the extracted topology.',decision=plan['options'].topology_decision)
-    # Reserve space in the existing bounded Design review contract.
-    design.review_items=items[:100]
-    if len(items)>100:
-        design.review_items[-1]=EngineeringReview(id='AI_REVIEW_OVERFLOW',kind='source',description='Additional review details are retained in the linked generation record.',severity='blocking')
-
-
 def score(report, design):
     # Search can improve geometry without pretending unreviewed schematic facts are approved.
     geometry_failures=sum(c['status']=='FAIL' for c in report['checks'] if c['rule']!='engineering_review'
@@ -334,7 +292,7 @@ def score(report, design):
 
 
 def generate(key, request, progress=lambda message:None):
-    record,run,inputs,result,reviews=context(key,request.run_id,request.expected_revision)
+    record,run,inputs,result=context(key,request.run_id,request.expected_revision)
     service.verified_documents(inputs)
     plan=prepare(inputs,result,request.options)
     if plan['blocked']:
@@ -347,12 +305,9 @@ def generate(key, request, progress=lambda message:None):
         progress(f'Exact candidate {index+1}/{request.options.max_attempts}: placement, routing, wall and connectivity checks')
         try:
             design,feature_map,terminal_map=candidate(plan,generation_id,index)
-            from ..schema import DesignOrigin,AITrace
+            from ..schema import DesignOrigin
             design.origin=DesignOrigin(author='PMC AI Design',method='ai-assisted',provider=run['provider']['id'],model=run['provider']['model'],
-                notes='AI-generated Draft. Original analysis and exact candidate evidence retained locally. No manufacturing approval.',
-                ai_trace=AITrace(analysis_id=key,run_id=run['id'],generation_id=generation_id,input_sha256=run['input_revision'],
-                                 result_sha256=service.digest(run['result']),original_requirements=inputs.engineering_requirements))
-            review_items(plan,design,feature_map)
+                notes='AI-generated draft. Exact engineering validation remains authoritative.')
             checked=calculate_sync('validate',design.model_dump(),progress)
             resolved=Design.model_validate(checked['design']);routes=checked['routes'];report=checked['report']
             # Retain resolved routing choices in the authored draft so preview matches the evaluated proposal.
@@ -388,7 +343,7 @@ def generate(key, request, progress=lambda message:None):
                     terminal_mapping=terminal_map,dispositions=plan['settings']['dispositions'],
                     message='Editable AI Draft; exact validation and engineering review status are separate from manufacturing approval.')
     packet.update(created_at=service.now(),provider=run['provider'],input_revision=run['input_revision'],
-                  source_result_sha256=service.digest(run['result']),reviews=reviews,options=request.options.model_dump(),
+                  options=request.options.model_dump(),
                   engine_revision=store.engine_revision())
     store.atomic_json(folder/'generation.json',packet)
     with store.project_lock():

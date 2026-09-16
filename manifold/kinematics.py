@@ -25,13 +25,17 @@ def footprint_radius(feature, library):
     return max(feature.diameter, feature.clearance_diameter if feature.kind == 'port' or feature.plugged else 0) / 2
 
 
-def placement_bounds(feature, design):
+def placement_bounds(feature, design, definitions=None):
     u, v, _, _ = FACE_AXES[feature.face]
-    radius = footprint_radius(feature, design.library)
+    if definitions is None:
+        from .engineering_db import definitions_for_design
+        definitions=definitions_for_design(design)
+    library=list(definitions.values())
+    radius = footprint_radius(feature, library)
     sizes = dimensions(design.block)
     extents=[(-radius,-radius),(radius,radius)]
     if feature.definition:
-        definition=next(d for d in design.library if d.id==feature.definition)
+        definition=definitions[feature.definition]
         angle=math.radians(feature.rotation)
         extents.extend((x*math.cos(angle)-y*math.sin(angle),x*math.sin(angle)+y*math.cos(angle)) for boundary in definition.boundaries for x,y in boundary.points)
         for boundary in definition.boundaries:
@@ -44,8 +48,8 @@ def placement_bounds(feature, design):
     return dict(min_u=min_u,max_u=max_u,min_v=min_v,max_v=max_v,fits=min_u<=max_u and min_v<=max_v,radius=radius)
 
 
-def clamp_placement(feature, design, u, v, snap=1):
-    bounds = placement_bounds(feature, design)
+def clamp_placement(feature, design, u, v, snap=1, definitions=None):
+    bounds = placement_bounds(feature, design,definitions)
     if not bounds['fits']:
         raise ValueError('This component envelope does not fit on the selected face')
     if snap:

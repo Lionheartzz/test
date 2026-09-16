@@ -58,80 +58,11 @@ class CuttingPrimitive(Strict):
         return self
 
 
-class LibraryRecord(BaseModel):
-    """Lossless native record. Extensions from newer converters survive project round trips."""
-    model_config = ConfigDict(extra='allow', allow_inf_nan=False)
-    source_schema: str = Field(alias='schema')
-    kind: str
-    id: str
-    unit_system: Literal['metric', 'inch']
-    name: str
-    geometry: dict = Field(default_factory=dict)
-    hydraulic: dict = Field(default_factory=dict)
-    threads: list[dict] = Field(default_factory=list)
-    machining: list[dict] = Field(default_factory=list)
-    engineering: dict = Field(default_factory=dict)
-    provenance: dict = Field(default_factory=dict)
-
-    @model_serializer(mode='wrap')
-    def lossless(self, handler):
-        data = handler(self)
-        data = {k:v for k,v in data.items() if k in self.model_fields_set or k in (self.model_extra or {})}
-        data['schema'] = data.pop('source_schema')
-        return data
-
-
-class NativeLibrarySnapshot(Strict):
-    record: LibraryRecord
-    related_records: list[dict] = Field(default_factory=list, max_length=200)
-    mapping_record: LibraryRecord | None = None
-    mapping_related_records: list[dict] | None = Field(default=None,max_length=200)
-    source_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-    origin: str = 'VEST MDTools 930'
-    geometry_status: Literal['draft-projection', 'imported-dimensional', 'engineer-mapped'] = 'draft-projection'
-    geometry_notes: list[str] = Field(default_factory=list)
-    mapping_decision: str = Field(default='', max_length=2000)
-    machining_status: Literal['unresolved', 'engineer-reviewed'] = 'unresolved'
-    machining_decision: str = Field(default='', max_length=2000)
-    derived_from: str = ''
-    datum_mode: Literal['step0-relative', 'surface-relative'] = 'step0-relative'
-
-    @model_validator(mode='after')
-    def decisions(self):
-        if self.geometry_status == 'engineer-mapped' and not self.mapping_decision.strip():
-            raise ValueError('Geometry mapping requires an engineering decision')
-        if self.machining_status == 'engineer-reviewed' and not self.machining_decision.strip():
-            raise ValueError('Machining review requires an engineering decision')
-        return self
-
-
-class LibraryLineage(Strict):
-    kind: Literal['imported-mdtools','pmc-derived','pmc-custom','demo-provisional']
-    original_source: str = Field(max_length=500)
-    source_sha256: str | None = Field(default=None,pattern=r'^[0-9a-f]{64}$')
-    derived_from: str = Field(default='',max_length=240)
-    revision_history: list[str] = Field(default_factory=list,max_length=100)
-
-
-class CartridgeCompatibility(Strict):
-    model: str = Field(min_length=1,max_length=120)
-    manufacturer: str = Field(default='',max_length=120)
-    source: str = Field(min_length=1,max_length=500)
-    status: Literal['documented','engineer-confirmed','unconfirmed'] = 'unconfirmed'
-
-
 class ComponentBoundary(Strict):
     category: Literal['mounting-footprint','external-body','service','tool'] = 'mounting-footprint'
     points: list[tuple[float,float]] = Field(default_factory=list,max_length=100)
     circle: tuple[float,float,Positive] | None = None
     height: float = Field(default=0,ge=0,le=2000)
-    source: str = Field(min_length=1,max_length=500)
-    status: Literal['source-mapped','engineer-confirmed'] = 'source-mapped'
-    source_role: str = Field(default='',max_length=80)
-    source_type: str = Field(default='',max_length=120)
-    source_raw: str = Field(default='',max_length=20000)
-    source_sha256: str | None = Field(default=None,pattern=r'^[0-9a-f]{64}$')
-    association: Literal['source-linked','engineer-selected'] = 'source-linked'
 
     @model_validator(mode='after')
     def finite_boundary(self):
@@ -145,49 +76,27 @@ class ComponentBoundary(Strict):
 
 
 class CavityDefinition(Strict):
+    """Executable engineering definition loaded from SQLite, never project state."""
     id: Identifier
     label: str = Field(max_length=120)
-    source: str = Field(min_length=1, max_length=500)
-    demo_only: bool = True
-    thread_note: str = Field(max_length=300)
+    family: str = Field(default='',max_length=160)
+    unit_system: Literal['metric','inch','custom'] = 'custom'
+    thread_note: str = Field(default='',max_length=300)
     stages: list[Stage] = Field(min_length=1, max_length=40)
     zones: list[Zone] = Field(default_factory=list, max_length=64)
     clearance_diameter: Positive
     clearance_height: Positive
-    manufacturer: str = Field(default='PMC Demo', max_length=120)
-    cartridge_models: list[str] = Field(default_factory=list, max_length=40)
-    valve_function: str = Field(default='Unspecified', max_length=160)
-    revision: str = Field(default='1', min_length=1, max_length=80)
-    provenance: Literal['demo', 'candidate', 'drawing-verified'] = 'demo'
-    drawing_asset: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
-    machining_notes: str = Field(default='', max_length=2000)
-    tooling: list[str] = Field(default_factory=list, max_length=30)
-    native: NativeLibrarySnapshot | None = None
+    manufacturer: str = Field(default='', max_length=120)
     cutting_primitives: list[CuttingPrimitive] = Field(default_factory=list, max_length=180)
-    catalog_id: str = Field(default='',max_length=120)
-    lineage: LibraryLineage | None = None
-    compatible_cartridges: list[CartridgeCompatibility] = Field(default_factory=list,max_length=100)
     boundaries: list[ComponentBoundary] = Field(default_factory=list,max_length=40)
-    usage_role: Literal['cartridge-cavity','external-port'] | None = None
-    usage_decision: str = Field(default='',max_length=1000)
+    machining: list[dict] = Field(default_factory=list,max_length=100)
+    usable: bool = True
+    unusable_reason: str = Field(default='',max_length=1000)
+    active: bool = True
+    kind: Literal['cavity','external-port'] = 'cavity'
 
     @model_validator(mode='after')
     def consistent(self):
-        # Legacy definitions retain their source role; window count is never a role.
-        source_type = ''
-        if self.native:
-            record = self.native.record.model_dump()
-            source_type = str(record.get('cavity_type', record.get('source_identity', {}).get('cavity_type', ''))).upper()
-        source_role = 'external-port' if source_type in ('P','PORT') else 'cartridge-cavity'
-        if self.usage_role is None:
-            self.usage_role = source_role
-        if self.usage_role != source_role and not self.usage_decision.strip():
-            raise ValueError('Changing definition usage role requires an explicit engineering decision')
-        if self.lineage is None:
-            kind = ('pmc-derived' if self.native.derived_from else 'imported-mdtools') if self.native else ('demo-provisional' if self.demo_only else 'pmc-custom')
-            self.lineage = LibraryLineage(kind=kind,original_source=self.source,
-                                         source_sha256=self.native.source_sha256 if self.native else None,
-                                         derived_from=self.native.derived_from if self.native else '')
         end = 0
         previous_diameter = float('inf')
         for s in self.stages:
@@ -217,8 +126,9 @@ class Feature(Strict):
     face: Face
     u: Coordinate
     v: Coordinate
-    definition: Identifier | None = None
-    circuits: dict[str, Circuit] = Field(default_factory=dict)
+    cavity_id: Identifier | None = None
+    port_definition_id: Identifier | None = None
+    interface_nets: dict[str, Circuit] = Field(default_factory=dict)
     circuit: Circuit | None = None
     diameter: Positive | None = None
     depth: Positive | None = None
@@ -232,7 +142,7 @@ class Feature(Strict):
     connects_to: list[str] = Field(default_factory=list, max_length=40)
     suppressed: bool = False
     rotation: float = Field(default=0, ge=-360, le=360)
-    cartridge_model: str = Field(default='', max_length=120)
+    cartridge_id: Identifier | None = None
     schematic_id: str = Field(default='', max_length=80)
     route_net: Circuit | None = None
     frozen_net: Circuit | None = None
@@ -241,6 +151,21 @@ class Feature(Strict):
     parent_id: Identifier | None = None
     local_offset: tuple[float, float] = (0, 0)
     through: bool = False
+
+    @property
+    def definition(self):
+        return self.cavity_id if self.kind=='cavity' else self.port_definition_id
+
+    @definition.setter
+    def definition(self,value):
+        if self.kind=='cavity':self.cavity_id=value
+        else:self.port_definition_id=value
+
+    @property
+    def circuits(self):return self.interface_nets
+
+    @circuits.setter
+    def circuits(self,value):self.interface_nets=value
 
     @model_serializer(mode='wrap')
     def preserve_legacy_shape(self,handler):
@@ -265,17 +190,17 @@ class Feature(Strict):
                 raise ValueError('Angled direction requires an inward drilling axis with entry cosine >= 0.25')
             self.direction=tuple(x/length for x in self.direction)
         if self.kind=='mounting':
-            if self.circuit is not None or self.circuits or self.connects_to or self.definition or self.plugged or self.diameter is None or self.depth is None:
+            if self.circuit is not None or self.interface_nets or self.connects_to or self.definition or self.plugged or self.diameter is None or self.depth is None:
                 raise ValueError('Mounting hole requires explicit diameter/depth and no hydraulic identity, library cavity, closure or contacts')
             if self.through and self.tip_angle!=180:
                 raise ValueError('Through mounting geometry uses an explicit flat-ended cut at the exit face')
         elif self.kind == 'cavity':
-            if not self.definition or self.circuit is not None or self.diameter is not None or self.depth is not None or self.plugged:
+            if not self.cavity_id or self.port_definition_id or self.circuit is not None or self.diameter is not None or self.depth is not None or self.plugged:
                 raise ValueError('Cavity uses definition and circuits, not bore fields')
-        elif self.kind=='port' and self.definition:
-            if self.circuit is None or self.circuits or self.plugged:
+        elif self.kind=='port' and self.port_definition_id:
+            if self.cavity_id or self.circuit is None or self.interface_nets or self.plugged:
                 raise ValueError('Definition port requires one hydraulic net and no cartridge circuits')
-        elif self.circuit is None or self.diameter is None or self.depth is None or self.definition or self.circuits:
+        elif self.circuit is None or self.diameter is None or self.depth is None or self.definition or self.interface_nets:
             raise ValueError('Bore requires circuit, diameter, depth; no cavity definition')
         if self.plugged and (self.kind != 'drilling' or self.plug_length >= self.depth):
             raise ValueError('Plug requires a drilling deeper than its engagement')
@@ -293,7 +218,7 @@ class ConstructionAccess(Strict):
 class HydraulicNet(Strict):
     id: Circuit
     label: str = Field(default='', max_length=120)
-    members: list[str] = Field(default_factory=list, max_length=60)
+    members: list[str] = Field(default_factory=list, max_length=60, exclude=True)
     routing: Literal['manual', 'automatic'] = 'manual'
     drilling_mode: Literal['orthogonal','allow-angled','simplest'] = 'orthogonal'
     diameter: Positive = 8
@@ -321,11 +246,17 @@ class SchematicComponent(Strict):
     id: Identifier
     label: str = Field(default='', max_length=160)
     function: str = Field(default='', max_length=200)
-    cartridge_model: str = Field(default='', max_length=120)
-    cavity_definition: Identifier | None = None
-    ports: dict[str, Circuit] = Field(default_factory=dict)
-    feature_id: Identifier | None = None
-    status: Literal['unconfirmed', 'confirmed'] = 'unconfirmed'
+    cartridge_id: Identifier | None = None
+    cavity_id: Identifier | None = None
+    interface_nets: dict[str, Circuit] = Field(default_factory=dict)
+    placement_id: Identifier | None = None
+
+    @property
+    def feature_id(self):return self.placement_id
+    @property
+    def cavity_definition(self):return self.cavity_id
+    @property
+    def ports(self):return self.interface_nets
 
 
 class DesignConstraints(Strict):
@@ -346,6 +277,11 @@ class SchematicAsset(Strict):
     name: str = Field(min_length=1, max_length=180)
     media_type: Literal['application/pdf', 'image/png', 'image/jpeg']
     size: int = Field(gt=0, le=20_000_000)
+
+
+class SchematicIntent(Strict):
+    assets: list[SchematicAsset] = Field(default_factory=list,max_length=20)
+    components: list[SchematicComponent] = Field(default_factory=list,max_length=60)
 
 
 class Rules(Strict):
@@ -373,79 +309,43 @@ class EngineeringReview(Strict):
         return self
 
 
-class AITrace(Strict):
-    analysis_id: str = Field(pattern=r'^[0-9a-f]{32}$')
-    run_id: str = Field(pattern=r'^[0-9a-f]{32}$')
-    generation_id: str = Field(pattern=r'^[0-9a-f]{32}$')
-    input_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-    result_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-    original_requirements: str = Field(default='', max_length=20000)
-
-
 class DesignOrigin(Strict):
     author: str = Field(default='', max_length=120)
     method: Literal['manual', 'ai-assisted', 'drawing-import', 'unknown'] = 'unknown'
     provider: str = Field(default='', max_length=120)
     model: str = Field(default='', max_length=120)
     notes: str = Field(default='', max_length=2000)
-    ai_trace: AITrace | None = None
-
-
-class EngineeringLibraryResource(Strict):
-    id: str = Field(min_length=1,max_length=200)
-    unit_system: Literal['metric','inch','shared']
-    kind: str = Field(min_length=1,max_length=80)
-    source_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-    record: dict | list
 
 
 class Design(Strict):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     name: str = Field(min_length=1, max_length=120)
     units: Literal['mm'] = 'mm'
     project_context: Literal['metric', 'inch'] = 'metric'
     block: Block
     rules: Rules = Field(default_factory=Rules)
-    library: list[CavityDefinition] = Field(default_factory=list, max_length=30)
     features: list[Feature] = Field(default_factory=list, max_length=120)
     nets: list[HydraulicNet] = Field(default_factory=list, max_length=40)
-    components: list[SchematicComponent] = Field(default_factory=list, max_length=60)
-    schematics: list[SchematicAsset] = Field(default_factory=list, max_length=20)
+    schematic_intent: SchematicIntent | None = None
     constraints: DesignConstraints = Field(default_factory=DesignConstraints)
     review_items: list[EngineeringReview] = Field(default_factory=list, max_length=100)
     origin: DesignOrigin = Field(default_factory=DesignOrigin)
-    library_resources: list[EngineeringLibraryResource] = Field(default_factory=list,max_length=100)
+
+    @property
+    def components(self):return self.schematic_intent.components if self.schematic_intent else []
+    @property
+    def schematics(self):return self.schematic_intent.assets if self.schematic_intent else []
 
     @model_validator(mode='after')
     def references(self):
         if len({r.id for r in self.review_items}) != len(self.review_items):
             raise ValueError('Engineering review IDs must be unique')
         ids = [f.id for f in self.features]
-        lib = {d.id: d for d in self.library}
-        if len(set(ids)) != len(ids) or len(lib) != len(self.library):
+        if len(set(ids)) != len(ids):
             raise ValueError('IDs must be unique')
         nodes = set()
         for f in self.features:
-            if f.kind=='port' and f.definition:
-                if f.definition not in lib:raise ValueError(f'{f.id}: missing port machining definition')
-                d=lib[f.definition]
-                if d.usage_role != 'external-port':
-                    raise ValueError(f'{f.id}: definition usage role is not external-port')
-                if len(d.zones)!=1 or d.zones[0].offset_u or d.zones[0].offset_v:
-                    raise ValueError(f'{f.id}: external port definition requires one centered hydraulic interface')
-                centered=[p.diameter for p in d.cutting_primitives if p.kind=='cylinder' and not p.offset_u and not p.offset_v]
-                f.diameter=min(centered or [s.diameter for s in d.stages])
-                f.depth=d.zones[0].end
-                f.tip_angle=180
-                f.clearance_diameter=d.clearance_diameter
-                f.clearance_height=d.clearance_height
             if f.kind == 'cavity':
-                if f.definition not in lib:
-                    raise ValueError(f'{f.id}: missing library definition')
-                if lib[f.definition].usage_role != 'cartridge-cavity':
-                    raise ValueError(f'{f.id}: definition usage role is not cartridge-cavity')
-                if set(f.circuits) != {z.id for z in lib[f.definition].zones}:
-                    raise ValueError(f'{f.id}: assign a circuit to every hydraulic zone')
                 nodes.update(f'{f.id}:{z}' for z in f.circuits)
             elif f.kind!='mounting':
                 nodes.add(f.id)
@@ -491,21 +391,14 @@ class Design(Strict):
         for f in self.features:
             if f.frozen_net and not any(n.id == f.frozen_net and n.routing == 'manual' for n in self.nets):
                 raise ValueError('Frozen drilling requires its existing manual owner net; use Reroute to change route intent')
-        declared = {}
+        net_ids={net.id for net in self.nets}
+        if set(terminals.values())-net_ids:
+            raise ValueError('Every cavity interface and external port must reference an existing net')
         for net in self.nets:
-            if len(set(net.members)) != len(net.members):
-                raise ValueError(f'{net.id}: duplicate interface')
-            for member in net.members:
-                if member not in terminals or terminals[member] != net.id or member in declared:
-                    raise ValueError(f'{net.id}: invalid or conflicting interface {member}')
-                declared[member] = net.id
-        if set(declared) != set(terminals):
-            raise ValueError('Every cavity interface and external port must belong to exactly one net')
+            net.members=sorted(key for key,value in terminals.items() if value==net.id)
         if len({c.id for c in self.components}) != len(self.components):
             raise ValueError('Duplicate schematic component ID')
         for component in self.components:
-            if component.feature_id and component.feature_id not in ids:
+            if component.placement_id and component.placement_id not in ids:
                 raise ValueError(f'{component.id}: missing placed feature')
-            if component.cavity_definition and component.cavity_definition not in lib:
-                raise ValueError(f'{component.id}: missing cavity definition')
         return self

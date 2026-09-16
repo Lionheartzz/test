@@ -4,11 +4,11 @@ Start from a saved Project manifold. Use **Save & Validate** to create a build f
 
 ## Engineering source and drawing data
 
-`projects/drawings/<project-id>/<drawing-id>/current.json` stores a drawing document independently of the Project's engineering revision. It contains the immutable source snapshot, generated projection geometry, and a separate editable presentation. Source evidence identifies the authored design SHA, resolved build, CAD engine revision and the hashes of the build artifacts. Drawing saves use their own optimistic revision, so two windows cannot silently overwrite each other.
+`projects/drawings/<project-id>/<drawing-id>/current.json` stores a drawing document independently of the Project's engineering revision. It contains the build facts needed to render the drawing, generated projection geometry, and a separate editable presentation. Drawing saves use their own optimistic revision, so two windows cannot silently overwrite each other.
 
-Engineering geometry comes from the saved `production.step`; dimensions and manufacturing rows come from the same build's `resolved_design.json`, pinned definitions and machining schedule. Exact OCCT hidden-line projection supplies the vector outlines. Curved edges are represented by vector segments with 0.002 mm model-space deflection. Measurements never use triangles or pixels. A failed source can produce a clearly marked review draft; it cannot be released.
+Engineering geometry comes from the saved `production.step`; dimensions and manufacturing rows come from the same build's resolved project and manufacturing output. Drawing does not query the current SQLite master to reinterpret an older build. Exact OCCT hidden-line projection supplies the vector outlines. Curved edges are represented by vector segments with 0.002 mm model-space deflection. Measurements never use triangles or pixels. A failed build can produce a clearly marked review draft; it cannot be released.
 
-Manufacturer/model/cavity data remains subject to the source model's Library and engineering-review boundaries. Unconfirmed component identity is shown as pending review. Table specifications and numeric dimension values cannot be replaced by client-supplied engineering facts. Drawing notes, table remarks and label overrides are presentation statements; they do not update Library data or CAD. Manual label text requires review at release.
+Cavity and optional Cartridge IDs come from the resolved build facts. Table specifications and numeric dimension values cannot be replaced by client-supplied engineering facts. Drawing notes, table remarks and label overrides are presentation statements; they do not update SQLite data or CAD. Manual label text requires review at release.
 
 ## Finish and save a drawing
 

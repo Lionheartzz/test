@@ -2,7 +2,7 @@ from fastapi import APIRouter,HTTPException,Request,Query
 from fastapi.responses import JSONResponse,Response
 from pydantic import Field
 from ..schema import Strict
-from .models import TaskInput,ClaimReview,Digest,RecordId,HydraulicRepresentation
+from .models import TaskInput,Digest,RecordId,HydraulicRepresentation
 from .providers import provider_info
 from . import service
 from . import config,jobs,generation,library_resolution
@@ -26,10 +26,6 @@ class RunRequest(Strict):
     expected_revision: Digest
     provider: str = Field(min_length=1,max_length=80)
 
-class ReviewRequest(Strict):
-    expected_revision: Digest
-    decisions: list[ClaimReview] = Field(min_length=1,max_length=2000)
-
 @router.get('/providers')
 def providers():return provider_info()
 
@@ -50,9 +46,6 @@ def analyze(key:str,payload:RunRequest):return call(service.analyze,key,payload.
 
 @router.get('/tasks/{key}/runs/{run_id}')
 def run(key:str,run_id:str):return call(service.load_run,key,run_id)
-
-@router.post('/tasks/{key}/runs/{run_id}/review')
-def review(key:str,run_id:str,payload:ReviewRequest):return call(service.review,key,run_id,payload.expected_revision,payload.decisions)
 
 @router.get('/tasks/{key}/export')
 def export(key:str,run_id:str|None=None):

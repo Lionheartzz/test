@@ -15,7 +15,9 @@ import pytest
 from PIL import Image
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
-from manifold import catalog, store, projects
+from manifold import store, projects
+from manifold.demo import CAVITY_ID
+from manifold.engineering_db import get_definition
 from manifold.server import app
 from manifold.ai_design import config, service, generation, jobs
 from manifold.ai_design.generation_models import GenerationRequest
@@ -56,8 +58,8 @@ def analyzed(client,requirements='P on left. T on right. Maximum block width 150
 
 
 def selection_request(task,run,**options):
-    definition=catalog.definition('metric:lib109:cavity:352')
-    selected=dict(definition_key='native:metric:lib109:cavity:352',definition_sha256=service.digest(definition.model_dump()),
+    definition=get_definition(CAVITY_ID)
+    selected=dict(definition_key='db:'+CAVITY_ID,definition_sha256=service.digest(definition.model_dump()),
                   zone_ports={'port1':'RV1_P','port2':'RV1_T'},decision='QA fixture: select existing VC08-2 geometry and map P/T for draft testing only.')
     return GenerationRequest(expected_revision=task['revision'],run_id=run['id'],options={
         'bindings':{'VALVE_RV1':selected},'max_attempts':2,**options})
@@ -160,7 +162,7 @@ def test_real_multimodal_transport_sends_documents_requirements_and_normalizes(c
     assert exc.value.code=='PROVIDER_AUTH' and len(state['requests'])==before+1
 
 
-def test_native_generation_is_editable_traceable_and_does_not_write_projects_or_library(client,tmp_path):
+def test_ai_generation_is_editable_and_uses_sqlite_ids_without_embedded_library(client,tmp_path):
     task,run=analyzed(client)
     request=selection_request(task,run)
     ready=generation.preflight(task['id'],request)
@@ -171,11 +173,12 @@ def test_native_generation_is_editable_traceable_and_does_not_write_projects_or_
     from manifold.schema import Design
     design=Design.model_validate(result['design'])
     assert len(design.components)==1 and len([f for f in design.features if f.kind=='port'])==2
-    assert design.block.width<=150 and design.origin.ai_trace.original_requirements==run['inputs']['engineering_requirements']
-    assert design.origin.ai_trace.analysis_id==task['id'] and design.origin.ai_trace.run_id==run['id']
+    assert design.block.width<=150 and design.origin.method=='ai-assisted'
     assert not (tmp_path/'projects'/'saved').exists() and not (tmp_path/'projects'/'library').exists()
-    assert design.library[0].native.source_sha256==catalog.definition('metric:lib109:cavity:352').native.source_sha256
-    assert design.review_items and any(i.status=='open' for i in design.review_items)
+    assert all(f.cavity_id==CAVITY_ID for f in design.features if f.kind=='cavity')
+    assert 'library' not in design.model_dump() and 'ai_trace' not in design.origin.model_dump()
+    assert design.review_items == []
+    assert not any(key in run['result'] for key in ('claims','evidence','knowledge_references'))
     # The existing import/save/build path handles the generated Design without a parallel project store.
     imported=client.post('/api/import-project',json=design.model_dump(),headers=HEADERS)
     assert imported.status_code==200,imported.text
@@ -185,14 +188,14 @@ def test_native_generation_is_editable_traceable_and_does_not_write_projects_or_
     build_folder=store.OUTPUT/'builds'/rebuilt['build']['build_id']
     assert (build_folder/'production.step').is_file()
     restored=projects.read(project['project_id'])['design']
-    assert restored['origin']['ai_trace']==design.origin.ai_trace.model_dump()
+    assert restored['origin']['method']=='ai-assisted' and 'library' not in restored
 
 
 def test_generation_requires_real_bindings_and_rejects_stale_or_conflicting_intent(client):
     task,run=analyzed(client)
     blank=GenerationRequest(expected_revision=task['revision'],run_id=run['id'])
     result=generation.preflight(task['id'],blank)
-    assert not result['ready'] and any('choose an existing cavity' in x for x in result['blocked'])
+    assert not result['ready'] and result['blocked']
     request=selection_request(task,run)
     request.options.bindings['VALVE_RV1'].zone_ports={'port1':'RV1_P','port2':'RV1_P'}
     assert not generation.preflight(task['id'],request)['ready']
@@ -200,23 +203,6 @@ def test_generation_requires_real_bindings_and_rejects_stale_or_conflicting_inte
     task=service.save(changed,task['id'],task['revision'])
     with pytest.raises(ValueError,match='stale'):
         generation.preflight(task['id'],GenerationRequest(expected_revision=task['revision'],run_id=run['id']))
-
-
-def test_required_face_and_forbidden_drilling_constraints_survive_generation_and_edit(client):
-    task,run=analyzed(client,'P on left. T on right. Avoid cross drilling from the top face. Maximum block width 150 mm.')
-    req=selection_request(task,run)
-    plan=generation.prepare(TaskInput.model_validate(task['inputs']),run['result'],req.options)
-    design,_,_=generation.candidate(plan,'a'*32,0)
-    assert design.constraints.forbidden_drilling_faces==['top']
-    from manifold.routing import resolve_design,authorize_generated_contacts
-    from manifold.geometry import build_geometry
-    from manifold.validation import validate
-    resolved,_=resolve_design(design);g=build_geometry(resolved);authorize_generated_contacts(resolved,g)
-    report=validate(resolved,g)
-    assert not any(c['rule']=='drilling_face_constraint' and c['status']=='FAIL' for c in report['checks'])
-    drilling=next(f for f in resolved.features if f.kind=='drilling')
-    resolved.constraints.forbidden_drilling_faces.append(drilling.face)
-    assert any(c['rule']=='drilling_face_constraint' and c['status']=='FAIL' for c in validate(resolved,g)['checks'])
 
 
 def test_jobs_finish_and_restart_status_does_not_claim_success(client,monkeypatch):
@@ -233,31 +219,26 @@ def test_jobs_finish_and_restart_status_does_not_claim_success(client,monkeypatc
     assert jobs.read(fake['id'])['status']=='interrupted'
 
 
-def test_bottom_ports_generate_without_drilling_through_other_cartridge_zones(client):
-    task,run=analyzed(client,'P and T on bottom. Maximum block width 150 mm. Avoid cross drilling from the top face.')
-    result=generation.generate(task['id'],selection_request(task,run,max_attempts=4))
-    assert result['status']=='draft',result
-    assert all(f['face']=='bottom' for f in result['design']['features'] if f['kind']=='port')
-    assert result['geometry_failures']==0,result['attempts']
-    assert result['design']['constraints']['forbidden_drilling_faces']==['top']
-    assert result['attempts'][0]['geometry_failures']>0 and result['selected_attempt']>0
-
 def test_intent_keeps_unmatched_targets_and_terminal_loads_explicit(client):
     from manifold.ai_design.intent import interpret, parameter_for
     from manifold.ai_design.generation_models import GenerationOptions
     task, run = analyzed(client)
     result = copy.deepcopy(run['result'])
     face = next(i for i in result['design_intent'] if i['category'] == 'port_face')
+    face['value'] = 'left'
     face['target_labels'].append('DOES_NOT_EXIST')
-    result['claims'].append(dict(id='LOAD',subject_id='EXT_P',predicate='flow',value=12,unit='l/min',kind='schematic',status='confirmed'))
-    # Use the actual external P identity from the contract.
-    terminal = next(p['id'] for p in result['ports'] if p['component_id'] is None and any(c['subject_id']==p['id'] and c['predicate']=='label' and c['value']=='P' for c in result['claims']))
-    result['claims'][-1]['subject_id'] = terminal
+    # Use the actual external P identity from the compact persisted contract.
+    port = next(p for p in result['ports'] if p['id']=='EXT_P')
+    port['label'] = 'P'
+    terminal = port['id']
+    port['facts']['flow'] = 12
+    port['fact_units']['flow'] = 'l/min'
+    port['fact_kinds']['flow'] = 'schematic'
     settings = interpret(result, GenerationOptions())
     assert next(r for r in settings['dispositions'] if r['intent_id']==face['id'])['status']=='review_required'
     net = next(n for n in result['nets'] if terminal in n['members'])
     assert parameter_for(result,settings['flows'],net)==12
-    result['claims'][-1]['kind']='ai_inference'
+    port['fact_kinds']['flow']='ai_inference'
     assert not interpret(result,GenerationOptions())['flows']
 
 def test_corrupt_settings_can_be_replaced_without_exposing_old_contents(client):

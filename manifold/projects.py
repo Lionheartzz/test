@@ -23,10 +23,13 @@ def read(key):
 
 def snapshot(record):
     from .network import endpoints
+    from .engineering_db import definitions_for_design,validate_references
     design=Design.model_validate(record['design'])
+    validate_references(design)
+    engineering={key:value.model_dump() for key,value in definitions_for_design(design).items()}
     revision=store.revision(design)
     pointer=record.get('build')
-    return dict(project_id=record['id'],design=design.model_dump(),revision=revision,build=pointer,network=endpoints(),
+    return dict(project_id=record['id'],design=design.model_dump(),engineering=dict(definitions=engineering),revision=revision,build=pointer,network=endpoints(),
                 updated_at=record['updated_at'],archived=record.get('archived',False),
                 stale=not pointer or pointer['design_revision']!=revision or pointer.get('engine_revision')!=store.engine_revision() or not store.engine_current())
 
@@ -40,6 +43,8 @@ def check(record,expected):
         raise ValueError('Saved project changed. Reopen it before saving; your draft is preserved.')
 
 def save(design,key=None,expected=None):
+    from .engineering_db import validate_references
+    validate_references(design)
     with store.project_lock():
         if key:
             record=read(key);check(record,expected)
@@ -52,7 +57,10 @@ def save(design,key=None,expected=None):
 def prepare_build(key,expected,design=None):
     with store.project_lock():
         record=read(key);check(record,expected)
-        return dict(key=key,expected=expected,record=record,target=design or Design.model_validate(record['design']),build_id=uuid.uuid4().hex)
+        target=design or Design.model_validate(record['design'])
+        from .engineering_db import validate_references
+        validate_references(target)
+        return dict(key=key,expected=expected,record=record,target=target,build_id=uuid.uuid4().hex)
 
 
 def finish_build(plan,report):

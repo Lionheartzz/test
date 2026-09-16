@@ -1,50 +1,37 @@
-# AI Design: schematic to editable manifold draft
+# AI Design: schematic or requirements to an editable project
 
-AI Design accepts PDF/PNG/JPEG schematics together with the original engineering requirements, interprets them through a configurable multimodal provider, and compiles the reviewed hydraulic representation into the existing schema-version-1 Design. Geometry, routing and validation remain deterministic PMC operations.
+AI Design uses the same SQLite engineering database as the rest of PMC Manifold Studio. It may interpret an explicit schematic or a cavity-layout request, but it never creates cavity geometry or cartridge compatibility from model-name similarity.
 
-## First run
+## Runtime contract
 
-1. Run PMC locally at `http://127.0.0.1:8765/`, open **AI Design**, then **Provider settings**.
-2. Enter your API base URL, multimodal model ID and API key. No vendor, endpoint or model is preset. The current transport is Chat Completions with inline image content; use a model/server supporting that contract. Enable the provider and save. HTTPS is required except for a loopback model server. Anonymous access is an explicit option for servers that need no key.
-3. Create an analysis, upload your schematic and enter requirements such as port faces, block dimensions, prohibited drilling faces, operating flow and pressure. Select the configured provider and **Analyze & create manifold draft**.
-4. Review source evidence, ambiguous connections and requirements. When a cavity cannot be resolved from existing evidence, choose an existing library cavity, map each source hydraulic window to one schematic component port and enter your engineering decision. A model number alone does not establish cavity compatibility.
-5. Generate the draft, inspect the attempted candidates and exact validation results, then **Open draft in Manifold Studio**. Save it as an ordinary project. Edit positions, reroute, undo/redo and Save & Validate through the normal Studio controls.
-
-The application exposes only the configured real multimodal provider. Without a ready configuration, analysis requires Provider settings; there is no mock fallback or synthetic-schematic action. Deterministic provider fixtures live under tests only and are injected explicitly by regression tests.
+- Library lookup reads `pmc_engineering.db` through the backend.
+- Generated placements store `cavity_id` and optional `cartridge_id`; full engineering definitions are not copied into the project.
+- Cartridge assignment is accepted only when the explicit SQLite many-to-many relationship is valid.
+- A schematic component is created only when the input contains schematic intent. A cavity-layout request without intent produces placements, nets and ports with `schematic_intent=null`.
+- Geometry, routing, wall, connectivity and STEP checks remain deterministic PMC operations.
+- Provider interpretation objects may exist during one analysis run. The saved analysis and generated project retain only normalized operational input, selected IDs, unresolved items, job state, errors and performance diagnostics. They do not persist a claim/evidence/lineage graph.
 
 ## Provider and document boundary
 
-Settings are server-side in ignored `.pmc-local/ai-provider.json`. The key is stored locally, is not encrypted by PMC, and is excluded from public settings, projects and exports. Changing the endpoint requires a new key; clearing the key disables the provider. Settings access requires the server's loopback interface. Selected documents and original requirements are sent to the provider when analysis runs; CAD and saved projects remain local.
+Provider settings are stored locally in ignored `.pmc-local/ai-provider.json`. No endpoint, model or credential is preset. Selected documents and requirements are sent only to the configured provider when the user runs analysis. CAD, SQLite and saved projects stay local.
 
-PDF pages are rasterized locally in an isolated renderer process; PNG/JPEG images are decoded and resized. Cached page images retain source SHA-256 and page identity. Default page budget is 12, configurable up to 24; exceeding it fails explicitly instead of silently dropping pages. Upload limits remain 20 files, 20 MB per file, 100 MB total. Original documents are hash-checked before analysis and generation. Source review supports rendered PDF pages and normalized region boxes.
+PDF/PNG/JPEG admission, bounded page rendering, cancellation, timeout handling and credential protection remain in force. Production exposes no mock-provider fallback; deterministic provider fixtures are test-only.
 
-The provider sees a bounded semantic extraction schema and untrusted source evidence, never CAD tools. PMC computes internal identities, validates claims, source references, original requirement quotes and topology, and rejects extra fields or invalid units/numbers. Max output tokens accepts any positive integer or blank (omit the parameter); there is no PMC token ceiling or hidden 2 MB response ceiling. Existing semantic structure and document admission limits remain unchanged. Remote failures use bounded classifications; raw response/error bodies and credentials are not stored in diagnostics. Transport tests use a local HTTP server. Operator real-provider trials reached the API but failed with truncation/timeouts. The integration follow-up uses isolated HTTP fixtures and does not automatically repeat paid calls. See `docs/PROVIDER_DIAGNOSTICS.md` for findings and next-test settings.
+## Generation
 
-## Generation and engineering authority
+1. Normalize the current request and any explicit schematic intent.
+2. Resolve cavity, cartridge and external-port IDs from SQLite.
+3. Stop with a clear unresolved item when identity, compatibility or interface mapping is ambiguous.
+4. Generate a schema-2 project containing project state and engineering IDs.
+5. Run bounded placement/routing candidates through the existing exact CAD and validation pipeline.
+6. Open the chosen result as an ordinary editable draft. Save and Save & Validate use the normal project workflow.
 
-Generation is limited to four cartridges, forty hydraulic terminals and sixteen nets. Existing native/PMC/project definitions are read without modifying libraries and pinned by definition SHA. Automatic cavity resolution requires existing compatibility evidence or explicit source cavity identity with an exact interface mapping. Manual choices and topology/face overrides retain the engineer's decision. Demo definitions retain their demo status.
+The result may still contain engineering failures or warnings and remains a Draft until the usual exact validation passes. Unsupported requirements remain visible; the generator does not infer vendor geometry, pressure certification or hydraulic-window numbering.
 
-Supported requirements include block min/max/exact dimensions, external-port and component mounting faces, forbidden cross-drilling faces, routing priorities, material metadata, flow screening and pressure metadata. Required faces and dimensional/drilling constraints persist into subsequent manual editing and validation. Unmatched target labels are left for review. Explicit, confirmed terminal operating flow/working-pressure claims with supported units can populate their net; component ratings, settings and AI-inferred loads are not treated as design loads. Pressure loss, valve sizing, thermal behavior and material/rating suitability are not computed.
+## Persistence
 
-A bounded sequence of layouts uses the existing router and exact OCCT checks. Each attempted design, resolved route and validation report is retained. The selected result may still contain engineering failures or warnings and is labeled Draft. No buildable candidate produces a recoverable result; adjust the topology, library mapping or constraints and rerun. This is a finite candidate search, not a general layout optimizer.
+- Analyses: ignored `projects/ai-design/<id>.json`.
+- Operational run output: ignored `output/ai-design/<id>/` and `output/ai-jobs/`.
+- Generated projects: normal schema-2 records under `projects/saved/` after an explicit save.
 
-Unspecified external-port machining definitions become visibly provisional unthreaded bores requiring review. The generator never invents vendor cavities or implies machining/pressure certification. Unsupported requirements remain in the execution report and engineering-review items, including blocking review for unsupported hard requirements.
-
-## Persistence and recovery
-
-- Analyses: ignored `projects/ai-design/<id>.json`; immutable runs and generation attempts: `output/ai-design/<id>/`.
-- The compiler does not overwrite an existing project. Opening a generation creates an unsaved draft; normal project saving uses `projects/saved/<id>.json` and existing optimistic revisions.
-- Every draft carries `origin.ai_trace`, analysis/run/generation identities, input/result hashes and verbatim requirements. The generation record also retains engineer decisions, requirement dispositions and semantic-to-feature/terminal mappings.
-- Project export preserves the trace and requirements. Detailed analysis/generation records and uploaded source binaries are separate local artifacts; copying a project alone does not bundle them.
-- Stale analysis or changed library pins block generation. Concurrent revisions preserve completed evidence without replacing the newer workspace state. Failed analyses preserve the previous successful result.
-- One background AI operation runs at a time. Job progress is persisted under `output/ai-jobs/`; a service restart marks incomplete jobs interrupted and permits rerun. This is a local executor, not a durable distributed queue.
-
-The original hydraulic schema remains distinct from Design. Claims preserve source kinds, unknowns, alternatives and engineer-review overlays. Reviewing a model name does not manufacture knowledge-base compatibility. The separate Knowledge Base has not been migrated or written by this feature.
-
-## API map
-
-Existing task/run/review/export endpoints remain under `/api/ai-design`. New endpoints expose settings, rendered source pages, library searches, generation preflight, job start/status and immutable generation retrieval. Consult `manifold/ai_design/api.py` for the exact route contract. `remote.py` owns the current transport; `semantic.py` owns semantic admission; `generation.py` compiles into the existing CAD pipeline. Other providers can implement the same analysis adapter without changing Design or embedding vendor response syntax in hydraulic entities.
-
-## Provider diagnostics and controls
-
-Operator-selected reasoning dialect/mode/effort can be overridden per operation. No endpoint/model-name detection is used. Automatic semantic-contract retry defaults to zero and can be explicitly enabled once; auth, HTTP, network, timeout and truncation never retry. Optional SSE streaming records usage when reported and discards reasoning text. All requests share a total provider deadline. Runs expose normalized token fields, per-request evidence, stage and actionable failure guidance. Latest attempt is separate from latest successful result, including legacy failed runs. See [Provider diagnostics](PROVIDER_DIAGNOSTICS.md).
+The compact saved records are for current workflow recovery and diagnostics. They are not an engineering master or an audit reconstruction system.

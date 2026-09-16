@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "QA simple valid route versus lower proxy risk",
   "units": "mm",
   "project_context": "metric",
@@ -15,7 +15,6 @@
     "max_depth_diameter_ratio": 20.0,
     "minimum_access_gap": 2.0
   },
-  "library": [],
   "features": [
     {
       "id": "P1",
@@ -23,8 +22,6 @@
       "face": "front",
       "u": 30.526812236616088,
       "v": 57.410168960010246,
-      "definition": null,
-      "circuits": {},
       "circuit": "P",
       "diameter": 12.0,
       "depth": 16.0,
@@ -38,7 +35,6 @@
       "connects_to": [],
       "suppressed": false,
       "rotation": 0.0,
-      "cartridge_model": "",
       "schematic_id": "",
       "route_net": null,
       "frozen_net": null,
@@ -56,8 +52,6 @@
       "face": "back",
       "u": 33.3319936365868,
       "v": 59.06100309995895,
-      "definition": null,
-      "circuits": {},
       "circuit": "P",
       "diameter": 12.0,
       "depth": 16.0,
@@ -71,7 +65,6 @@
       "connects_to": [],
       "suppressed": false,
       "rotation": 0.0,
-      "cartridge_model": "",
       "schematic_id": "",
       "route_net": null,
       "frozen_net": null,
@@ -89,8 +82,6 @@
       "face": "left",
       "u": 67.34943951625479,
       "v": 70.70620885517265,
-      "definition": null,
-      "circuits": {},
       "circuit": "T",
       "diameter": 10.0,
       "depth": 21.364025006372696,
@@ -104,7 +95,6 @@
       "connects_to": [],
       "suppressed": false,
       "rotation": 0.0,
-      "cartridge_model": "",
       "schematic_id": "",
       "route_net": null,
       "frozen_net": null,
@@ -122,8 +112,6 @@
       "face": "left",
       "u": 67.34943951625479,
       "v": 70.70620885517265,
-      "definition": null,
-      "circuits": {},
       "circuit": "T",
       "diameter": 6.0,
       "depth": 22.364025006372696,
@@ -139,7 +127,6 @@
       ],
       "suppressed": false,
       "rotation": 0.0,
-      "cartridge_model": "",
       "schematic_id": "",
       "route_net": null,
       "frozen_net": null,
@@ -191,8 +178,6 @@
       "routing_variant": null
     }
   ],
-  "components": [],
-  "schematics": [],
   "constraints": {
     "preferred_wall_margin": 4.0,
     "envelope_max": null,
@@ -220,6 +205,5 @@
     "provider": "",
     "model": "",
     "notes": ""
-  },
-  "library_resources": []
+  }
 }

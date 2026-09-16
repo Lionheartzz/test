@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {smartAlign,featureLabel} from '../web/kinematics.js';
+import {smartAlign,featureLabel,clamp,syncNets} from '../web/kinematics.js';
 
 const drill=(id,face,u,v)=>({id,kind:'drilling',face,u,v,depth:80,diameter:8,plugged:true,clearance_diameter:16});
 const base=()=>({block:{length:160,width:120,height:120},library:[],features:[]});
@@ -21,9 +21,17 @@ test('route snaps to external port centerline coordinates',()=>{
   assert.equal(smartAlign(f,d,41,72).values[1],73);
 });
 test('route snaps to transformed cavity hydraulic interface, not origin',()=>{
-  const d=base(),f=drill('EDIT','left',23,96);d.features=[f,{id:'CV',kind:'cavity',face:'top',u:80,v:21,definition:'D',rotation:90}];
+  const d=base(),f=drill('EDIT','left',23,96);d.features=[f,{id:'CV',kind:'cavity',face:'top',u:80,v:21,cavity_id:'D',rotation:90}];
   d.library=[{id:'D',zones:[{id:'flow',start:20,end:30,offset_u:3,offset_v:7}]}];
   const r=smartAlign(f,d,25.2,94,2);assert.deepEqual(r.values,[24,95]);assert.ok(r.guides.every(g=>g.label==='CV:flow'));
+});
+test('fresh schema-2 cavity placement uses IDs before hydration aliases exist',()=>{
+  const d=base(),definition={id:'D',clearance_diameter:30,stages:[{diameter:30}],boundaries:[],zones:[{id:'port1'},{id:'port2'}]};
+  d.library=[definition];d.nets=[{id:'P'},{id:'T'}];
+  const f={id:'CV1',kind:'cavity',face:'top',u:80,v:60,cavity_id:'D',interface_nets:{port1:'P',port2:'T'}};
+  assert.deepEqual(clamp(f,d,f.u,f.v),[80,60]);
+  d.features.push(f);syncNets(d);
+  assert.deepEqual(d.nets.map(n=>n.members),[['CV1:port1'],['CV1:port2']]);
 });
 test('alignment ignores suppressed routes and keeps face envelope',()=>{
   const d=base(),f=drill('EDIT','left',40,66);d.features=[f];

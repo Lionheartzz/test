@@ -36,10 +36,13 @@ def tip_depth(f):
 
 
 @timed('geometry.construction')
-def build_geometry(design: Design):
+def build_geometry(design: Design, definitions=None):
     b = design.block
     block = cq.Solid.makeBox(b.length, b.width, b.height)
-    lib = {d.id: d for d in design.library}
+    if definitions is None:
+        from .engineering_db import definitions_for_design
+        definitions=definitions_for_design(design)
+    lib = definitions
     cuts, nodes, circuits, envelopes, plugs, placements = {}, {}, {}, {}, {}, {}
     boundaries = {}
     for f in design.features:
@@ -87,7 +90,7 @@ def build_geometry(design: Design):
                 if not face.isValid() or face.Area() <= 1e-6:
                     raise ValueError(f'{f.id}: invalid mounting boundary')
                 shape = cq.Solid.extrudeLinear(wire,[],cq.Vector(*[-x*boundary.height for x in direction])) if boundary.height else face
-                boundaries[f'{f.id}/{i}'] = dict(shape=shape,owner=f.id,category=boundary.category,source=boundary.source,height=boundary.height)
+                boundaries[f'{f.id}/{i}'] = dict(shape=shape,owner=f.id,category=boundary.category,height=boundary.height)
         else:
             from .kinematics import FACE_AXES
             cosine=abs(direction[FACE_AXES[f.face][2]])

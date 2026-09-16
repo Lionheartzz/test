@@ -19,7 +19,7 @@ def path(key):return store.OUTPUT/'ai-jobs'/(service.identifier(key)+'.json')
 def read(key):
     record=json.loads(path(key).read_text(encoding='utf-8'))
     if record['status'] in ('queued','running') and record['process']!=_process:
-        record.update(status='interrupted',message='The local service restarted. Inputs and completed evidence are retained; rerun the operation.')
+        record.update(status='interrupted',message='The local service restarted. Inputs are retained; rerun the operation.')
     return {k:v for k,v in record.items() if k not in ('process','request')}
 
 
@@ -64,9 +64,9 @@ def _execute(record):
         else:
             record.update(status='completed',message='Operation completed',result=result)
     except service.Conflict:
-        record.update(status='conflict',message='Analysis changed while the operation ran. Earlier inputs and completed run/candidate evidence are retained; reopen the analysis.')
+        record.update(status='conflict',message='Analysis changed while the operation ran. The newer inputs were preserved; reopen the analysis.')
     except (ValueError,FileNotFoundError):
-        record.update(status='failed',message='Inputs, source files or selected library revisions need review. Reopen the analysis and run the generation preflight.')
+        record.update(status='failed',message='Inputs, source files or selected engineering definitions need review. Reopen the analysis and run the generation preflight.')
     except CalculationError as exc:
         record.update(status='failed',message=str(exc))
     except RuntimeError:

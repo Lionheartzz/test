@@ -62,7 +62,9 @@ def search_routes(design,max_attempts=6):
     eligible={n.id for n in best.nets if n.routing=='automatic'}
     inspected={tuple(sorted((r['net'],r['variant']) for r in routes))}
     while len(attempts)<max_attempts:
-        proposals=alternative_proposals(best,target,routes,report,eligible,inspected)
+        # This endpoint is an explicit user request to compare route cost, so it
+        # may explore every automatic net even when the baseline already passes.
+        proposals=alternative_proposals(best,target,routes,report,eligible,inspected,repair_only=False)
         if not proposals:break
         _,candidate,signature,reason=proposals[0]
         inspected.add(signature)

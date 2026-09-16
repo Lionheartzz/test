@@ -7,11 +7,16 @@ EPS = 1e-6
 
 
 @timed('validation')
-def validate(design, g):
+def validate(design, g, definitions=None):
+    if definitions is None:
+        from .engineering_db import definitions_for_design
+        definitions=definitions_for_design(design)
     checks = []
     threshold = design.rules.minimum_overlap_volume
     wall = design.rules.minimum_wall
     by_id = {f.id: f for f in design.features}
+    def port_diameter(feature):
+        return definitions[feature.port_definition_id].zones[0].diameter if feature.port_definition_id else feature.diameter
     graph = {k: set() for k in g.nodes}
     overlaps = {}
 
@@ -102,10 +107,10 @@ def validate(design, g):
             window = g.nodes[port.id]
             # A coaxial continuation through the declared inlet is allowed; a lateral
             # cut must stay inside the hydraulic window, including its opening area.
-            z = next(d for d in design.library if d.id == port.definition).zones[0]
+            z = definitions[port.definition].zones[0]
             coaxial = (other.kind == 'drilling' and other.face == port.face
                        and abs(other.u-port.u)<EPS and abs(other.v-port.v)<EPS
-                       and other.diameter <= min(z.diameter,port.diameter) and other.circuit == port.circuit
+                       and other.diameter <= min(z.diameter,port_diameter(port)) and other.circuit == port.circuit
                        and all(abs(x-y)<EPS for x,y in zip(g.placements[port.id]['direction'],g.placements[other.id]['direction']))
                        and tuple(sorted((port.id,other.id))) in expected)
             protected = g.cuts[port.id].cut(window)
@@ -164,7 +169,7 @@ def validate(design, g):
         if f.kind == 'drilling' and not f.plugged:
             ports = [p for p in design.features if p.kind == 'port' and p.face == f.face
                      and abs(p.u - f.u) < EPS and abs(p.v - f.v) < EPS
-                     and p.diameter >= f.diameter and p.circuit == f.circuit
+                     and port_diameter(p) >= f.diameter and p.circuit == f.circuit
                      and all(abs(x-y)<EPS for x,y in zip(g.placements[p.id]['direction'],g.placements[f.id]['direction']))
                      and tuple(sorted((p.id, f.id))) in expected]
             result('drilling_entry_closure', [f.id], len(ports), '>= 1 port or a plug', bool(ports),
@@ -208,8 +213,9 @@ def validate(design, g):
         f = by_id.get(component.feature_id)
         matches = (f is not None and not f.suppressed and f.kind == 'cavity' and f.circuits == component.ports
                    and (not component.cavity_definition or component.cavity_definition == f.definition)
-                   and (not component.cartridge_model or component.cartridge_model == f.cartridge_model))
-        result('schematic_conformance', [component.id], matches, True, matches and component.status == 'confirmed', 'Confirmed schematic component must match a placed active cartridge and its port assignments.')
+                   and (not component.cartridge_id or component.cartridge_id == f.cartridge_id))
+        result('schematic_conformance', [component.id], matches, True, matches,
+               'Schematic intent must match a placed active cavity, optional cartridge assignment and interface nets.')
     if design.constraints.envelope_max:
         dims = (design.block.length,design.block.width,design.block.height)
         result('block_envelope', ['block'], str(dims), str(design.constraints.envelope_max), all(a <= limit for a,limit in zip(dims,design.constraints.envelope_max)), 'Block must fit requested maximum envelope.')
@@ -235,7 +241,7 @@ def validate(design, g):
     active_definitions = {f.definition for f in design.features if f.definition and not f.suppressed}
     for f in design.features:
         if f.definition and not f.suppressed:
-            definition = next(d for d in design.library if d.id == f.definition)
+            definition = definitions[f.definition]
             if definition.cutting_primitives:
                 for a,z in combinations(definition.zones,2):
                     keys=[f'{f.id}:{a.id}',f'{f.id}:{z.id}']
@@ -244,32 +250,17 @@ def validate(design, g):
                            'Separate installed hydraulic windows must not overlap. Native draft mappings retain conflicts for correction.',unit='mm³')
             for z in definition.zones:
                 key = f.id if f.kind == 'port' else f'{f.id}:{z.id}'
-                if z.offset_u or z.offset_v or next(d for d in design.library if d.id == f.definition).cutting_primitives:
+                if z.offset_u or z.offset_v or definitions[f.definition].cutting_primitives:
                     outside = max(0.0,g.nodes[key].Volume()-g.nodes[key].intersect(g.cuts[f.id]).Volume())
                     result('mapped_interface_containment',[key],outside,0,outside<=EPS,'Mapped hydraulic windows must be contained in the exact cavity cutting volume.',unit='mm³')
                     result('mapped_interface_volume',[key],g.nodes[key].Volume(),'> 0',g.nodes[key].Volume()>EPS,'A mapped working-area window must contain fluid volume.',unit='mm³')
-    for definition in design.library:
-        if definition.id in active_definitions and definition.native:
-            mapping_valid=definition.native.geometry_status == 'engineer-mapped'
-            if definition.native.geometry_status == 'imported-dimensional':
-                from .catalog import map_record
-                try:
-                    native=definition.native
-                    mapped=map_record((native.mapping_record or native.record).model_dump(),native.mapping_related_records if native.mapping_related_records is not None else native.related_records,native.datum_mode)
-                    mapping_valid=(mapped.native.geometry_status=='imported-dimensional' and
-                                   mapped.cutting_primitives==definition.cutting_primitives and mapped.zones==definition.zones)
-                except ValueError:
-                    mapping_valid=False
-            result('native_geometry_mapping', [definition.id], definition.native.geometry_status,
-                   'consistent imported dimensions or engineer-mapped', mapping_valid,
-                   'Native record is retained in full. Draft projection needs explicit geometry and interface mapping.', severity='WARNING')
     result('solid_validity', ['block'], g.production.isValid(), True, g.production.isValid(), 'OCCT BRep validity.')
     result('solid_count', ['block'], len(g.production.Solids()), 1, len(g.production.Solids()) == 1,
            'Machined block must remain one connected solid.')
     result('removed_volume', ['block'], g.block.Volume() - g.production.Volume(), '> 0',
            EPS < g.production.Volume() < g.block.Volume(), 'Production solid must contain actual subtractive geometry.', unit='mm³')
     counts = {s: sum(c['status'] == s for c in checks) for s in ['PASS', 'WARNING', 'FAIL']}
-    unresolved_machining = [d.id for d in design.library if d.id in active_definitions and d.native and d.native.machining_status != 'engineer-reviewed']
+    unresolved_machining = [d.id for d in definitions.values() if d.id in active_definitions and not d.machining]
     unresolved_plug_entries = [f.id for f in design.features if f.plugged and not f.suppressed]
     return dict(status='FAIL' if counts['FAIL'] else 'WARNING' if counts['WARNING'] else 'PASS', counts=counts,
                 manufacturing_ready=not unresolved_machining and not unresolved_plug_entries and not counts['FAIL'] and not counts['WARNING'],
