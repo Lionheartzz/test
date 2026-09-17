@@ -30,6 +30,11 @@ def signature(value):
     return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
 
 
+def legacy_unit(definition):
+    value=definition.get("unit_system") or definition.get("native",{}).get("record",{}).get("unit_system")
+    return value if value in {"metric","inch","custom"} else "custom"
+
+
 def existing_signatures(connection):
     result={}
     for table in ("cavities","external_port_definitions"):
@@ -54,7 +59,7 @@ def install_legacy_definition(connection, raw, known):
     if digest in known:return known[digest]
     identifier="legacy_"+digest[:20]
     role=raw.get("usage_role") or ("external-port" if len(raw.get("zones",[]))==1 and raw.get("valve_function") in ("P","PORT") else "cavity")
-    common=(identifier,raw.get("label",identifier),raw.get("manufacturer","Legacy project"),"custom",
+    common=(identifier,raw.get("label",identifier),raw.get("family") or raw.get("manufacturer","Legacy project"),legacy_unit(raw),
             raw.get("manufacturer","Legacy project"),raw.get("thread_note",""),
             json.dumps(value["stages"],separators=(",",":")),json.dumps(value["primitives"],separators=(",",":")),
             json.dumps(value["boundaries"],separators=(",",":")),json.dumps(value["machining"],separators=(",",":")),

@@ -85,7 +85,7 @@ export function guided(ctx,open){
           const [u,v]=axes[s.face],f={id:'CV'+(++count),kind:'cavity',face:s.face,u:dims[u]*count/(total+1),v:dims[v]/2,cavity_id:s.def.id,interface_nets:{...s.mapping},cartridge_id:s.cartridge_id};[f.u,f.v]=clamp(f,d,f.u,f.v);d.features.push(f);
         }}
         if(configured.length)d.review_items.push({id:'PORT_SPEC',kind:'component',subject:'External ports',description:'Confirm port standards, sizes, depths and material grade. Source machining profiles are pinned where selected; custom bores and fitting installation require engineering review.',status:'open'});
-        syncNets(d);const checked=await post('/api/check-design',d);if(newProject(checked,Object.fromEntries(d.library.map(x=>[x.id,x])))){dialog.close();notice('New project ready. Refine placement and routes, then Save Project or Save & Validate.');}
+        syncNets(d);const checked=await post('/api/check-design',d);if(newProject(checked,Object.fromEntries(d.library.map(x=>[x.id,x])))){dialog.close();notice('New project ready. Refine placement and routes, then Save Project or Validate.');}
       }));
     };block();
   };

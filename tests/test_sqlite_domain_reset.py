@@ -5,6 +5,7 @@ import pytest
 
 from manifold.engineering_db import (
     compatible,
+    create_custom_cavity,
     database_path,
     get_definition,
     initialize_schema,
@@ -135,6 +136,24 @@ def test_relative_database_path_is_application_root_relative(tmp_path,monkeypatc
     assert database_path()==(tmp_path/'configured'/'engineering.db').resolve()
 
 
+def test_custom_cavity_is_new_searchable_sqlite_definition(engineering_db):
+    master=get_definition('CAV_A')
+    custom=create_custom_cavity(master.model_copy(update={'label':'Operator T-10A custom','unit_system':'custom'}))
+    assert custom.id.startswith('custom_') and custom.id!='CAV_A'
+    assert get_definition('CAV_A').label=='Test cavity'
+    assert get_definition(custom.id).label=='Operator T-10A custom'
+    found=search_definitions(query='Operator T-10A',unit='custom',status='usable')
+    assert [row['id'] for row in found['items']]==[custom.id]
+    design=cavity_only().model_copy(deep=True);design.features[0].cavity_id=custom.id
+    validate_references(design)
+
+
+def test_net_color_and_label_survive_project_json(engineering_db):
+    design=cavity_only();design.nets[0].label='Pressure supply';design.nets[0].color='#12Ab34'
+    restored=Design.model_validate_json(design.model_dump_json())
+    assert restored.nets[0].label=='Pressure supply' and restored.nets[0].color=='#12Ab34'
+
+
 def test_zero_footprint_import_uses_cavity_engineering_data(tmp_path,monkeypatch):
     source=tmp_path/'merged';source.mkdir()
     revision_id='rev_1'
@@ -213,6 +232,23 @@ def test_schema1_migration_drops_fake_intent_and_ai_evidence(engineering_db):
     assert not any(migrated['origin'][key] for key in ('author','provider','model'))
     assert 'members' not in migrated['nets'][0]
     assert 'library' not in migrated and 'components' not in migrated and 'ai_trace' not in migrated['origin']
+
+
+def test_reusable_t10a_metric_variant_recovers_as_distinct_sqlite_definition(engineering_db):
+    variant=dict(id='OLD_T10A_M',label='T-10A [M]',manufacturer='Sun Hydraulics',thread_note='M20x1.5',native={'record':{'unit_system':'metric'}},
+        stages=[dict(start=0,end=24,diameter=12)],zones=[dict(id='port1',start=12,end=24,diameter=10)],
+        cutting_primitives=[],boundaries=[],machining=[],clearance_diameter=18,clearance_height=24)
+    raw=dict(schema_version=1,name='Legacy reusable custom',units='mm',project_context='metric',
+        block=dict(length=100,width=100,height=100,material='Aluminium'),library=[variant],
+        features=[dict(id='CV1',kind='cavity',face='top',u=50,v=50,definition='OLD_T10A_M',circuits={'port1':'P'})],
+        nets=[dict(id='P',label='P',routing='automatic',diameter=8)],constraints={},rules={})
+    from manifold.engineering_db import _connect
+    with _connect(engineering_db,writable=True) as connection,connection:
+        migrated=convert(raw,connection)
+    recovered=migrated['features'][0]['cavity_id']
+    assert recovered.startswith('legacy_') and recovered!='CAV_A'
+    assert get_definition(recovered).label=='T-10A [M]' and get_definition(recovered).unit_system=='metric'
+    assert recovered in {row['id'] for row in search_definitions(query='T-10A [M]',scope='custom')['items']}
 
 
 def test_failed_project_migration_rolls_back_legacy_definition(engineering_db,tmp_path):

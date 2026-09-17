@@ -4,11 +4,11 @@ import {customPort,portSetup} from './port-setup.js';
 import {guided} from './guided.js';
 import {libraryUI} from './library-ui.js';
 import {projectUI} from './project-ui.js';
-import {clamp,syncNets} from './kinematics.js';
+import {clamp,syncNets,featureLabel,returnNetToAutomatic} from './kinematics.js';
 import {hydrateDesign} from './domain.js';
 
 export function workflows(ctx){
-  const {adoptRoute,$,element,field,action,api,post,get,state,change,set,newId,select,notice,resolved}=ctx;
+  const {adoptRoute,replaceCavity,$,element,field,action,api,post,get,state,change,set,newId,select,notice,resolved}=ctx;
   const content=$('workflow-content'),dialog=$('workflow-dialog');
   const guard=fn=>async()=>{try{await fn();$('workflow-error').textContent='';}catch(e){$('workflow-error').textContent=e.message;}};
   function open(title){$('workflow-title').textContent=title;content.replaceChildren();$('workflow-error').textContent='';if(!dialog.open)dialog.showModal();}
@@ -29,7 +29,7 @@ export function workflows(ctx){
     action(content,'Add cavities to draft',()=>{if(!Number.isInteger(quantity)||quantity<1||quantity>20){$('workflow-error').textContent='Quantity must be 1–20.';return;}for(let i=0;i<quantity;i++)insertNow(def,face,{...mapping},i);});
   }
 
-  const library=libraryUI(ctx,{open,insert});
+  const library=libraryUI(ctx,{open,insert,onCustomSaved:remember});
   projectUI(ctx);
   guided(ctx,open,library,nets);
   $('library-open').onclick=guard(library);
@@ -41,7 +41,7 @@ export function workflows(ctx){
     content.append(element('p','Creates an explicit non-hydraulic plain bore. Thread geometry and fastener compatibility are not inferred.'));
     action(content,'Add mounting hole',guard(async()=>{const baseline=JSON.stringify(get()),d=structuredClone(get()),dims=[d.block.length,d.block.width,d.block.height],axes={top:[0,1,2],bottom:[0,1,2],front:[0,2,1],back:[0,2,1],left:[1,2,0],right:[1,2,0]}[face],id='MNT_'+crypto.randomUUID().replaceAll('-','');
       d.features.push({id,kind:'mounting',face,u:dims[axes[0]]/2,v:dims[axes[1]]/2,diameter,depth:through?dims[axes[2]]:depth,through,tip_angle:through?180:118});
-      const checked=await post('/api/check-design',d);if(JSON.stringify(get())!==baseline)throw Error('Draft changed while adding mounting hole. Retry.');if(change(()=>set(hydrateDesign(checked,definitions())))){select(id);dialog.close();notice('Mounting hole added. Position it and Save & Validate before drawing.');}
+      const checked=await post('/api/check-design',d);if(JSON.stringify(get())!==baseline)throw Error('Draft changed while adding mounting hole. Retry.');if(change(()=>set(hydrateDesign(checked,definitions())))){select(id);dialog.close();notice('Mounting hole added. Position it and Validate before drawing.');}
     }));
   };
 
@@ -61,14 +61,16 @@ export function workflows(ctx){
   function nets(){
     open('Hydraulic Nets · intent and derived connections');content.append(element('p','Net members are derived from cavity interface assignments and external ports. Automatic routing proposes geometry; exact validation decides whether it is acceptable.'));
     action(content,'Adopt automatic routing',guard(async()=>{const d=await post('/api/adopt-routing',get());change(()=>set(hydrateDesign(d,definitions())));nets();}));
-    action(content,'Optimize routes with exact checks',guard(async()=>{if(!state().project_id)throw Error('Save Project before running exact route optimization.');const baseline=JSON.stringify(get());const r=await post('/api/optimize-routes',{design:get(),project_id:state().project_id,expected_revision:state().revision,max_attempts:6});if(JSON.stringify(get())!==baseline)throw Error('Draft changed during optimization.');change(()=>set(hydrateDesign(r.design,definitions())));nets();content.prepend(element('p',`${r.attempts.length} exact candidates · FAIL ${r.baseline.FAIL} → ${r.final.FAIL}. Save & Validate to commit.`));}));
+    action(content,'Optimize routes with exact checks',guard(async()=>{if(!state().project_id)throw Error('Save Project before running exact route optimization.');const baseline=JSON.stringify(get());const r=await post('/api/optimize-routes',{design:get(),project_id:state().project_id,expected_revision:state().revision,max_attempts:6});if(JSON.stringify(get())!==baseline)throw Error('Draft changed during optimization.');change(()=>set(hydrateDesign(r.design,definitions())));nets();content.prepend(element('p',`${r.attempts.length} exact candidates · FAIL ${r.baseline.FAIL} → ${r.final.FAIL}. Validate to commit.`));}));
     const newNet=element('div',null,'action-row'),name=element('input');name.setAttribute('aria-label','New net ID');name.placeholder='NET_P';newNet.append(name);action(newNet,'Add net',()=>{if(!/^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(name.value)||get().nets.some(n=>n.id===name.value)){$('workflow-error').textContent='Use a unique engineering ID';return;}change(()=>get().nets.push({id:name.value,label:name.value,routing:'automatic',diameter:8}));nets();});content.append(newNet);
-    for(const n of get().nets){const card=element('section',null,'library-card');content.append(card);card.append(element('h3',n.id),element('p',netMembers(get(),n.id).join(' ↔ ')||'No interfaces assigned'));const edit=(label,value,fn,o=null,num=false)=>field(card,label,value,v=>{if(change(()=>fn(v)))nets();},o,num);
-      edit('Diameter sizing · '+n.id,n.diameter_mode||'automatic',v=>{n.diameter_mode=v;n.routing_variant=null;},{automatic:'Automatic from flow',manual:'Engineer override'});edit('Drill diameter · '+n.id,n.diameter,v=>{n.diameter=v;n.diameter_mode='manual';n.routing_variant=null;},null,true);edit('Velocity limit m/s · '+n.id,n.velocity_limit||6,v=>n.velocity_limit=v,null,true);edit('Flow L/min · '+n.id,n.flow_lpm,v=>n.flow_lpm=v,null,true);edit('Pressure bar · '+n.id,n.pressure_bar,v=>n.pressure_bar=v,null,true);
-      action(card,'Reroute '+n.id,()=>{change(()=>{const ids=new Set(get().features.filter(f=>f.route_net===n.id||f.frozen_net===n.id).map(f=>f.id));get().features=get().features.filter(f=>!ids.has(f.id));for(const f of get().features)f.connects_to=f.connects_to.filter(t=>!ids.has(t));n.routing='automatic';n.routing_variant=null;});nets();});
+    for(const n of get().nets){const card=element('section',null,'library-card');content.append(card);card.append(element('h3',n.label||n.id),element('p',(n.label&&n.label!==n.id?'Reference ID: '+n.id+' · ':'')+(netMembers(get(),n.id).join(' ↔ ')||'No interfaces assigned')));const edit=(label,value,fn,o=null,num=false)=>field(card,label,value,v=>{if(change(()=>fn(v)))nets();},o,num);
+      edit('Net label · '+n.id,n.label||n.id,v=>n.label=v);
+      const colorWrap=element('label','Display color · '+n.id,'field'),color=element('input');color.type='color';color.setAttribute('aria-label','Display color · '+n.id);color.value=n.color||'#b08bea';color.onchange=()=>{if(change(()=>n.color=color.value))nets();};colorWrap.append(color);card.append(colorWrap);
+      edit('Diameter sizing · '+n.id,n.diameter_mode||'automatic',v=>{n.diameter_mode=v;n.routing_variant=null;},{automatic:'Automatic from flow',manual:'Engineer override'});edit('Drill diameter · '+n.id,n.diameter,v=>{n.diameter=v;n.diameter_mode='manual';n.routing_variant=null;},null,true);edit('Velocity limit m/s · '+n.id,n.velocity_limit||6,v=>n.velocity_limit=v,null,true);edit('Drilling mode · '+n.id,n.drilling_mode||'orthogonal',v=>{n.drilling_mode=v;n.routing_variant=null;},{orthogonal:'Orthogonal only','allow-angled':'Allow angled proposals',simplest:'Prefer simplest manufacturable proposal'});edit('First routing axis · '+n.id,n.preferred_axis||'auto',v=>{n.preferred_axis=v;n.routing_variant=null;},{auto:'Compare all axes',x:'X',y:'Y',z:'Z'});edit('Entry preference · '+n.id,n.entry_preference||'nearest',v=>{n.entry_preference=v;n.routing_variant=null;},{nearest:'Nearest / reuse port',negative:'Negative face',positive:'Positive face'});edit('Flow L/min · '+n.id,n.flow_lpm,v=>n.flow_lpm=v,null,true);edit('Pressure bar · '+n.id,n.pressure_bar,v=>n.pressure_bar=v,null,true);
+      action(card,'Reroute '+n.id,()=>{change(()=>returnNetToAutomatic(get(),n.id));nets();});
       if(n.routing==='automatic')action(card,'Freeze '+n.id+' for manual editing',guard(async()=>{if(await adoptRoute(n.id))nets();else throw Error($('notice').textContent);}));
     }
-    const route=resolved();if(route){const details=element('details');details.append(element('summary','Inspect generated drilling coordinates'));for(const f of route.features.filter(f=>f.route_net))details.append(element('p',`${f.id} · ${f.route_net} · ${f.face} U${f.u.toFixed(2)} V${f.v.toFixed(2)} · Ø${f.diameter} × ${f.depth.toFixed(2)}`));content.append(details);}
+    const route=resolved();if(route){const details=element('details');details.append(element('summary','Inspect generated drilling coordinates'));for(const f of route.features.filter(f=>f.route_net)){const row=element('div',null,'port-row');row.append(element('p',`${featureLabel(f,route)} · ${f.route_net} · ${f.face} U${f.u.toFixed(2)} V${f.v.toFixed(2)} · Ø${f.diameter} × ${f.depth.toFixed(2)}`));action(row,'Refine / Edit in 3D',guard(async()=>{if(await adoptRoute(f.route_net,f.id))dialog.close();else throw Error($('notice').textContent);}));action(row,'Regenerate Route',()=>{change(()=>returnNetToAutomatic(get(),f.route_net));nets();});details.append(row);}content.append(details);}
   }
   $('nets-open').onclick=nets;
 
@@ -83,5 +85,10 @@ export function workflows(ctx){
     action(content,'Analyze schematics with AI Design',()=>ai.open());
   }
   const ai=aiDesign(ctx,open);$('schematic-open').onclick=schematic;
-  return {editDefinition:()=>notice('Engineering definitions are read-only runtime SQLite data. Create a new stable definition through the operator import process.',true)};
+  const placedDefinition=feature=>get().library.find(d=>d.id===feature.cavity_id);
+  return {
+    viewDefinition(feature){const definition=placedDefinition(feature);if(!definition)return notice('Cavity definition is unavailable in this project session.',true);library.viewDefinition(definition);},
+    duplicateDefinition(feature){const definition=placedDefinition(feature);if(!definition)return notice('Cavity definition is unavailable in this project session.',true);library.duplicateAsCustom(definition);},
+    replaceFromLibrary(feature){library({title:'Replace '+feature.id+' from Engineering Library',actionLabel:'Use as Replacement',onSelect:definition=>{remember(definition);dialog.close();replaceCavity(feature,definition.id);}});}
+  };
 }

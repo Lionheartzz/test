@@ -14,7 +14,7 @@ export function projectUI(ctx){
       const box=element('section',null,'library-card');box.append(element('h3',inspection.design.name));
       for(const [key,value] of Object.entries(inspection.summary))box.append(element('p',`${key.replaceAll('_',' ')}: ${typeof value==='object'?JSON.stringify(value):value}`));
       if(inspection.missing_assets.length)box.append(element('p','Missing local schematic files: '+inspection.missing_assets.map(a=>a.name||a).join(', ')));
-      action(box,'Use imported draft',()=>{if(!ctx.newProject(inspection.design,inspection.engineering?.definitions||{}))return;dialog.close();notice('Imported editable draft. Save & Validate runs exact engineering checks.');});content.append(box);
+      action(box,'Use imported draft',()=>{if(!ctx.newProject(inspection.design,inspection.engineering?.definitions||{}))return;dialog.close();notice('Imported editable draft. Validate runs exact engineering checks.');});content.append(box);
     });
   };
 

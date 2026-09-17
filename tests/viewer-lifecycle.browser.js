@@ -2,6 +2,7 @@
 // Exercises the actual viewer's pointer -> callback -> preview -> load lifecycle.
 import * as THREE from 'three';
 import {createViewer} from '../web/viewer.js';
+import {hydrateDesign} from '../web/domain.js';
 
 window.setupViewerLifecycle=()=>{
   document.body.innerHTML='<label><input id="smart-snap" type="checkbox" checked> Smart Align</label><div id="test-viewer" style="position:relative;width:1000px;height:800px;background:#162229"></div>';
@@ -41,5 +42,12 @@ window.assertViewerLifecycle=()=>{
   if(!state.parts.some(p=>p.owner==='AUTO_OTHER')||!state.parts.some(p=>p.owner==='REFINED'&&p.dragPreview))throw Error('Incremental drag lost moved or unrelated geometry');
   if(state.parts.some(p=>p.owner==='REFINED'&&!p.dragPreview&&p.visible))throw Error('Old moved-feature geometry remained visible during drag');
   if(!frames.some(f=>f.done))throw Error('Pointerup did not settle the drag');
-  return {passed:true,moves,dragTimings,adoptedAutomatic:false};
+  const definition={id:'CAV_SQLITE',label:'SQLite cavity',family:'QA',unit_system:'metric',manufacturer:'',thread_note:'',stages:[{start:0,end:20,diameter:12}],zones:[{id:'port1',start:10,end:20,diameter:10,offset_u:0,offset_v:0,clip_to_cut:true}],clearance_diameter:18,clearance_height:20,cutting_primitives:[],boundaries:[],machining:[],usable:true,active:true,kind:'cavity'};
+  const sqliteDraft=hydrateDesign({schema_version:2,block:{length:160,width:120,height:120},features:[{id:'CV1',kind:'cavity',face:'top',u:70,v:60,cavity_id:'CAV_SQLITE',interface_nets:{port1:'P'},connects_to:[],suppressed:false,rotation:0,cartridge_id:null,parent_id:null,local_offset:[0,0]}],nets:[{id:'P',color:'#ff7777'}]}, {CAV_SQLITE:definition});
+  // hydrateDesign intentionally exposes definitions through a non-enumerable
+  // runtime property. Incremental drag must retain it when it builds a moved-only view.
+  if(Object.keys(sqliteDraft).includes('library'))throw Error('SQLite definition fixture is not using the real hydrated contract');
+  viewer.preview(sqliteDraft);viewer.setDesign(sqliteDraft);sqliteDraft.features[0].u=74;viewer.updateFeature(sqliteDraft,'CV1');
+  const hydratedState=viewer.inspection();if(!hydratedState.parts.some(p=>p.owner==='CV1'&&p.dragPreview))throw Error('Hydrated SQLite cavity did not update incrementally');
+  return {passed:true,moves,dragTimings,hydratedSqliteDrag:true,adoptedAutomatic:false};
 };

@@ -28,7 +28,7 @@ async page=>{
   await edit(122);await edit(123);await edit(124);await ready();
   if(JSON.stringify(before)!==JSON.stringify(await state()))throw Error('Exact replacement changed mode/context');
   if(await page.getByRole('combobox',{name:'View face',exact:true}).inputValue()!=='front')throw Error('View direction changed');
-  await page.getByRole('button',{name:'Save & Validate',exact:true}).click();
+  await page.getByRole('button',{name:'Validate',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#status').textContent==='PASS'&&!document.body.classList.contains('busy'),{},{timeout:30000});
   if(!await page.locator('.viewport-loading').isHidden())throw Error('Computing state remained after build');
   if(JSON.stringify(before)!==JSON.stringify(await state()))throw Error('Build replacement changed mode/context');

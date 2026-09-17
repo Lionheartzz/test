@@ -32,14 +32,14 @@ def snapshot(project_id, expected, *, load_solid=True):
         raise ValueError('Source project changed. Refresh the project before creating or updating the drawing.')
     build = record.get('build')
     if not build or build['design_revision'] != expected:
-        raise ValueError('No build matches the saved manifold. Save & Validate in Manifold Studio, then retry Create Drawing.')
+        raise ValueError('No build matches the saved manifold. Validate in Manifold Studio, then retry Create Drawing.')
     folder = safe_folder(store.OUTPUT / 'builds', build['build_id'])
     names = ('design.json', 'resolved_design.json', 'validation.json', 'production.step', 'manufacturing.json')
     files = {}
     for name in names:
         path = folder / name
         if path.is_symlink() or not path.is_file():
-            raise ValueError('Build evidence is missing or linked. Save & Validate again before drawing.')
+            raise ValueError('Build evidence is missing or linked. Validate again before drawing.')
         files[name] = path.read_bytes()
     authored = json.loads(files['design.json'])
     resolved = json.loads(files['resolved_design.json'])

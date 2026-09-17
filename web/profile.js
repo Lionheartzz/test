@@ -1,4 +1,4 @@
-export function profileEditor(ctx,parent,def){
+export function profileEditor(ctx,parent,def,{editable=true}={}){
   const {element,field,action}=ctx,ns='http://www.w3.org/2000/svg';
   const box=element('section',null,'library-card');box.append(element('h3','Cavity definition · geometry and interfaces'));
   box.append(element('p',`${def.native?def.native.geometry_status+' · '+def.native.datum_mode:'PMC engineering definition'} · mm. Select a cut, interface or boundary to inspect it. Native dimensions are retained separately; this view shows the active CAD interpretation.`));
@@ -60,6 +60,7 @@ export function profileEditor(ctx,parent,def){
     for(const rel of def.native.related_records||[])if(/groove|ring|undercut/i.test(rel.kind||''))source.append(element('p',`${rel.kind} · ${rel.name||rel.id} · retained source record; only explicit CAD cuts are drawn.`));
   }
   source.append(element('p','Thread flanks and unspecified seal envelopes are not drawn. Source metadata without a mapped axial extent stays textual; a thread note alone does not define a cutting operation.'));
+  if(!editable)return draw();
   const edits=element('details');edits.append(element('summary','Edit numerical profile · live preview'));box.append(edits);
   for(const [i,c]of cuts().entries()){
     const row=element('section',null,'port-row');row.append(element('h4',`C${i+1} · ${c.kind||'cylinder'} · ${ref(c)}`));edits.append(row);

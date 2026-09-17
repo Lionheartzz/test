@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import Field
-from .schema import Design, Strict
+from .schema import CavityDefinition, Design, Strict
 from .routing import adopt_routes
 from .workflow import save_asset, prepare_handoff, asset_path
 from .interchange import inspect_project
@@ -220,9 +220,24 @@ def library(include_deleted: bool = False, reusable_only: bool = True):
 
 @app.get('/api/catalog')
 def catalog_search(q: str = '', unit: str = '', kind: str = 'cavity', manufacturer: str = '',
-                   cavity_type: str = '', thread: str = '', offset: int = Query(0,ge=0), limit: int = Query(40,ge=1,le=100),include_deleted: bool = False, family: str = ''):
+                   cavity_type: str = '', thread: str = '', status: str = Query('all',pattern=r'^(all|usable|unavailable)$'),
+                   scope: str = Query('all',pattern=r'^(all|master|custom)$'),
+                   offset: int = Query(0,ge=0), limit: int = Query(40,ge=1,le=100),include_deleted: bool = False, family: str = ''):
     from .engineering_db import search_definitions
-    return search_definitions(query=' '.join(x for x in (q,manufacturer,cavity_type,thread,family) if x),unit=unit,kind=kind,offset=offset,limit=limit,include_inactive=include_deleted)
+    return search_definitions(query=' '.join(x for x in (q,cavity_type) if x),unit=unit,kind=kind,
+                              offset=offset,limit=limit,include_inactive=include_deleted,
+                              family=family,manufacturer=manufacturer,thread=thread,status=status,scope=scope)
+
+
+class CustomCavityRequest(Strict):
+    definition: CavityDefinition
+
+
+@app.post('/api/catalog/custom-cavity')
+def custom_cavity(payload:CustomCavityRequest):
+    from .engineering_db import create_custom_cavity
+    try:return create_custom_cavity(payload.definition).model_dump()
+    except (ValueError,RuntimeError) as exc:raise HTTPException(422,str(exc))
 
 
 @app.get('/api/catalog/manifest')

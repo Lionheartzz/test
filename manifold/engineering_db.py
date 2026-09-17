@@ -34,7 +34,9 @@ def _connect(path: Path | None = None, *, writable: bool = False) -> sqlite3.Con
             f"Engineering database is missing: {target}. "
             "Run the explicit MDTools import command before starting PMC Manifold Studio."
         )
-    mode = "rwc" if writable else "ro"
+    # Runtime writes (currently user-authored custom cavities) require an
+    # already initialized production database.  Never create an empty one.
+    mode = "rw" if writable else "ro"
     connection = sqlite3.connect(f"file:{target.as_posix()}?mode={mode}", uri=True)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
@@ -234,13 +236,31 @@ def definitions_for_design(design, *, connection: sqlite3.Connection | None = No
     return definitions(ids, include_inactive=True, connection=connection)
 
 
-def search_definitions(*, query="", unit="", kind="cavity", offset=0, limit=40, include_inactive=False):
+def search_definitions(*, query="", unit="", kind="cavity", offset=0, limit=40,
+                       include_inactive=False, family="", manufacturer="", thread="",
+                       status="all", scope="all"):
     table = "external_port_definitions" if kind in ("external-port", "port_definition") else "cavities"
     where = ["1=1" if include_inactive else "active=1"]
     values: list[object] = []
     if unit:
         where.append("unit_system=?")
         values.append(unit)
+    if status == "usable":
+        where.append("usable=1")
+    elif status == "unavailable":
+        where.append("usable=0")
+    elif status != "all":
+        raise ValueError("Invalid engineering definition status filter")
+    if scope == "custom":
+        where.append("(id LIKE 'custom_%' OR id LIKE 'legacy_%')")
+    elif scope == "master":
+        where.append("id NOT LIKE 'custom_%' AND id NOT LIKE 'legacy_%'")
+    elif scope != "all":
+        raise ValueError("Invalid engineering definition scope filter")
+    for column, value in (("family", family), ("manufacturer", manufacturer), ("thread_spec", thread)):
+        if value:
+            where.append(f"lower({column}) LIKE ?")
+            values.append(f"%{value.lower()}%")
     for token in query.lower().split():
         where.append("lower(name || ' ' || family || ' ' || manufacturer || ' ' || thread_spec) LIKE ?")
         values.append(f"%{token}%")
@@ -261,6 +281,53 @@ def search_definitions(*, query="", unit="", kind="cavity", offset=0, limit=40, 
         "available": True,
         "source": "PMC engineering SQLite",
     }
+
+
+def create_custom_cavity(definition: CavityDefinition) -> CavityDefinition:
+    """Insert one user-authored cavity under a new stable ID.
+
+    Existing engineering rows are never updated by this product workflow.
+    """
+    import uuid
+    if definition.kind != "cavity":
+        raise ValueError("Custom engineering definition must be a cavity")
+    if not definition.usable:
+        raise ValueError("Custom cavity must contain a complete usable engineering definition")
+    identifier = "custom_" + uuid.uuid4().hex[:24]
+    value = CavityDefinition.model_validate(
+        definition.model_dump() | {
+            "id": identifier,
+            "unit_system": definition.unit_system,
+            "usable": True,
+            "unusable_reason": "",
+            "active": True,
+            "kind": "cavity",
+        }
+    )
+    with _connect(writable=True) as connection, connection:
+        connection.execute(
+            "INSERT INTO cavities "
+            "(id,name,family,unit_system,manufacturer,thread_spec,stages_json,primitives_json,"
+            "boundaries_json,machining_json,clearance_diameter,clearance_height,usable,unusable_reason,active) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                value.id, value.label, value.family, value.unit_system, value.manufacturer,
+                value.thread_note, json.dumps([row.model_dump() for row in value.stages], separators=(",", ":")),
+                json.dumps([row.model_dump() for row in value.cutting_primitives], separators=(",", ":")),
+                json.dumps([row.model_dump() for row in value.boundaries], separators=(",", ":")),
+                json.dumps(value.machining, separators=(",", ":")), value.clearance_diameter,
+                value.clearance_height, 1, "", 1,
+            ),
+        )
+        for zone in value.zones:
+            connection.execute(
+                "INSERT INTO cavity_interfaces "
+                "(cavity_id,interface_id,start,end,diameter,offset_u,offset_v,clip_to_cut) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (value.id, zone.id, zone.start, zone.end, zone.diameter,
+                 zone.offset_u, zone.offset_v, int(zone.clip_to_cut)),
+            )
+    return value
 
 
 def search_cartridges(query="", offset=0, limit=40):

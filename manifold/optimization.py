@@ -73,6 +73,6 @@ def search_routes(design,max_attempts=6):
             best,score,target,routes,chosen,report=candidate,trial,new_target,new_routes,new_index,new_report
     summary = dict(optimization_id=folder.name, selected_attempt=chosen, attempts=attempts,
                    status=attempts[chosen]['status'], baseline=attempts[0]['counts'], final=attempts[chosen]['counts'],
-                   improved=chosen != 0, message='Exact geometry search only. Save & Validate runs STEP round trip and saves the chosen editable project.')
+                   improved=chosen != 0, message='Exact geometry search only. Validate runs STEP round trip and saves the chosen editable project.')
     store.atomic_json(folder/'summary.json',summary)
     return dict(design=best.model_dump(),**summary)
