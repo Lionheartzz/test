@@ -1,21 +1,6 @@
 export const axes = {top:[0,1,2,-1],bottom:[0,1,2,1],front:[0,2,1,1],back:[0,2,1,-1],left:[1,2,0,1],right:[1,2,0,-1]};
 export const sizes = b => [b.length,b.width,b.height];
-export function routeDisplayLabel(f,design){
-  const net=f.route_net||f.frozen_net;
-  if(f.kind!=='drilling'||!net)return null;
-  const features=design.features||[],route=features.filter(x=>x.kind==='drilling'&&(x.route_net||x.frozen_net)===net);
-  const byId=new Map(features.map(x=>[x.id,x])),owners=new Set();
-  for(const item of route)for(const target of item.connects_to||[]){const owner=byId.get(target.split(':')[0]);if(owner?.kind==='cavity')owners.add(owner.id);}
-  const prefix=owners.size===1?`${[...owners][0]}-${net}`:net,index=Math.max(0,route.findIndex(x=>x.id===f.id));
-  return prefix+(index+1);
-}
-export function featureLabel(f,design){
-  const route=routeDisplayLabel(f,design);if(route)return route;
-  if(f.kind!=='port')return design.schematic_intent?.components?.find(c=>c.placement_id===f.id)?.label||f.id;
-  if(f.schematic_id)return f.schematic_id;
-  const ports=design.features.filter(p=>p.kind==='port'&&p.circuit===f.circuit);
-  return ports.length===1?f.circuit:f.circuit+(ports.findIndex(p=>p.id===f.id)+1);
-}
+export {displayRouteName as routeDisplayLabel,displayFeatureName as featureLabel} from './presentation.js';
 
 export function returnNetToAutomatic(design,netId){
   const owned=new Set(design.features.filter(f=>f.route_net===netId||f.frozen_net===netId).map(f=>f.id));

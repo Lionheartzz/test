@@ -462,8 +462,15 @@ def alternative_proposals(best, target, routes, report, eligible, inspected, *, 
             route=[f for f in proposal.features if f.route_net==net.id]
             failures.update(route_obstructions(proposal,net,route))
             risk+=proximity_risk(proposal,net,route)
-        cost=route_cost(proposal,[f for f in proposal.features if f.kind=='drilling' and not f.suppressed])
-        ranking=(len(failures),risk,cost,variants) if report['counts']['FAIL'] else (cost,len(failures),risk,variants)
+        drillings=[f for f in proposal.features if f.kind=='drilling' and not f.suppressed]
+        changed=[f for f in drillings if f.route_net in move]
+        cost=route_cost(proposal,drillings)
+        # Prefer bounded, shorter machining before cost-equivalent long/complex
+        # alternatives.  A long multi-axis candidate can make an OCCT Boolean
+        # disproportionately expensive even when the proxy obstruction count is
+        # identical.  Exact checks still decide whether the candidate improves.
+        complexity=(max((f.depth for f in changed),default=0),len(changed))
+        ranking=(len(failures),risk,*complexity,cost,variants) if report['counts']['FAIL'] else (cost,len(failures),risk,*complexity,variants)
         candidate=best.model_copy(deep=True)
         for net in candidate.nets:
             if net.id in move:net.routing_variant=move[net.id]['key']
@@ -519,7 +526,11 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False):
     score,target,routes,chosen,report,geometry=evaluate(best,'Default baseline')
     inspected={tuple(sorted((r['net'],r['variant']) for r in routes))}
     eligible={n.id for n in pending}
-    while len(attempts)<6 and not (prepared and score[0]==0):
+    # Authoritative Validate performs the exact baseline plus one focused repair.
+    # Broader cost/alternative exploration belongs to the explicit Optimize action;
+    # it must not let one pathological OCCT candidate consume the 300 s watchdog.
+    attempt_limit=2 if prepared else 6
+    while len(attempts)<attempt_limit and not (prepared and score[0]==0):
         proposals=alternative_proposals(best,target,routes,report,eligible,inspected)
         if not proposals:break
         _,candidate,signature,reason=proposals[0]

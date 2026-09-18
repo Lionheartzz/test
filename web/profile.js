@@ -1,4 +1,4 @@
-export function profileEditor(ctx,parent,def,{editable=true}={}){
+export function profileEditor(ctx,parent,def,{editable=true,interfaceNames={}}={}){
   const {element,field,action}=ctx,ns='http://www.w3.org/2000/svg';
   const box=element('section',null,'library-card');box.append(element('h3','Cavity definition · geometry and interfaces'));
   box.append(element('p',`${def.native?def.native.geometry_status+' · '+def.native.datum_mode:'PMC engineering definition'} · mm. Select a cut, interface or boundary to inspect it. Native dimensions are retained separately; this view shows the active CAD interpretation.`));
@@ -21,7 +21,7 @@ export function profileEditor(ctx,parent,def,{editable=true}={}){
     const cx=218,base=70;line(cx,46,cx,base+depth*scale+25,'#8296a8','5 4');line(34,base,450,base,'#fff');text(35,60,'ENTRY DATUM · depth 0');
     const foreground=[],clip=shape('clipPath',{id:'profile-cut-mask'});
     for(const c of section){const i=all.indexOf(c),on=active.kind==='cut'&&active.index===i,r=c.diameter*scale/2,r2=(c.kind==='cone'?c.end_diameter:c.diameter)*scale/2,y=base+c.start*scale,y2=base+c.end*scale;
-      const ir=(c.inner_diameter||0)*scale/2,outline=c.inner_diameter?{d:`M${cx-r},${y}H${cx+r}V${y2}H${cx-r}Z M${cx-ir},${y}H${cx+ir}V${y2}H${cx-ir}Z`,'fill-rule':'evenodd'}:{points:`${cx-r},${y} ${cx+r},${y} ${cx+r2},${y2} ${cx-r2},${y2}`};const polygon=shape(c.inner_diameter?'path':'polygon',{...outline,fill:c.kind==='annulus'?'#5c4334':'#263c50',stroke:'#7092ad','stroke-width':1});polygon.dataset.cut=String(i+1);const mask=polygon.cloneNode();mask.setAttribute('fill','#fff');mask.setAttribute('stroke','none');if(c.inner_diameter){const ir=c.inner_diameter*scale/2,path=document.createElementNS(ns,'path');path.setAttribute('d',`M${cx-r},${y}H${cx+r}V${y2}H${cx-r}Z M${cx-ir},${y}H${cx+ir}V${y2}H${cx-ir}Z`);path.setAttribute('clip-rule','evenodd');clip.append(path);}else clip.append(mask);
+      const ir=(c.inner_diameter||0)*scale/2,outline=c.inner_diameter?{d:`M${cx-r},${y}H${cx+r}V${y2}H${cx-r}Z M${cx-ir},${y}H${cx+ir}V${y2}H${cx-ir}Z`,'fill-rule':'evenodd'}:{points:`${cx-r},${y} ${cx+r},${y} ${cx+r2},${y2} ${cx-r2},${y2}`};const polygon=shape(c.inner_diameter?'path':'polygon',{...outline,fill:c.kind==='annulus'?'#5c4334':'#263c50',stroke:'#7092ad','stroke-width':1});polygon.dataset.cut=String(i+1);polygon.style.cursor='pointer';polygon.onclick=()=>{active={kind:'cut',index:i};draw();};const mask=polygon.cloneNode();mask.setAttribute('fill','#fff');mask.setAttribute('stroke','none');if(c.inner_diameter){const ir=c.inner_diameter*scale/2,path=document.createElementNS(ns,'path');path.setAttribute('d',`M${cx-r},${y}H${cx+r}V${y2}H${cx-r}Z M${cx-ir},${y}H${cx+ir}V${y2}H${cx-ir}Z`);path.setAttribute('clip-rule','evenodd');clip.append(path);}else clip.append(mask);
 
       if(on){const annotationStart=svg.childElementCount;shape(c.inner_diameter?'path':'polygon',{...outline,fill:'#70b4d733',stroke:'#d6f2ff','stroke-width':3});
         line(cx-r,y-12,cx+r,y-12,'#d6f2ff');line(cx-r,y-17,cx-r,y-7,'#d6f2ff');line(cx+r,y-17,cx+r,y-7,'#d6f2ff');text(cx+10,Math.max(42,y-18),`C${i+1} · Ø${fmt(c.diameter)}`,'#fff');
@@ -31,26 +31,31 @@ export function profileEditor(ctx,parent,def,{editable=true}={}){
         foreground.push(...Array.from(svg.children).slice(annotationStart));
       }
     }
-    let iy=0;for(const [i,z]of def.zones.entries()){if((z.offset_u||0)!==offset[0]||(z.offset_v||0)!==offset[1])continue;const y=base+z.start*scale,h=(z.end-z.start)*scale,on=active.kind==='interface'&&active.index===i;
-      const band=shape('rect',{x:cx-z.diameter*scale/2,y,width:z.diameter*scale,height:h,fill:'#41ca8b',opacity:on?.5:.16,stroke:'#41ca8b','stroke-width':on?3:1});if(z.clip_to_cut)band.setAttribute('clip-path','url(#profile-cut-mask)');const ly=90+iy++*25;line(42,ly,cx-z.diameter*scale/2,y+h/2,'#70dca4');text(26,ly-5,`I${i+1} ${z.id}`,'#83e4b6',11);
+    const visibleZones=def.zones.map((z,i)=>({z,i,targetY:base+(z.start+z.end)*scale/2})).filter(({z})=>(z.offset_u||0)===offset[0]&&(z.offset_v||0)===offset[1]).sort((a,b)=>a.targetY-b.targetY||a.i-b.i);
+    const spacing=27,minY=76,maxY=368,labelYs=[];
+    for(const row of visibleZones)labelYs.push(Math.max(row.targetY,labelYs.length?labelYs.at(-1)+spacing:minY));
+    if(labelYs.length&&labelYs.at(-1)>maxY){const shift=labelYs.at(-1)-maxY;for(let i=0;i<labelYs.length;i++)labelYs[i]-=shift;for(let i=labelYs.length-2;i>=0;i--)labelYs[i]=Math.min(labelYs[i],labelYs[i+1]-spacing);}
+    for(const [rank,{z,i,targetY}]of visibleZones.entries()){const y=base+z.start*scale,h=(z.end-z.start)*scale,on=active.kind==='interface'&&active.index===i,ly=labelYs[rank],targetX=cx-z.diameter*scale/2,elbowX=132-rank*4;
+      const band=shape('rect',{x:targetX,y,width:z.diameter*scale,height:h,fill:'#41ca8b',opacity:on ? .55 : active.kind==='interface' ? .08 : .16,stroke:'#41ca8b','stroke-width':on?3:1});if(z.clip_to_cut)band.setAttribute('clip-path','url(#profile-cut-mask)');band.style.cursor='pointer';band.onclick=()=>{active={kind:'interface',index:i};draw();};
+      shape('polyline',{points:`44,${ly} ${elbowX},${ly} ${elbowX},${targetY} ${targetX},${targetY}`,fill:'none',stroke:on?'#d9ffe9':'#70dca4','stroke-width':on?2.5:1.2});text(26,ly-5,interfaceNames[z.id]||`Interface ${i+1} · ${z.id}`,on?'#fff':'#83e4b6',11);
     }
     foreground.forEach(e=>svg.append(e));
     const maxR=Math.max(1,...all.map(c=>Math.hypot(c.offset_u||0,c.offset_v||0)+c.diameter/2),...(def.boundaries||[]).flatMap(b=>b.circle?[Math.hypot(b.circle[0],b.circle[1])+b.circle[2]]:b.points.map(p=>Math.hypot(...p))));
     const topScale=155/maxR,tx=786,ty=225;line(tx-170,ty,tx+170,ty,'#526578','4 4');line(tx,ty-170,tx,ty+170,'#526578','4 4');text(tx+150,ty-8,'+U');text(tx+7,ty-160,'+V');
-    for(const [i,c]of all.entries()){const on=active.kind==='cut'&&active.index===i;shape('circle',{cx:tx+(c.offset_u||0)*topScale,cy:ty-(c.offset_v||0)*topScale,r:c.diameter*topScale/2,fill:'none',stroke:on?'#e3f6ff':'#66869e','stroke-width':on?3:1});if(c.inner_diameter)shape('circle',{cx:tx+(c.offset_u||0)*topScale,cy:ty-(c.offset_v||0)*topScale,r:c.inner_diameter*topScale/2,fill:'none',stroke:'#d4a874'});}
+    for(const [i,c]of all.entries()){const on=active.kind==='cut'&&active.index===i,outline=shape('circle',{cx:tx+(c.offset_u||0)*topScale,cy:ty-(c.offset_v||0)*topScale,r:c.diameter*topScale/2,fill:'none',stroke:on?'#e3f6ff':'#66869e','stroke-width':on?3:1});outline.style.cursor='pointer';outline.onclick=()=>{active={kind:'cut',index:i};draw();};if(c.inner_diameter)shape('circle',{cx:tx+(c.offset_u||0)*topScale,cy:ty-(c.offset_v||0)*topScale,r:c.inner_diameter*topScale/2,fill:'none',stroke:'#d4a874'});}
     for(const [i,b]of (def.boundaries||[]).entries()){const attrs={fill:'none',stroke:active.kind==='boundary'&&active.index===i?'#fff29a':'#b79b50','stroke-width':active.kind==='boundary'&&active.index===i?3:1.5};
-      if(b.circle){const [x,y,r]=b.circle;shape('circle',{...attrs,cx:tx+x*topScale,cy:ty-y*topScale,r:r*topScale});if((def.boundaries||[]).length===1||active.kind==='boundary'&&active.index===i){text(610,382,`B${i+1} ${b.category.toUpperCase()} · ${b.height?'height '+fmt(b.height)+' mm':'planar region'}`,'#e6ce7c',12);text(610,402,`Exact circle Ø${fmt(2*r)} · center ${fmt(x)}, ${fmt(y)}`,'#e6ce7c',12);}}
-      else shape('polygon',{...attrs,points:b.points.map(([x,y])=>`${tx+x*topScale},${ty-y*topScale}`).join(' ')});
+      let boundary;if(b.circle){const [x,y,r]=b.circle;boundary=shape('circle',{...attrs,cx:tx+x*topScale,cy:ty-y*topScale,r:r*topScale});if((def.boundaries||[]).length===1||active.kind==='boundary'&&active.index===i){text(610,382,`B${i+1} ${b.category.toUpperCase()} · ${b.height?'height '+fmt(b.height)+' mm':'planar region'}`,'#e6ce7c',12);text(610,402,`Exact circle Ø${fmt(2*r)} · center ${fmt(x)}, ${fmt(y)}`,'#e6ce7c',12);}}
+      else boundary=shape('polygon',{...attrs,points:b.points.map(([x,y])=>`${tx+x*topScale},${ty-y*topScale}`).join(' ')});boundary.style.cursor='pointer';boundary.onclick=()=>{active={kind:'boundary',index:i};draw();};
     }
-    for(const [i,z]of def.zones.entries())if(active.kind==='interface'&&active.index===i){shape('circle',{cx:tx+(z.offset_u||0)*topScale,cy:ty-(z.offset_v||0)*topScale,r:z.diameter*topScale/2,fill:'none',stroke:'#83e4b6','stroke-width':3});}
+    for(const [i,z]of def.zones.entries()){const on=active.kind==='interface'&&active.index===i,zone=shape('circle',{cx:tx+(z.offset_u||0)*topScale,cy:ty-(z.offset_v||0)*topScale,r:z.diameter*topScale/2,fill:on?'#41ca8b22':'none',stroke:on?'#83e4b6':'#41ca8b88','stroke-width':on?3:1});zone.style.cursor='pointer';zone.onclick=()=>{active={kind:'interface',index:i};draw();};}
     text(24,418,`Depth + inward · extent ${fmt(depth)} mm · section through selected axis; other offset cuts appear in top view`, '#a4bbcc',12);
     const c=all[active.index],z=def.zones[active.index],b=def.boundaries?.[active.index];
-    selection.textContent=active.kind==='cut'?`C${active.index+1} · ${c.kind||'cylinder'} · Ø${fmt(c.diameter)}${c.kind==='cone'?' → Ø'+fmt(c.end_diameter):''} · datum depths ${fmt(c.start)}–${fmt(c.end)} mm · local offset U ${fmt(c.offset_u||0)}, V ${fmt(c.offset_v||0)} · source: ${ref(c)}`:active.kind==='interface'?`I${active.index+1} · hydraulic interface ${z.id} · Ø${fmt(z.diameter)} · depth ${fmt(z.start)}–${fmt(z.end)} · offset ${fmt(z.offset_u||0)}, ${fmt(z.offset_v||0)} · ${z.clip_to_cut?'clipped to actual cutting volume':'declared cylindrical window'} · circuit assigned on placed component`:`B${active.index+1} · ${b.category} · height ${fmt(b.height)} mm${b.height===0?' (planar only)':''} · ${b.association} · source role: ${b.source_role||'unspecified'} · ${b.source}`;
+    selection.textContent=active.kind==='cut'?`C${active.index+1} · ${c.kind||'cylinder'} · Ø${fmt(c.diameter)}${c.kind==='cone'?' → Ø'+fmt(c.end_diameter):''} · datum depths ${fmt(c.start)}–${fmt(c.end)} mm · local offset U ${fmt(c.offset_u||0)}, V ${fmt(c.offset_v||0)} · source: ${ref(c)}`:active.kind==='interface'?`${interfaceNames[z.id]||`Interface ${active.index+1} · ${z.id}`} · Ø${fmt(z.diameter)} · depth ${fmt(z.start)}–${fmt(z.end)} · offset ${fmt(z.offset_u||0)}, ${fmt(z.offset_v||0)} · ${z.clip_to_cut?'clipped to actual cutting volume':'declared cylindrical window'}`:`B${active.index+1} · ${b.category} · height ${fmt(b.height)} mm${b.height===0?' (planar only)':''} · ${b.association} · source role: ${b.source_role||'unspecified'} · ${b.source}`;
     for(const button of legend.querySelectorAll('button'))button.classList.toggle('active',button.dataset.selection===active.kind+active.index);
   }
   for(const [kind,rows]of [['cut',cuts()],['interface',def.zones],['boundary',def.boundaries||[]]]){
     const details=element('details');details.open=kind!=='cut';details.append(element('summary',`${kind==='cut'?'Machining profile':kind==='interface'?'Hydraulic interfaces':'Footprint and clearance boundaries'} · ${rows.length}`));legend.append(details);
-    rows.forEach((r,i)=>{const title=kind==='cut'?`C${i+1} · ${r.kind||'cylinder'} · Ø${fmt(r.diameter)} · ${fmt(r.start)}–${fmt(r.end)} mm · ${ref(r)}`:kind==='interface'?`I${i+1} · ${r.id} · depth ${fmt(r.start)}–${fmt(r.end)} mm`:`B${i+1} · ${r.category} · ${r.circle?'exact circle':'polygon'} · ${r.source_role||r.association}`;action(details,title,()=>{active={kind,index:i};draw();});details.lastElementChild.dataset.selection=kind+i;});
+    rows.forEach((r,i)=>{const title=kind==='cut'?`C${i+1} · ${r.kind||'cylinder'} · Ø${fmt(r.diameter)} · ${fmt(r.start)}–${fmt(r.end)} mm · ${ref(r)}`:kind==='interface'?`${interfaceNames[r.id]||`Interface ${i+1} · ${r.id}`} · depth ${fmt(r.start)}–${fmt(r.end)} mm`:`B${i+1} · ${r.category} · ${r.circle?'exact circle':'polygon'} · ${r.source_role||r.association}`;action(details,title,()=>{active={kind,index:i};draw();});details.lastElementChild.dataset.selection=kind+i;});
   }
   const source=element('details');source.append(element('summary','Threads, seals and source interpretation'));box.append(source);
   source.append(element('p',def.thread_note||'No thread specification supplied.'));
@@ -60,7 +65,7 @@ export function profileEditor(ctx,parent,def,{editable=true}={}){
     for(const rel of def.native.related_records||[])if(/groove|ring|undercut/i.test(rel.kind||''))source.append(element('p',`${rel.kind} · ${rel.name||rel.id} · retained source record; only explicit CAD cuts are drawn.`));
   }
   source.append(element('p','Thread flanks and unspecified seal envelopes are not drawn. Source metadata without a mapped axial extent stays textual; a thread note alone does not define a cutting operation.'));
-  if(!editable)return draw();
+  if(!editable){draw();return draw;}
   const edits=element('details');edits.append(element('summary','Edit numerical profile · live preview'));box.append(edits);
   for(const [i,c]of cuts().entries()){
     const row=element('section',null,'port-row');row.append(element('h4',`C${i+1} · ${c.kind||'cylinder'} · ${ref(c)}`));edits.append(row);
@@ -69,5 +74,5 @@ export function profileEditor(ctx,parent,def,{editable=true}={}){
     }
     if(c.kind==='cone')field(row,`C${i+1} included angle / degrees`,angle(c),v=>{if(v>0&&v<180)c.end=c.start+Math.abs(c.diameter-c.end_diameter)/(2*Math.tan(v*Math.PI/360));active={kind:'cut',index:i};draw();},null,true);
   }
-  parent.addEventListener('change',draw);draw();
+  parent.addEventListener('change',draw);draw();return draw;
 }

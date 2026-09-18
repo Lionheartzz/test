@@ -90,14 +90,17 @@ def check_drawing(doc,layouts=True):
     if not any(v.visible for v in edit.views):issues.append(issue('views-missing','Add at least one visible engineering view before release.',severity='error'))
     if not source_current(doc):issues.append(issue('source-changed','Source manifold/build changed. Regenerate before issuing a current drawing.',severity='error'))
     validation=doc['source']['validation']
+    from ..schema import Design
+    from ..presentation import identity_name,review_name
+    display_design=Design.model_validate(doc['source']['resolved'])
     if validation.get('status')!='PASS':
         issues.append(issue('engineering-fail','Source build has engineering FAILs. Correct and validate the manifold before release.',severity='error'))
     if not validation.get('manufacturing_ready',False) and doc['kind']=='manufacturing':
         issues.append(issue('manufacturing-review','Source manufacturing readiness is unresolved. Review pinned machining/plug data and record any permitted exception.'))
     for index,check in enumerate(validation.get('checks',[])):
-        if check.get('status')=='WARNING':issues.append(issue('engineering-warning:'+str(index),check.get('message','Source engineering warning')+' Items: '+', '.join(check.get('items',[]))))
+        if check.get('status')=='WARNING':issues.append(issue('engineering-warning:'+str(index),check.get('message','Source engineering warning')+' Items: '+', '.join(identity_name(display_design,item) for item in check.get('items',[]))))
     for index,review in enumerate(doc['source']['resolved'].get('review_items',[])):
-        if review['status']=='open':issues.append(issue('source-review:'+str(index),'Source engineering review '+review['id']+': '+review['description'],severity='error' if review['severity']=='blocking' else 'warning'))
+        if review['status']=='open':issues.append(issue('source-review:'+str(index),review_name(review['id'])+': '+review['description'],severity='error' if review['severity']=='blocking' else 'warning'))
     if not edit.template.tolerance_confirmed:
         issues.append(issue('tolerance-review','Confirm the template tolerance/standard notes apply to this drawing, or record an exception.'))
     viewmap={v.id:v for v in edit.views}

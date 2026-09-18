@@ -110,7 +110,7 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
   function addLabel(f,features,placement){
     if(!placement)return;
     if (f.kind === 'drilling' && !f.plugged && features.some(p => p.kind === 'port' && p.face === f.face && p.u === f.u && p.v === f.v)) return;
-    const element = document.createElement('div'); element.className = 'model-label'; element.textContent = featureLabel(f,{features}) + (f.plugged ? ' · PLUG' : '');
+    const element = document.createElement('div'); element.className = 'model-label'; element.textContent = featureLabel(f,{features});
     const label = new CSS2DObject(element); label.position.set(...placement.origin).addScaledVector(new THREE.Vector3(...placement.direction), -8);
     label.userData = f; labelGroup.add(label);
   }

@@ -289,6 +289,8 @@ class Rules(Strict):
     minimum_overlap_volume: float = Field(default=0.1, ge=0.01, le=10)
     max_depth_diameter_ratio: Positive = 20
     minimum_access_gap: Positive = 2
+    allowable_stress_mpa: float | None = Field(default=None, gt=0, le=5000)
+    pressure_safety_factor: float = Field(default=2, ge=1, le=10)
 
 
 class EngineeringReview(Strict):

@@ -89,8 +89,10 @@ def test_failed_step_export_is_blocked(isolated):
     folder = output / 'builds' / ('a' * 32)
     store.atomic_json(folder / 'validation.json', {'status': 'FAIL'})
     (folder / 'production.step').write_text('diagnostic only')
+    (folder / 'engineering.step').write_text('inspection bodies')
     client = TestClient(app)
     assert client.get('/api/artifacts/' + 'a' * 32 + '/production.step').status_code == 409
+    assert client.get('/api/artifacts/' + 'a' * 32 + '/engineering.step').status_code == 200
 
 
 def test_invalid_disk_file_marks_state_unavailable(isolated):

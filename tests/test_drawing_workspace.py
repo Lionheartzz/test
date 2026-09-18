@@ -368,6 +368,17 @@ def test_pmc_portings_overflow_preserves_every_source_identifier():
     assert len(compact.sheets)==3
 
 
+def test_pmc_portings_display_rows_are_physical_and_never_truncate_groups():
+    from manifold.drawing.pmc_portings import table_layout
+    from manifold.drawing.schema import Table
+    rows=[dict(id=f'P{i}',label=f'P{i}',kind='port',specification=f'SPEC {i}') for i in range(6)]
+    table=Table(id='ports',sheet='overview',kind='porting',position=(10,10),presentation='pmc-portings')
+    assert len(table_layout(table,rows))==2
+    assert len(table_layout(table.model_copy(update={'display_rows':5}),rows))==5
+    protected=table_layout(table.model_copy(update={'display_rows':1}),rows)
+    assert len(protected)==2 and {item for row in protected for item in row['ids']}=={r['id'] for r in rows}
+
+
 def test_customer_pmc3092_api_and_shared_title_block(drawing):
     p,old=drawing;client=TestClient(app)
     before=projects.path(p['project_id']).read_bytes()

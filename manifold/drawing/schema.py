@@ -117,6 +117,7 @@ class Table(Strict):
     height: float = Field(default=2.8, ge=2, le=10)
     start: int = Field(default=0, ge=0, le=5000)
     count: int = Field(default=20, ge=1, le=200)
+    display_rows: int | None = Field(default=None, ge=1, le=200)
     order: list[Key] = Field(default_factory=list, max_length=500)
     remarks: dict[Key, Annotated[str, Field(max_length=240)]] = Field(default_factory=dict, max_length=500)
     visible: bool = True

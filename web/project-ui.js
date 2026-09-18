@@ -1,3 +1,5 @@
+import {displayIdentity,displayReviewName} from './presentation.js';
+
 export function projectUI(ctx){
   const {$,element,field,action,post,get,change,select,notice}=ctx;
   const dialog=$('workflow-dialog'),content=$('workflow-content');
@@ -26,13 +28,14 @@ export function projectUI(ctx){
     const openItems=(d.review_items||[]).filter(x=>x.status==='open');content.append(element('h3',`${openItems.length} open project decisions · ${intent?.components.length||0} schematic components`));
     action(content,'Add review item',()=>{change(()=>{d.review_items??=[];let i=1;while(d.review_items.some(r=>r.id==='REVIEW_'+i))i++;d.review_items.push({id:'REVIEW_'+i,kind:'assumption',subject:'project',description:'Describe the engineering assumption to review',proposed_value:'',severity:'review',status:'open',resolution:''});});reviews();});
     for(const r of d.review_items||[]){
-      const card=element('section',null,'library-card');card.append(element('h3',`${r.id} · ${r.status}`));content.append(card);
-      for(const [key,label]of [['subject','Subject'],['description','Decision needed'],['proposed_value','Proposed value']])field(card,label+' · '+r.id,r[key],v=>change(()=>r[key]=v));
-      field(card,'Severity · '+r.id,r.severity,v=>change(()=>r.severity=v),{review:'Review required',blocking:'Blocking uncertainty'});
-      let note=r.resolution;field(card,'Engineering decision · '+r.id,note,v=>note=v);
+      const card=element('section',null,'library-card');card.append(element('h3',`${displayReviewName(r.id)} · ${r.status}`),element('p',`Subject: ${displayIdentity(d,r.subject||'project')}`));content.append(card);
+      for(const [key,label]of [['description','Decision needed'],['proposed_value','Proposed value']])field(card,label,r[key],v=>change(()=>r[key]=v));
+      field(card,'Severity',r.severity,v=>change(()=>r.severity=v),{review:'Review required',blocking:'Blocking uncertainty'});
+      let note=r.resolution;field(card,'Engineering decision',note,v=>note=v);
       const decide=status=>{if(!note?.trim()){$('workflow-error').textContent='Enter the engineering decision before closing this item.';return;}change(()=>{r.status=status;r.resolution=note;});reviews();};
       action(card,'Accept assumption',()=>decide('accepted'));action(card,'Mark resolved',()=>decide('resolved'));action(card,'Reopen',()=>{change(()=>r.status='open');reviews();});
       if(d.features.some(f=>f.id===r.subject))action(card,'Inspect placement',()=>{select(r.subject);dialog.close();});
+      const advanced=element('details');advanced.append(element('summary','Advanced / Developer information'),element('p',`Review ID: ${r.id} · Subject ID: ${r.subject||'project'}`));card.append(advanced);
     }
     for(const c of intent?.components||[]){
       const card=element('section',null,'library-card');content.append(card);card.append(element('h3',c.id),element('p',c.function||'Schematic component'));

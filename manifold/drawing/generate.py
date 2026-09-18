@@ -63,6 +63,7 @@ def snapshot(project_id, expected, *, load_solid=True):
 
 def anchors(source):
     design = Design.model_validate(source['resolved'])
+    from ..presentation import feature_name
     result = {}
     sizes = dimensions(design.block)
     for a in range(2):
@@ -86,11 +87,7 @@ def anchors(source):
         diameter = max((s['diameter'] for s in steps), default=f.diameter or 0)
         depth = max((s['end'] for s in steps), default=f.depth or 0)
         identity_pending = f.id in components and bool(components[f.id].cartridge_id) and components[f.id].cartridge_id != f.cartridge_id
-        label = f.schematic_id or (components[f.id].label if f.id in components and components[f.id].label else '') or f.machining_id
-        if not label and f.kind=='port':
-            same=[p for p in design.features if p.kind=='port' and p.circuit==f.circuit and not p.suppressed]
-            label=f.circuit+(str(same.index(f)+1) if len(same)>1 else '')
-        label=label or machining_ids.get(f.id,f.id)
+        label = f.schematic_id or (components[f.id].label if f.id in components and components[f.id].label else '') or feature_name(design,f)
         model = 'Identity pending review' if identity_pending else (f.cartridge_id or '')
         key = f'F:{f.id}'
         signature = digest(dict(kind=f.kind, definition=definition_id, engineering_definition=facts or profile,

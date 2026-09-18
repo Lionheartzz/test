@@ -79,6 +79,19 @@ def build_outputs(design, folder, *, engineering_complete=None):
                   cadquery_version=cq.__version__, rules_version='pmc-intent-2', engine_revision=engine_revision(), engine=engine_evidence())
     with phase('step.export'):
         cq.exporters.export(g.production, str(folder / 'production.step'))
+        from .presentation import feature_name
+        import re
+        assembly=cq.Assembly(name='PMC_ENGINEERING')
+        assembly.add(g.production,name='MANIFOLD_FINISHED')
+        used={'MANIFOLD_FINISHED'}
+        for feature in design.features:
+            if feature.suppressed or feature.id not in g.cuts:continue
+            base=re.sub(r'[^A-Za-z0-9_.-]+','_',feature_name(design,feature)).strip('_') or 'MACHINING'
+            name=base;index=2
+            while name in used:name=f'{base}_{index}';index+=1
+            used.add(name);assembly.add(g.cuts[feature.id],name=name)
+            if feature.id in g.plugs:assembly.add(g.plugs[feature.id],name=name+'_PLUG')
+        assembly.save(str(folder/'engineering.step'),exportType='STEP',mode='default')
     # Round trip tests actual serialized CAD, not merely in-memory validity.
     with phase('step.round_trip'):
         imported = cq.importers.importStep(str(folder / 'production.step')).val()
@@ -98,8 +111,10 @@ def build_outputs(design, folder, *, engineering_complete=None):
     atomic_json(folder / 'validation.json', report)
     lines = [f"# {design.name}", '', f"Status: {report['status']}", f"Design SHA-256: {rev}", '', report['scope'], '',
              '| Status | Rule | Items | Actual | Required | Unit |', '|---|---|---|---|---|---|']
+    from .presentation import identity_name,rule_name
     for c in report['checks']:
-        lines.append('| ' + ' | '.join(str(c.get(k, '')).replace('|', '/') for k in ['status', 'rule', 'items', 'actual', 'required', 'unit']) + ' |')
+        human={**c,'rule':rule_name(c.get('rule')),'items':' ↔ '.join(identity_name(design,item) for item in c.get('items',[]))}
+        lines.append('| ' + ' | '.join(str(human.get(k, '')).replace('|', '/') for k in ['status', 'rule', 'items', 'actual', 'required', 'unit']) + ' |')
     lines.extend(['', '## Scope limits', *['- ' + s for s in report['limitations']]])
     (folder / 'validation.md').write_text('\n'.join(lines), encoding='utf-8')
     # All engineering evidence is complete before optional display work. A mesh

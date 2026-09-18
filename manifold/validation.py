@@ -1,6 +1,7 @@
 from .timing import timed,phase
 """Deterministic BRep checks. No mesh or colour is used for validation."""
 from itertools import combinations
+import math
 from .geometry import tip_depth
 
 EPS = 1e-6
@@ -15,6 +16,7 @@ def validate(design, g, definitions=None):
     threshold = design.rules.minimum_overlap_volume
     wall = design.rules.minimum_wall
     by_id = {f.id: f for f in design.features}
+    by_net = {net.id:net for net in design.nets}
     automatic_nets = {net.id for net in design.nets if net.routing == 'automatic'}
     route_geometry_rules = {
         'circuit_intersection', 'declared_connection', 'connection_opening_area',
@@ -41,6 +43,19 @@ def validate(design, g, definitions=None):
 
     def port_diameter(feature):
         return definitions[feature.port_definition_id].zones[0].diameter if feature.port_definition_id else feature.diameter
+    def pressure_ligament(feature):
+        nets={feature.route_net,feature.frozen_net,feature.circuit,*feature.circuits.values()}-{None}
+        pressure=max((by_net[n].pressure_bar or 0 for n in nets if n in by_net),default=0)/10 # bar -> MPa
+        if not pressure or design.rules.allowable_stress_mpa is None:return 0
+        allowable=design.rules.allowable_stress_mpa/design.rules.pressure_safety_factor
+        if allowable<=pressure:return wall
+        if feature.kind=='cavity' and feature.definition:
+            active=[z.diameter for z in definitions[feature.definition].zones if feature.circuits.get(z.id) in nets]
+            diameter=max(active,default=max((z.diameter for z in definitions[feature.definition].zones),default=0))
+        elif feature.definition:diameter=max((z.diameter for z in definitions[feature.definition].zones),default=port_diameter(feature))
+        else:diameter=feature.diameter or 0
+        radius=diameter/2
+        return radius*(math.sqrt((allowable+pressure)/(allowable-pressure))-1)
     graph = {k: set() for k in g.nodes}
     overlaps = {}
 
@@ -48,6 +63,16 @@ def validate(design, g, definitions=None):
         checks.append(dict(rule=rule, items=items, actual=round(actual, 5) if isinstance(actual, float) else actual,
                            required=required, status='PASS' if passed else severity, message=message, unit=unit,
                            repair_domain='routing' if not passed and routing_repairable(rule,items) else None))
+
+    for net in design.nets:
+        if not net.pressure_bar:continue
+        if design.rules.allowable_stress_mpa is None:
+            result('pressure_strength',[net.id],f'{net.pressure_bar:g} bar; allowable material stress missing','Declared allowable stress and safety factor',False,
+                   'Design pressure cannot be checked until an allowable material stress is declared. Material grade is never inferred.')
+        else:
+            allowable=design.rules.allowable_stress_mpa/design.rules.pressure_safety_factor
+            result('pressure_strength',[net.id],net.pressure_bar/10,round(allowable,5),net.pressure_bar/10+EPS<allowable,
+                   'Design pressure must remain below allowable stress after the declared safety factor; wall checks use a thick-cylinder ligament screen.',unit='MPa')
 
     def overlap(a, b):
         key = tuple(sorted((a, b)))
@@ -147,7 +172,8 @@ def validate(design, g, definitions=None):
             result('cavity_collision', [a, b], volume, 0, volume <= EPS, 'Cartridge cutting volumes must not intersect.', unit='mm³')
         if volume <= EPS or both_cavities:
             distance = sa.distance(sb)
-            result('minimum_feature_wall', [a, b], distance, wall, distance + EPS >= wall,
+            required=max(wall,pressure_ligament(fa),pressure_ligament(fb))
+            result('minimum_feature_wall', [a, b], distance, round(required,5), distance + EPS >= required,
                    'Solid distance between non-connected cutting volumes.', unit='mm')
         if (fa.kind == 'cavity') != (fb.kind == 'cavity') and volume > EPS:
             cavity, bore = (a, b) if fa.kind == 'cavity' else (b, a)
@@ -181,7 +207,8 @@ def validate(design, g, definitions=None):
         for face, margin in margins.items():
             exit_face={'top':'bottom','bottom':'top','front':'back','back':'front','left':'right','right':'left'}[f.face] if f.kind=='mounting' and f.through else None
             if face != f.face and face!=exit_face:
-                result('external_wall', [f.id, face], margin, wall, margin + EPS >= wall,
+                required=max(wall,pressure_ligament(f))
+                result('external_wall', [f.id, face], margin, round(required,5), margin + EPS >= required,
                        'Remaining stock to a non-entry face (includes drill tip).', unit='mm')
         outside = max(0.0, shape.Volume() - shape.intersect(g.block).Volume())
         result('external_face_entry', [f.id], outside, 0, outside <= EPS,
@@ -292,11 +319,12 @@ def validate(design, g, definitions=None):
                 unresolved_machining=unresolved_machining,
                 unresolved_plug_entries=unresolved_plug_entries,
                 checks=checks, graph={n: sorted(v) for n, v in graph.items()},
-                scope='Geometric and declared installed-interface checks only; no pressure, fatigue, flow or vendor certification.',
+                scope='Exact geometry, declared interfaces, velocity/flow area and pressure-derived ligament screening. No fatigue, pressure-drop or vendor certification.',
                 limitations=['Library demo cavities and straight-bore ports are illustrative and not manufacturer machining specifications.',
                              'Cartridge zones assume an installed sealing cartridge; valve-state flow is not simulated.',
                              'Threads are metadata; helical threads, tolerances, finishes and seals are not modeled.',
                              'Plug volumes represent declared engagement exclusions. No source plug-entry machining profile is bound; counterbores, seats and threads remain unresolved.',
                              'Access uses declared cylindrical envelopes and sourced mounting/body/service boundaries; missing tool, valve-body and fixture geometry remains unverified.',
                              'Straight orthogonal and inward angled drillings use exact cuts; complete tooling, setups and machining instructions require review.',
+                             'Pressure screening uses declared allowable stress and safety factor with a thick-cylinder ligament relation; material properties, fatigue, threads, plugs, fittings and cartridge ratings remain engineer/vendor responsibilities.',
                              'Opening screen uses exact common sections at overlap centroid, not a proven minimum throat or CFD model. Without stated net flow, hydraulic adequacy is undetermined.'])

@@ -356,7 +356,7 @@ def handoff(payload: BuildRequest):
 
 @app.get('/api/artifacts/{build_id}/{name}')
 def artifact(build_id: str, name: str):
-    if not re.fullmatch('[0-9a-f]{32}', build_id) or name not in {'review.json', 'design.json', 'resolved_design.json', 'validation.json', 'validation.md', 'production.step','manufacturing.json','drill-chart.csv'}:
+    if not re.fullmatch('[0-9a-f]{32}', build_id) or name not in {'review.json', 'design.json', 'resolved_design.json', 'validation.json', 'validation.md', 'production.step','engineering.step','manufacturing.json','drill-chart.csv'}:
         raise HTTPException(404)
     folder = OUTPUT / 'builds' / build_id
     if not (folder / name).is_file():
@@ -365,7 +365,7 @@ def artifact(build_id: str, name: str):
         report = json.loads((folder / 'validation.json').read_text(encoding='utf-8'))
         if report['status'] != 'PASS':
             raise HTTPException(409, 'STEP download requires PASS. Failed geometry is retained locally for diagnostics.')
-    return FileResponse(folder / name, filename=name if name in {'production.step', 'validation.md', 'design.json'} else None)
+    return FileResponse(folder / name, filename=name if name in {'production.step','engineering.step','validation.md','design.json'} else None)
 
 
 if (ROOT / 'dist').exists():

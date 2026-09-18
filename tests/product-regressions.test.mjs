@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {featureLabel,returnNetToAutomatic} from '../web/kinematics.js';
+import {displayExternalPortName,displayMemberName} from '../web/presentation.js';
 
 test('generated route labels hide hash ids and keep a deterministic cavity/net alias',()=>{
   const design={features:[
@@ -23,4 +24,17 @@ test('returning a refined route to automatic removes only owned geometry and sta
   assert.deepEqual(design.features[1].connects_to,[]);
   assert.equal(design.nets[0].routing,'automatic');assert.equal(design.nets[0].routing_variant,null);assert.deepEqual(design.nets[0].construction_access,[]);
   assert.equal(design.nets[1].routing,'automatic');
+});
+
+test('opaque external-port identities use deterministic engineering labels only in presentation',()=>{
+  const design={nets:[{id:'P',label:'P'}],features:[
+    {id:'PORT_later',kind:'port',circuit:'P',face:'front',u:30,v:20},
+    {id:'PORT_first',kind:'port',circuit:'P',face:'front',u:10,v:20},
+    {id:'CV1',kind:'cavity',interface_nets:{port1:'P'}},
+  ]};
+  assert.equal(displayExternalPortName(design.features[0],design),'P2');
+  assert.equal(displayExternalPortName(design.features[1],design),'P1');
+  assert.equal(displayMemberName(design,'CV1:port1'),'CV1-P');
+  assert.equal(displayMemberName(design,'PORT_first'),'P1');
+  assert.equal(design.features[1].id,'PORT_first');
 });

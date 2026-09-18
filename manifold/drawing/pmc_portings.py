@@ -58,8 +58,10 @@ def table_layout(table,rows):
     pairs=column_pairs(table)
     per_column=max(1,math.ceil(len(groups)/pairs))
     col_width=table.width/(2*pairs)
+    required=max(1,per_column)
+    displayed=max(required,table.display_rows or required)
     grid=[]
-    for i in range(max(15 if pairs==3 else 1,per_column)):
+    for i in range(displayed):
         cells=[];ids=[]
         for col in range(pairs):
             index=col*per_column+i
@@ -67,10 +69,6 @@ def table_layout(table,rows):
             cells.extend([wrap(row['labels'],col_width-2,table.height),wrap(row['specification'],col_width-2,table.height)] if row else [[],[]])
             if row:ids.extend(row['ids'])
         grid.append(dict(cells=cells,height=max(table.row_height,max(map(len,cells),default=1)*table.height*1.15+1),ids=ids))
-    # The reference keeps the PORTINGS lower rule aligned with the logo area;
-    # distribute spare space over its rows rather than leave an unrelated gap.
-    extra=max(0,(111.5 if pairs==3 else 0)-sum(r['height'] for r in grid))/len(grid)
-    for row in grid:row['height']+=extra
     return grid
 
 

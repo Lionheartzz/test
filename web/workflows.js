@@ -6,6 +6,13 @@ import {libraryUI} from './library-ui.js';
 import {projectUI} from './project-ui.js';
 import {clamp,syncNets,featureLabel,returnNetToAutomatic} from './kinematics.js';
 import {hydrateDesign} from './domain.js';
+import {displayMemberName,displayNetName,displayInterfaceName} from './presentation.js';
+
+function flowSizing(net,standardDrills){
+  if(!net.flow_lpm)return {required:null,selected:null};
+  const area=net.flow_lpm*1000/60/(net.velocity_limit||6),required=Math.sqrt(4*area/Math.PI);
+  return {required,selected:[...(standardDrills||[])].sort((a,b)=>a-b).find(value=>Math.PI*value*value/4+1e-9>=area)||null};
+}
 
 export function workflows(ctx){
   const {adoptRoute,replaceCavity,$,element,field,action,api,post,get,state,change,set,newId,select,notice,resolved}=ctx;
@@ -60,17 +67,23 @@ export function workflows(ctx){
   function netMembers(d,netId){const members=[];for(const f of d.features){if(f.suppressed)continue;if(f.kind==='cavity'){for(const [id,net]of Object.entries(f.interface_nets||{}))if(net===netId)members.push(f.id+':'+id);}else if(f.kind==='port'&&f.circuit===netId)members.push(f.id);}return members;}
   function nets(){
     open('Hydraulic Nets · intent and derived connections');content.append(element('p','Net members are derived from cavity interface assignments and external ports. Automatic routing proposes geometry; exact validation decides whether it is acceptable.'));
-    action(content,'Adopt automatic routing',guard(async()=>{const d=await post('/api/adopt-routing',get());change(()=>set(hydrateDesign(d,definitions())));nets();}));
+    action(content,'Reset all routes to automatic',guard(async()=>{if(!confirm('This will remove manual/frozen routing geometry and return all hydraulic nets to automatic routing. Continue?'))return;const d=await post('/api/adopt-routing',get());change(()=>set(hydrateDesign(d,definitions())));nets();}));
     action(content,'Optimize routes with exact checks',guard(async()=>{if(!state().project_id)throw Error('Save Project before running exact route optimization.');const baseline=JSON.stringify(get());const r=await post('/api/optimize-routes',{design:get(),project_id:state().project_id,expected_revision:state().revision,max_attempts:6});if(JSON.stringify(get())!==baseline)throw Error('Draft changed during optimization.');change(()=>set(hydrateDesign(r.design,definitions())));nets();content.prepend(element('p',`${r.attempts.length} exact candidates · FAIL ${r.baseline.FAIL} → ${r.final.FAIL}. Validate to commit.`));}));
     const newNet=element('div',null,'action-row'),name=element('input');name.setAttribute('aria-label','New net ID');name.placeholder='NET_P';newNet.append(name);action(newNet,'Add net',()=>{if(!/^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(name.value)||get().nets.some(n=>n.id===name.value)){$('workflow-error').textContent='Use a unique engineering ID';return;}change(()=>get().nets.push({id:name.value,label:name.value,routing:'automatic',diameter:8}));nets();});content.append(newNet);
-    for(const n of get().nets){const card=element('section',null,'library-card');content.append(card);card.append(element('h3',n.label||n.id),element('p',(n.label&&n.label!==n.id?'Reference ID: '+n.id+' · ':'')+(netMembers(get(),n.id).join(' ↔ ')||'No interfaces assigned')));const edit=(label,value,fn,o=null,num=false)=>field(card,label,value,v=>{if(change(()=>fn(v)))nets();},o,num);
+    for(const n of get().nets){const card=element('section',null,'library-card'),members=netMembers(get(),n.id);content.append(card);card.append(element('h3',n.label||n.id),element('p',members.map(member=>displayMemberName(get(),member)).join(' ↔ ')||'No interfaces assigned'));const edit=(label,value,fn,o=null,num=false)=>field(card,label,value,v=>{if(change(()=>fn(v)))nets();},o,num);
       edit('Net label · '+n.id,n.label||n.id,v=>n.label=v);
       const colorWrap=element('label','Display color · '+n.id,'field'),color=element('input');color.type='color';color.setAttribute('aria-label','Display color · '+n.id);color.value=n.color||'#b08bea';color.onchange=()=>{if(change(()=>n.color=color.value))nets();};colorWrap.append(color);card.append(colorWrap);
-      edit('Diameter sizing · '+n.id,n.diameter_mode||'automatic',v=>{n.diameter_mode=v;n.routing_variant=null;},{automatic:'Automatic from flow',manual:'Engineer override'});edit('Drill diameter · '+n.id,n.diameter,v=>{n.diameter=v;n.diameter_mode='manual';n.routing_variant=null;},null,true);edit('Velocity limit m/s · '+n.id,n.velocity_limit||6,v=>n.velocity_limit=v,null,true);edit('Drilling mode · '+n.id,n.drilling_mode||'orthogonal',v=>{n.drilling_mode=v;n.routing_variant=null;},{orthogonal:'Orthogonal only','allow-angled':'Allow angled proposals',simplest:'Prefer simplest manufacturable proposal'});edit('First routing axis · '+n.id,n.preferred_axis||'auto',v=>{n.preferred_axis=v;n.routing_variant=null;},{auto:'Compare all axes',x:'X',y:'Y',z:'Z'});edit('Entry preference · '+n.id,n.entry_preference||'nearest',v=>{n.entry_preference=v;n.routing_variant=null;},{nearest:'Nearest / reuse port',negative:'Negative face',positive:'Positive face'});edit('Flow L/min · '+n.id,n.flow_lpm,v=>n.flow_lpm=v,null,true);edit('Pressure bar · '+n.id,n.pressure_bar,v=>n.pressure_bar=v,null,true);
-      action(card,'Reroute '+n.id,()=>{change(()=>returnNetToAutomatic(get(),n.id));nets();});
-      if(n.routing==='automatic')action(card,'Freeze '+n.id+' for manual editing',guard(async()=>{if(await adoptRoute(n.id))nets();else throw Error($('notice').textContent);}));
+      edit('Diameter sizing · '+n.id,n.diameter_mode||'automatic',v=>{n.diameter_mode=v;n.routing_variant=null;},{automatic:'Automatic from flow',manual:'Engineer override'});
+      const sizing=flowSizing(n,get().constraints.standard_drills);
+      if(n.diameter_mode==='automatic'){
+        card.append(element('p',sizing.required==null?'Enter flow to calculate the required passage diameter.':`Calculated minimum: ${sizing.required.toFixed(2)} mm · ${sizing.selected?`Selected standard drill: Ø${sizing.selected.toFixed(2)} mm`:'No available standard drill is large enough.'}`,'property-note'));
+        const effective=field(card,'Effective drill diameter · '+n.id,sizing.selected==null?'Unresolved':sizing.selected.toFixed(2),()=>{});effective.disabled=true;
+      }else edit('Engineer override drill diameter · '+n.id,n.diameter,v=>{n.diameter=v;n.routing_variant=null;},null,true);
+      edit('Velocity limit m/s · '+n.id,n.velocity_limit||6,v=>{n.velocity_limit=v;n.routing_variant=null;},null,true);edit('Drilling mode · '+n.id,n.drilling_mode||'orthogonal',v=>{n.drilling_mode=v;n.routing_variant=null;},{orthogonal:'Orthogonal only','allow-angled':'Allow angled proposals',simplest:'Prefer simplest manufacturable proposal'});edit('First routing axis · '+n.id,n.preferred_axis||'auto',v=>{n.preferred_axis=v;n.routing_variant=null;},{auto:'Compare all axes',x:'X',y:'Y',z:'Z'});edit('Entry preference · '+n.id,n.entry_preference||'nearest',v=>{n.entry_preference=v;n.routing_variant=null;},{nearest:'Nearest / reuse port',negative:'Negative face',positive:'Positive face'});edit('Flow L/min · '+n.id,n.flow_lpm,v=>{n.flow_lpm=v||null;n.routing_variant=null;},null,true);edit('Pressure bar · '+n.id,n.pressure_bar,v=>n.pressure_bar=v||null,null,true);
+      if(n.routing==='automatic')action(card,'Refine / Freeze '+displayNetName(get(),n.id)+' for manual editing',guard(async()=>{if(await adoptRoute(n.id))nets();else throw Error($('notice').textContent);}));
+      else action(card,'Return '+displayNetName(get(),n.id)+' to automatic routing',()=>{change(()=>returnNetToAutomatic(get(),n.id));nets();});
     }
-    const route=resolved();if(route){const details=element('details');details.append(element('summary','Inspect generated drilling coordinates'));for(const f of route.features.filter(f=>f.route_net)){const row=element('div',null,'port-row');row.append(element('p',`${featureLabel(f,route)} · ${f.route_net} · ${f.face} U${f.u.toFixed(2)} V${f.v.toFixed(2)} · Ø${f.diameter} × ${f.depth.toFixed(2)}`));action(row,'Refine / Edit in 3D',guard(async()=>{if(await adoptRoute(f.route_net,f.id))dialog.close();else throw Error($('notice').textContent);}));action(row,'Regenerate Route',()=>{change(()=>returnNetToAutomatic(get(),f.route_net));nets();});details.append(row);}content.append(details);}
+    const route=resolved();if(route){const details=element('details');details.append(element('summary','Inspect generated drilling coordinates'));for(const f of route.features.filter(f=>f.route_net)){const row=element('div',null,'port-row');row.append(element('p',`${featureLabel(f,route)} · ${displayNetName(route,f.route_net)} · ${f.face} U${f.u.toFixed(2)} V${f.v.toFixed(2)} · Ø${f.diameter} × ${f.depth.toFixed(2)}`));action(row,'Refine / Edit in 3D',guard(async()=>{if(await adoptRoute(f.route_net,f.id))dialog.close();else throw Error($('notice').textContent);}));details.append(row);}content.append(details);}
   }
   $('nets-open').onclick=nets;
 
@@ -87,7 +100,7 @@ export function workflows(ctx){
   const ai=aiDesign(ctx,open);$('schematic-open').onclick=schematic;
   const placedDefinition=feature=>get().library.find(d=>d.id===feature.cavity_id);
   return {
-    viewDefinition(feature){const definition=placedDefinition(feature);if(!definition)return notice('Cavity definition is unavailable in this project session.',true);library.viewDefinition(definition);},
+    viewDefinition(feature){const definition=placedDefinition(feature);if(!definition)return notice('Cavity definition is unavailable in this project session.',true);library.viewDefinition(definition,{interfaceNames:Object.fromEntries(definition.zones.map((zone,index)=>[zone.id,displayInterfaceName(get(),feature.id,zone.id,{index})]))});},
     duplicateDefinition(feature){const definition=placedDefinition(feature);if(!definition)return notice('Cavity definition is unavailable in this project session.',true);library.duplicateAsCustom(definition);},
     replaceFromLibrary(feature){library({title:'Replace '+feature.id+' from Engineering Library',actionLabel:'Use as Replacement',onSelect:definition=>{remember(definition);dialog.close();replaceCavity(feature,definition.id);}});}
   };

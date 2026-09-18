@@ -34,6 +34,12 @@ def test_corrected_demo_passes_and_step_roundtrips(tmp_path):
     assert report['counts']['FAIL'] == report['counts']['WARNING'] == 0
     assert report['checks'][-1]['rule'] == 'step_round_trip'
     assert (tmp_path / 'build' / 'production.step').stat().st_size > 10000
+    engineering = tmp_path / 'build' / 'engineering.step'
+    assert engineering.stat().st_size > (tmp_path / 'build' / 'production.step').stat().st_size
+    step_text = engineering.read_text(errors='ignore')
+    assert 'MANIFOLD_FINISHED' in step_text
+    from manifold.cad import cq
+    assert len(cq.importers.importStep(str(engineering)).val().Solids()) > 1
     review = json.loads((tmp_path / 'build' / 'review.json').read_text())
     assert review['design_revision'] == report['design_revision'] == revision(demo())
     assert all(p['vertices'] and p['triangles'] for p in review['parts'])
@@ -55,6 +61,17 @@ def test_true_six_mm_wall_is_detected():
     hit = [c for c in failure(report, 'minimum_feature_wall') if c['items'] == ['RV1', 'XD-P']]
     assert hit[0]['actual'] == pytest.approx(5.5)
     assert hit[0]['required'] == 7
+
+
+def test_declared_pressure_changes_required_ligament_without_resizing_flow():
+    d = demo();d.rules.allowable_stress_mpa=90;d.rules.pressure_safety_factor=2
+    net=next(n for n in d.nets if n.id=='P');g=build_geometry(d)
+    net.pressure_bar=100;low=validate(d,g)
+    net.pressure_bar=350;high=validate(d,g)
+    required=lambda report:max(float(c['required']) for c in report['checks']
+        if c['rule'] in ('minimum_feature_wall','external_wall') and isinstance(c['required'],(int,float)))
+    assert required(low)==7 and required(high)>required(low)
+    assert not failure(low,'pressure_strength') and not failure(high,'pressure_strength')
 
 
 def test_cavity_collision():
