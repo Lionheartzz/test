@@ -14,6 +14,26 @@ function flowSizing(net,standardDrills){
   return {required,selected:[...(standardDrills||[])].sort((a,b)=>a-b).find(value=>Math.PI*value*value/4+1e-9>=area)||null};
 }
 
+const schematicInterfacePattern=/^[A-Za-z][A-Za-z0-9_-]{0,39}$/;
+
+export function renameExpectedInterface(component,previous,next){
+  const value=String(next||'').trim();
+  if(!schematicInterfacePattern.test(value))throw Error('Expected interface ID must start with a letter and use only letters, numbers, _ or -.');
+  if(component.expected_interfaces.some(id=>id===value&&id!==previous))throw Error('Expected interface ID must be unique.');
+  const index=component.expected_interfaces.indexOf(previous);
+  if(index<0)throw Error('Expected interface no longer exists.');
+  component.expected_interfaces[index]=value;component.interface_nets??={};
+  if(Object.hasOwn(component.interface_nets,previous)){component.interface_nets[value]=component.interface_nets[previous];delete component.interface_nets[previous];}
+}
+
+export function nextExpectedInterface(component,placement){
+  const actual=Object.keys(placement?.interface_nets||{}),unused=actual.find(id=>!component.expected_interfaces.includes(id));
+  if(unused)return unused;
+  if(actual.length)return null;
+  let i=1;while(component.expected_interfaces.includes('port'+i))i++;
+  return 'port'+i;
+}
+
 export function workflows(ctx){
   const {adoptRoute,replaceCavity,$,element,field,action,api,post,get,state,change,set,newId,select,notice,resolved}=ctx;
   const content=$('workflow-content'),dialog=$('workflow-dialog');
@@ -94,7 +114,20 @@ export function workflows(ctx){
     if(!intent)action(content,'Create manual schematic intent',()=>{change(()=>d.schematic_intent={assets:[],components:[]});schematic();});
     const input=element('input');input.type='file';input.accept='.pdf,.png,.jpg,.jpeg';input.setAttribute('aria-label','Upload schematic');content.append(input);input.onchange=guard(async()=>{const f=input.files[0];if(!f)return;const asset=await api('/api/assets',{method:'POST',headers:{'Content-Type':f.type,'X-PMC-Request':'local-console','X-File-Name':encodeURIComponent(f.name)},body:f});change(()=>{d.schematic_intent??={assets:[],components:[]};if(!d.schematic_intent.assets.some(a=>a.sha256===asset.sha256))d.schematic_intent.assets.push(asset);});schematic();});
     if(intent){action(content,'Remove all schematic intent',()=>{change(()=>d.schematic_intent=null);schematic();});for(const a of intent.assets){const card=element('div',null,'library-card');card.append(element('h3',a.name));const link=element('a','Open local asset');link.href='/api/assets/'+a.sha256;link.target='_blank';link.rel='noopener';card.append(link);content.append(card);}
-      const components=element('section');components.append(element('h3','Schematic components'));content.append(components);for(const c of intent.components){c.expected_interfaces??=Object.keys(c.interface_nets||{});const row=element('div',null,'library-card');row.append(element('strong',c.id));const rerender=fn=>{if(change(fn))schematic();};field(row,'Label · '+c.id,c.label||'',v=>rerender(()=>c.label=v));field(row,'Function · '+c.id,c.function||'',v=>rerender(()=>c.function=v));field(row,'Implemented by placement · '+c.id,c.placement_id||'',v=>rerender(()=>{const placement=d.features.find(f=>f.id===v);c.placement_id=v||null;c.cavity_id=placement?.cavity_id||null;c.cartridge_id=placement?.cartridge_id||null;}),{'':'Not implemented',...Object.fromEntries(d.features.filter(f=>f.kind==='cavity').map(f=>[f.id,featureLabel(f,d)]))});row.append(element('p',c.placement_id?`Explicit binding: cavity ${c.cavity_id||'unset'} · cartridge ${c.cartridge_id||'none'}`:'No placement binding.','property-note'));for(const port of c.expected_interfaces){const portRow=element('div',null,'port-row');portRow.append(element('strong',port));field(portRow,port+' → Hydraulic Net',c.interface_nets?.[port]||'',v=>rerender(()=>{c.interface_nets??={};if(v)c.interface_nets[port]=v;else delete c.interface_nets[port];}),{'':'Unmapped',...Object.fromEntries(d.nets.map(n=>[n.id,n.label||n.id]))});action(portRow,'Remove expected interface',()=>rerender(()=>{c.expected_interfaces=c.expected_interfaces.filter(id=>id!==port);delete c.interface_nets[port];}));row.append(portRow);}action(row,'Add expected interface',()=>rerender(()=>{let i=1;while(c.expected_interfaces.includes('port'+i))i++;c.expected_interfaces.push('port'+i);}));action(row,c.placement_id?'Unbind placement':'Remove component',()=>rerender(()=>{if(c.placement_id){c.placement_id=null;c.cavity_id=null;c.cartridge_id=null;}else intent.components=intent.components.filter(item=>item.id!==c.id);}));if(c.placement_id)action(row,'Remove component',()=>rerender(()=>intent.components=intent.components.filter(item=>item.id!==c.id)));components.append(row);}
+      const components=element('section');components.append(element('h3','Schematic components'));content.append(components);for(const c of intent.components){
+        c.expected_interfaces??=Object.keys(c.interface_nets||{});const row=element('div',null,'library-card');row.append(element('strong',c.id));const rerender=fn=>{if(change(fn))schematic();};
+        field(row,'Label · '+c.id,c.label||'',v=>rerender(()=>c.label=v));field(row,'Function · '+c.id,c.function||'',v=>rerender(()=>c.function=v));
+        field(row,'Implemented by placement · '+c.id,c.placement_id||'',v=>rerender(()=>{const placement=d.features.find(f=>f.id===v);c.placement_id=v||null;c.cavity_id=placement?.cavity_id||null;c.cartridge_id=placement?.cartridge_id||null;}),{'':'Not implemented',...Object.fromEntries(d.features.filter(f=>f.kind==='cavity').map(f=>[f.id,featureLabel(f,d)]))});
+        const placement=d.features.find(f=>f.kind==='cavity'&&f.id===c.placement_id),actualInterfaces=Object.keys(placement?.interface_nets||{});
+        row.append(element('p',c.placement_id?`Explicit binding: cavity ${c.cavity_id||'unset'} · cartridge ${c.cartridge_id||'none'}`:'No placement binding.','property-note'));
+        for(const port of c.expected_interfaces){const portRow=element('div',null,'port-row'),interfaceOptions=actualInterfaces.length?{'':'Select cavity interface',...Object.fromEntries(actualInterfaces.map(id=>[id,id]))}:null;
+          field(portRow,'Expected interface ID · '+c.id,port,v=>{try{rerender(()=>renameExpectedInterface(c,port,v));}catch(error){$('workflow-error').textContent=error.message;}},interfaceOptions);
+          field(portRow,port+' → Hydraulic Net',c.interface_nets?.[port]||'',v=>rerender(()=>{c.interface_nets??={};if(v)c.interface_nets[port]=v;else delete c.interface_nets[port];}),{'':'Unmapped',...Object.fromEntries(d.nets.map(n=>[n.id,n.label||n.id]))});
+          action(portRow,'Remove expected interface',()=>rerender(()=>{c.expected_interfaces=c.expected_interfaces.filter(id=>id!==port);delete c.interface_nets[port];}));row.append(portRow);
+        }
+        action(row,'Add expected interface',()=>{const id=nextExpectedInterface(c,placement);if(!id){$('workflow-error').textContent='All interfaces on the bound cavity are already expected.';return;}rerender(()=>c.expected_interfaces.push(id));});
+        action(row,c.placement_id?'Unbind placement':'Remove component',()=>rerender(()=>{if(c.placement_id){c.placement_id=null;c.cavity_id=null;c.cartridge_id=null;}else intent.components=intent.components.filter(item=>item.id!==c.id);}));if(c.placement_id)action(row,'Remove component',()=>rerender(()=>intent.components=intent.components.filter(item=>item.id!==c.id)));components.append(row);
+      }
       action(components,'Add schematic component',()=>{change(()=>{let i=1;while(intent.components.some(c=>c.id==='COMP'+i))i++;intent.components.push({id:'COMP'+i,label:'Component '+i,function:'',cartridge_id:null,cavity_id:null,expected_interfaces:[],interface_nets:{},placement_id:null});});schematic();});
     }
     action(content,'Analyze schematics with AI Design',()=>ai.open());

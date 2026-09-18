@@ -25,7 +25,21 @@ def read(key):
 
 def current():
     with _guard:
-        return read(_active) if _active else None
+        if _active:
+            return read(_active)
+        folder=store.OUTPUT/'ai-jobs'
+        if not folder.is_dir():
+            return None
+        records=sorted(folder.glob('*.json'),key=lambda item:item.stat().st_mtime_ns,reverse=True)
+        if not records:
+            return None
+        try:
+            record=json.loads(records[0].read_text(encoding='utf-8'))
+        except (OSError,json.JSONDecodeError,KeyError):
+            return None
+        if record.get('status') not in ('queued','running'):
+            return None
+        return read(record['id'])
 
 
 def start(task_id,operation,payload):

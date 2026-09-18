@@ -182,6 +182,12 @@ def test_ai_generation_is_editable_and_uses_sqlite_ids_without_embedded_library(
     # The existing import/save/build path handles the generated Design without a parallel project store.
     imported=client.post('/api/import-project',json=design.model_dump(),headers=HEADERS)
     assert imported.status_code==200,imported.text
+    definitions=imported.json()['engineering']['definitions']
+    assert all(f.definition in definitions for f in design.features if f.definition)
+    assert all(definitions[f.definition]['cutting_primitives'] for f in design.features if f.definition)
+    broken=design.model_copy(deep=True);next(f for f in broken.features if f.kind=='cavity').cavity_id='missing_ai_cavity'
+    rejected=client.post('/api/import-project',json=broken.model_dump(),headers=HEADERS)
+    assert rejected.status_code==409 and 'missing_ai_cavity' in rejected.text
     project=projects.save(design)
     rebuilt=projects.build(project['project_id'],project['revision'])
     assert rebuilt['build']['counts']['FAIL']==0
@@ -217,6 +223,8 @@ def test_jobs_finish_and_restart_status_does_not_claim_success(client,monkeypatc
     fake=dict(id='f'*32,task_id=task['id'],operation='analyze',status='running',process='old',request={},message='old',result=None)
     store.atomic_json(jobs.path(fake['id']),fake)
     assert jobs.read(fake['id'])['status']=='interrupted'
+    monkeypatch.setattr(jobs,'_active',None)
+    assert jobs.current()['id']==fake['id'] and jobs.current()['status']=='interrupted'
 
 
 def test_intent_keeps_unmatched_targets_and_terminal_loads_explicit(client):

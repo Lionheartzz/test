@@ -1,4 +1,9 @@
 // Local settings and engineering handoff reuse the normal Studio draft workflow.
+export async function inspectGeneratedDraft(packet,post){
+  const inspection=await post('/api/import-project',packet.design);
+  return {design:inspection.design,definitions:inspection.engineering?.definitions||{}};
+}
+
 export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) {
   const {$,element,field,action,api,post,newProject}=ctx, content=$('workflow-content');
   const faceOptions={'':'Use interpreted requirements / proposal',top:'Top',bottom:'Bottom',left:'Left',right:'Right',front:'Front',back:'Back'};
@@ -155,7 +160,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
     if(packet.status==='draft'){
       content.append(element('p',`Exact report: ${packet.validation.counts.PASS} PASS · ${packet.validation.counts.WARNING} WARNING · ${packet.validation.counts.FAIL} FAIL. Geometry failures: ${packet.geometry_failures}.`,'ai-summary'));
       content.append(element('p','The draft preserves all failed checks and open engineering decisions. Opening it does not mark it approved. Move, replace, reroute, save, then Validate in the normal Studio.','ai-provider-note'));
-      action(content,'Open draft in Manifold Studio',()=>{if(newProject(packet.design)){$('workflow-dialog').close();ctx.notice('AI Draft opened. Review the linked analysis and engineering decisions, then Save Project or Validate.');}}).classList.add('primary');
+      action(content,'Open draft in Manifold Studio',safe(async()=>{const handoff=await inspectGeneratedDraft(packet,post);if(newProject(handoff.design,handoff.definitions)){$('workflow-dialog').close();ctx.notice('AI Draft opened. Review the linked analysis and engineering decisions, then Save Project or Validate.');}})).classList.add('primary');
       const a=element('a','Download draft project JSON');a.href=`/api/ai-design/tasks/${packet.task_id}/generations/${packet.id}/project`;a.className='download';content.append(a);
       for(const attempt of packet.attempts){content.append(element('p',`Candidate ${attempt.index+1}: ${attempt.error||`${attempt.geometry_failures} geometry failures · ${attempt.counts.FAIL} total FAIL · ${(attempt.failed_rules||[]).join(', ')||'no failed rules'}`}`));}
       const failures=element('details');failures.append(element('summary','Inspect retained exact validation failures'));for(const check of packet.validation.checks.filter(c=>c.status==='FAIL'))failures.append(element('p',`${check.rule} · ${check.items.join(', ')} · ${check.message}`));content.append(failures);

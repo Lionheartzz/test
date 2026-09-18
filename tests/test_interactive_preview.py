@@ -9,6 +9,7 @@ from manifold.engineering_db import get_definition
 from manifold.demo import CAVITY_ID
 from manifold.schema import Design
 from manifold.geometry import build_geometry,review_model
+from manifold.presentation import feature_name
 from manifold.routing import resolve_design
 
 
@@ -114,6 +115,22 @@ def test_exact_preview_reports_display_failure_separately(monkeypatch):
     monkeypatch.setattr(geometry,'review_model',fail)
     with pytest.raises(RuntimeError,match='Exact BRep construction completed; display review unavailable: tessellation fixture failed'):
         dispatch('preview-solid',bores().model_dump())
+
+
+def test_exact_preview_derives_owner_names_without_persisting_contacts():
+    from manifold.cad_worker import dispatch
+    design=editing_manifold()
+    design.features[-1].interface_nets['port1']='P'
+    assert sum(f.interface_nets.get('port1')=='P' for f in design.features if f.kind=='cavity')==2
+    assert not any(f.route_net for f in design.features)
+    result=dispatch('preview-solid',design.model_dump())
+    presented={'nets':[net.model_dump() for net in design.nets],'features':result['features']}
+    labels=[feature_name(presented,feature) for feature in result['features'] if feature.get('route_net')=='P']
+    assert any(label.startswith('CV1-P1') for label in labels)
+    assert any(label.startswith('CV2-P1') for label in labels)
+    assert 'P1' in labels
+    assert result['status']=='UNVALIDATED_EXACT_GEOMETRY'
+    assert not any(f.route_net or f.connects_to for f in design.features if f.kind=='cavity')
 
 
 def test_cancelled_warm_preview_is_destroyed_and_later_preview_recovers(tmp_path,monkeypatch):

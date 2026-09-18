@@ -2,6 +2,8 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {featureLabel,returnNetToAutomatic} from '../web/kinematics.js';
 import {displayExternalPortName,displayMemberName,displayIdentity} from '../web/presentation.js';
+import {nextExpectedInterface,renameExpectedInterface} from '../web/workflows.js';
+import {inspectGeneratedDraft} from '../web/ai-generation.js';
 
 test('generated route labels hide hash ids and keep a deterministic cavity/net alias',()=>{
   const design={features:[
@@ -53,4 +55,23 @@ test('net IDs and multi-cavity route branches use stable presentation names',()=
   assert.equal(featureLabel(design.features[3],design),'CV1-P2');
   assert.equal(featureLabel(design.features[4],design),'CV2-P1');
   assert.equal(featureLabel(design.features[5],design),'P1');
+});
+
+test('manual schematic intent uses bound cavity interface IDs and keeps mappings when renamed',()=>{
+  const placement={id:'CV1',kind:'cavity',interface_nets:{P:'P',T:'T',A:'A',B:'B'}};
+  const component={expected_interfaces:[],interface_nets:{}};
+  for(let i=0;i<4;i++)component.expected_interfaces.push(nextExpectedInterface(component,placement));
+  assert.deepEqual(component.expected_interfaces,['P','T','A','B']);
+  const legacy={expected_interfaces:['port1'],interface_nets:{port1:'P'}};
+  renameExpectedInterface(legacy,'port1','P');
+  assert.deepEqual(legacy,{expected_interfaces:['P'],interface_nets:{P:'P'}});
+});
+
+test('AI draft handoff resolves SQLite definitions before entering the Viewer',async()=>{
+  const packet={design:{features:[{kind:'cavity',cavity_id:'CAV_A'}]}},calls=[];
+  const post=async(url,design)=>{calls.push(['inspect',url,design]);return {design,engineering:{definitions:{CAV_A:{id:'CAV_A',cutting_primitives:[{}]}}}};};
+  const handoff=await inspectGeneratedDraft(packet,post);calls.push(['open',handoff]);
+  assert.equal(calls[0][1],'/api/import-project');
+  assert.equal(handoff.definitions.CAV_A.id,'CAV_A');
+  assert.deepEqual(calls.map(row=>row[0]),['inspect','open']);
 });

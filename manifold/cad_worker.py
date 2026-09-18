@@ -23,6 +23,10 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None):
         if operation=='preview':return dict(design=resolved.model_dump(),routes=routes,status='UNVALIDATED_PREVIEW')
         if proposal_ready:proposal_ready(dict(design=resolved.model_dump(),routes=routes,status='UNVALIDATED_PREVIEW'))
         geometry=build_geometry(resolved)
+        # Presentation may identify terminal route branches from exact contacts.
+        # This mutates only the worker's resolved preview copy; it is never saved
+        # into the authored project and does not perform validation.
+        authorize_generated_contacts(resolved,geometry)
         try:model=review_model(resolved,geometry,core_only=True)
         except Exception as exc:raise RuntimeError('Exact BRep construction completed; display review unavailable: '+(str(exc) or type(exc).__name__)) from exc
         design_revision=store.revision(design)

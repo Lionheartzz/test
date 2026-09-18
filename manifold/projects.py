@@ -1,5 +1,6 @@
 """Local named projects. IDs select fixed files, never caller-provided paths."""
 import json
+import hashlib
 import re
 import uuid
 from datetime import datetime, timezone
@@ -20,6 +21,11 @@ def path(key):
 
 def read(key):
     return json.loads(path(key).read_text(encoding='utf-8'))
+
+def saved_revision(design):
+    """Hash already-normalized saved project state without opening the project."""
+    payload=json.dumps(design,sort_keys=True,separators=(',',':'),ensure_ascii=False)
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 def snapshot(record):
     from .network import endpoints
@@ -124,12 +130,18 @@ def delete_project(key:str,payload:DeleteRequest):
 @router.get('')
 def listing():
     entries=[]
+    loaded_engine_revision=store.engine_revision()
+    loaded_engine_current=store.engine_current()
     for p in folder().glob('*.json'):
         try:
-            r=read(p.stem);s=snapshot(r);d=s['design']
-            entries.append(dict(id=r['id'],name=d['name'],updated_at=s['updated_at'],revision=s['revision'],archived=s['archived'],
-                                status='SAVED DRAFT' if s['stale'] else s['build']['status'],features=len(d['features']),context=d['project_context'],block=d['block']))
-        except (ValueError,OSError,KeyError):
+            r=read(p.stem);d=r['design'];revision=saved_revision(d);pointer=r.get('build')
+            stale=bool(pointer) and (pointer['design_revision']!=revision or
+                  pointer.get('engine_revision')!=loaded_engine_revision or not loaded_engine_current)
+            status='SAVED DRAFT' if not pointer else 'STALE' if stale else pointer['status']
+            entries.append(dict(id=r['id'],name=d['name'],updated_at=r['updated_at'],revision=revision,
+                                archived=r.get('archived',False),status=status,features=len(d['features']),
+                                project_context=d.get('project_context','metric'),block=d.get('block')))
+        except (ValueError,OSError,KeyError,TypeError):
             entries.append(dict(id=p.stem,name=p.stem,status='UNREADABLE',archived=False,error='Project file requires repair; original retained.'))
     return sorted(entries,key=lambda r:r.get('updated_at',''),reverse=True)
 

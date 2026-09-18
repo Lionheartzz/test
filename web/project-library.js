@@ -13,11 +13,12 @@ export function projectLibrary(ctx){
     const filters=element('div',null,'action-row'),search=element('input');search.placeholder='Search saved projects';search.setAttribute('aria-label','Search saved projects');search.value=query;filters.append(search);
     action(filters,archived?'Show active projects':'Show archived projects',()=>{archived=!archived;show();});
     const cards=element('div',null,'project-cards');home.append(intro,filters,cards);
+    cards.append(element('p','Loading saved projects…','loading-state'));
     try{
       const rows=await api('/api/projects');
       const render=()=>{cards.replaceChildren();const visible=rows.filter(r=>r.archived===archived&&r.name.toLowerCase().includes(query.toLowerCase()));
         if(!visible.length)cards.append(element('p',archived?'No archived projects.':'No saved projects yet. Create a manifold or import a project to begin.','empty-projects'));
-        for(const r of visible){const card=element('article',null,'library-card');card.dataset.projectId=r.id;cards.append(card);card.append(element('h2',r.name),element('p',`${r.status} · ${r.context||''} · ${r.features??0} features`),element('p',r.updated_at?'Saved '+new Date(r.updated_at).toLocaleString():r.error));
+        for(const r of visible){const card=element('article',null,'library-card');card.dataset.projectId=r.id;cards.append(card);card.append(element('h2',r.name),element('p',`${r.status} · ${r.project_context||''} · ${r.features??0} features`),element('p',r.updated_at?'Saved '+new Date(r.updated_at).toLocaleString():r.error));
           const buttons=element('div',null,'action-row');card.append(buttons);
           if(!r.error){action(buttons,'Open',async()=>{if(isDirty()&&!confirm('Discard the current unsaved draft and open this project?'))return;try{await openProject(r.id);}catch(e){alert(e.message);}});
             action(buttons,'Drawings',()=>{if(isDirty()&&!confirm('Leave the unsaved manifold draft and open project drawings?'))return;location.href='/drawing.html?project='+r.id;});
@@ -26,7 +27,7 @@ export function projectLibrary(ctx){
           }
         }
       };search.oninput=()=>{query=search.value;render();};render();
-    }catch(e){cards.append(element('p',e.message));}
+    }catch(e){cards.replaceChildren(element('p',e.message,'error'));}
   }
   $('projects-open').onclick=show;
   return {show};

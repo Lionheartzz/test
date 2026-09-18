@@ -131,7 +131,8 @@ def project_schema():
 @app.post('/api/import-project')
 def import_project(design: Design):
     """Validate a proposed import without replacing the current project or draft."""
-    return inspect_project(design)
+    try:return inspect_project(design)
+    except (ValueError,RuntimeError) as exc:raise HTTPException(409,str(exc))
 
 
 @app.post('/api/export-project')

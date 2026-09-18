@@ -114,6 +114,28 @@ def test_manual_schematic_expected_interface_can_be_unmapped_then_bound(engineer
     assert next(row for row in report['checks'] if row['rule']=='schematic_conformance')['status']=='PASS'
 
 
+def test_manual_schematic_conformance_accepts_real_non_port_interface_ids(engineering_db):
+    with sqlite3.connect(engineering_db) as connection:
+        connection.execute("""INSERT INTO cavities
+            SELECT 'CAV_PTAB','Four-interface cavity',family,unit_system,manufacturer,thread_spec,
+                   stages_json,primitives_json,boundaries_json,machining_json,clearance_diameter,
+                   clearance_height,usable,unusable_reason,active FROM cavities WHERE id='CAV_A'""")
+        for interface_id,offset_u,offset_v in [('P',-2,-2),('T',2,-2),('A',-2,2),('B',2,2)]:
+            connection.execute('INSERT INTO cavity_interfaces VALUES (?,?,?,?,?,?,?,?)',
+                ('CAV_PTAB',interface_id,10,20,2,offset_u,offset_v,1))
+    mappings={interface_id:interface_id for interface_id in ('P','T','A','B')}
+    design=Design.model_validate(dict(schema_version=2,name='Manual PTAB intent',
+        block=dict(length=100,width=100,height=100,material='Aluminium'),
+        features=[dict(id='CV1',kind='cavity',face='top',u=50,v=50,cavity_id='CAV_PTAB',
+                       cartridge_id=None,interface_nets=mappings)],
+        schematic_intent=dict(assets=[],components=[dict(id='COMP1',label='Manual valve',function='control',
+            cavity_id='CAV_PTAB',expected_interfaces=list(mappings),interface_nets=mappings,placement_id='CV1')])))
+    validate_references(design)
+    report=validate(design,build_geometry(design))
+    row=next(row for row in report['checks'] if row['rule']=='schematic_conformance')
+    assert row['status']=='PASS' and row['actual'] is True
+
+
 def test_engineering_review_owned_by_cavity_produces_no_route_candidates(engineering_db):
     design=cavity_only()
     report=dict(counts={'FAIL':1,'WARNING':0},checks=[dict(

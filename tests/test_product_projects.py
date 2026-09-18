@@ -32,6 +32,34 @@ def test_project_library_empty_start_and_independent_reopen(isolated):
     assert isolated.post('/api/projects',json=dict(design=d,project_id=first['project_id'],expected_revision=first['revision']),headers=HEADERS).status_code==409
     assert not store.PROJECT.exists() and store.current() is None
 
+
+def test_project_library_lists_eight_projects_without_opening_or_engineering_resolution(isolated,monkeypatch):
+    from manifold import engineering_db,network
+    now='2026-09-18T12:00:00+00:00';engine=store.engine_revision()
+    expected={}
+    projects.folder().mkdir(parents=True)
+    for index in range(8):
+        design=blank(f'Project {index}').model_dump();revision=projects.saved_revision(design)
+        build=None
+        if index==1:build=dict(build_id='a'*32,design_revision=revision,engine_revision=engine,status='PASS',counts={})
+        if index==2:build=dict(build_id='b'*32,design_revision=revision,engine_revision=engine,status='FAIL',counts={})
+        if index==3:build=dict(build_id='c'*32,design_revision='0'*64,engine_revision=engine,status='PASS',counts={})
+        key=f'{index:032x}';store.atomic_json(projects.path(key),dict(id=key,design=design,build=build,archived=False,updated_at=now))
+        expected[index]=revision
+    monkeypatch.setattr(projects,'snapshot',lambda *_:pytest.fail('listing opened a project snapshot'))
+    monkeypatch.setattr(engineering_db,'validate_references',lambda *_a,**_k:pytest.fail('listing validated SQLite references'))
+    monkeypatch.setattr(engineering_db,'definitions_for_design',lambda *_a,**_k:pytest.fail('listing resolved SQLite definitions'))
+    monkeypatch.setattr(network,'endpoints',lambda:pytest.fail('listing performed network discovery'))
+    calls=[];monkeypatch.setattr(store,'engine_current',lambda:calls.append(1) or True)
+    response=isolated.get('/api/projects');assert response.status_code==200
+    rows=response.json();assert len(rows)==8 and calls==[1]
+    by_name={row['name']:row for row in rows}
+    assert by_name['Project 0']['status']=='SAVED DRAFT'
+    assert by_name['Project 1']['status']=='PASS' and by_name['Project 2']['status']=='FAIL'
+    assert by_name['Project 3']['status']=='STALE'
+    assert by_name['Project 7']['revision']==expected[7]
+    assert all('engineering' not in row and 'network' not in row and row['project_context']=='metric' for row in rows)
+
 def test_project_manage_preserves_copies_history_and_source(isolated):
     first=projects.save(blank());key=first['project_id']
     req=dict(expected_revision=first['revision'],action='duplicate',name='Copy')
