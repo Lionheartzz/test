@@ -12,7 +12,7 @@ from ..engineering import calculate_sync
 from . import storage, jobs, templates
 from .schema import Create, Save, Regenerate, Revision, Release, Edit, ID, Digest, Key
 from .generate import snapshot, initial_edit, auto_annotations, add_tables, regenerate_edit, anchors, digest
-from .render import scene, svg, check_drawing, font_path
+from .render import scene, svg, check_drawing, font_path, table_metrics
 from .pdf import export_pdf
 
 router=APIRouter(prefix='/api/drawings')
@@ -89,8 +89,14 @@ def render_document(project_id:ID,drawing_id:ID,payload:Render):
         if doc['status']=='Released' and Edit.model_validate(doc['edit']).model_dump()!=payload.edit.model_dump():
             raise ValueError('Released drawing presentation is immutable. Create a new revision before editing.')
         doc['edit']=payload.edit.model_dump()
+        metrics=table_metrics(doc['source'],payload.edit)
         drawing=scene(doc,payload.sheet)
-        return dict(svg=svg(drawing),anchors=drawing['anchors'],issues=check_drawing(doc,layouts=False)+drawing['issues'])
+        row_issues=[dict(code='table-rows:'+table.id,
+                         message=f'Displayed rows must be at least {metrics[table.id]["required_physical_rows"]} for the selected source groups.',
+                         item=table.id,severity='error') for table in payload.edit.tables
+                    if table.display_rows is not None and table.display_rows<metrics[table.id]['required_physical_rows']]
+        return dict(svg=svg(drawing),anchors=drawing['anchors'],table_metrics=metrics,
+                    issues=check_drawing(doc,layouts=False)+row_issues+drawing['issues'])
     return guarded(run)
 
 

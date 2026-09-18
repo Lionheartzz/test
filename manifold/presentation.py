@@ -43,8 +43,14 @@ def feature_name(design,feature):
         referenced={str(target).split(':',1)[0] for peer in peers for target in (_get(peer,'connects_to',[]) or []) if ':' in str(target)}
         owners=sorted((f for f in _features(design) if _get(f,'kind')=='cavity' and not _get(f,'suppressed',False)
                        and (route in (_get(f,'interface_nets',{}) or {}).values() or _get(f,'id') in referenced)),key=_order)
-        prefix=f'{feature_name(design,owners[0])}-{net_name(design,route)}' if len(owners)==1 else net_name(design,route)
-        label=f'{prefix}{max(0,next((i for i,f in enumerate(peers) if _get(f,"id")==_get(feature,"id")),0))+1}'
+        def owner_for(item):
+            direct={str(target).split(':',1)[0] for target in (_get(item,'connects_to',[]) or []) if ':' in str(target)}
+            matched=[owner for owner in owners if _get(owner,'id') in direct]
+            return matched[0] if len(matched)==1 else owners[0] if len(owners)==1 else None
+        owner=owner_for(feature)
+        named=[item for item in peers if _get(owner_for(item),'id')==_get(owner,'id')]
+        prefix=f'{feature_name(design,owner)}-{net_name(design,route)}' if owner else net_name(design,route)
+        label=f'{prefix}{max(0,next((i for i,f in enumerate(named) if _get(f,"id")==_get(feature,"id")),0))+1}'
         return label+(' · PLUG' if _get(feature,'plugged',False) else '')
     if _get(feature,'kind')=='port':
         if _get(feature,'schematic_id'):return _get(feature,'schematic_id')
@@ -66,7 +72,7 @@ def interface_name(design,feature_id,interface_id,*,definition_only=False,index=
 
 def review_name(value):
     text=str(value or '')
-    if text=='PORT_SPEC':return 'External port specification'
+    if text=='PORT_SPEC' or text.startswith('PORT_SPEC_'):return 'External port specification'
     if text.startswith('REVIEW_'):return 'Engineering review item'
     return text
 
@@ -76,6 +82,8 @@ def identity_name(design,value):
     if text.startswith('F:'):text=text[2:].split(':step:')[0]
     feature=next((f for f in _features(design) if _get(f,'id')==text),None)
     if feature:return feature_name(design,feature)
+    nets=design.nets if hasattr(design,'nets') else design.get('nets',[])
+    if any(_get(net,'id')==text for net in nets):return net_name(design,text)
     if ':' in text:
         owner,suffix=text.split(':',1)
         placed=next((f for f in _features(design) if _get(f,'id')==owner),None)

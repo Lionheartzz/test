@@ -151,6 +151,29 @@ def table_rows(table,rows,operations):
     return source[table.start:table.start+table.count]
 
 
+def table_metrics(source, edit):
+    """Use the renderer's own row semantics for UI fit and save admission."""
+    _, rows, operations = anchors(source)
+    result = {}
+    for table in edit.tables:
+        if table.kind == 'porting' and table.presentation in ('pmc-portings','pmc-customer-portings'):
+            from .pmc_portings import required_physical_rows
+            required = required_physical_rows(table, rows)
+        else:
+            required = max(1, len(table_rows(table, rows, operations)))
+        result[table.id] = dict(required_physical_rows=required)
+    return result
+
+
+def validate_table_display_rows(source, edit):
+    metrics = table_metrics(source, edit)
+    for table in edit.tables:
+        required = metrics[table.id]['required_physical_rows']
+        if table.display_rows is not None and table.display_rows < required:
+            raise ValueError(f'{table.id}: display_rows must be at least {required} for the selected source groups')
+    return metrics
+
+
 def table_cells(table,rows):
     headers=['ID / FACE','SPECIFICATION / SOURCE DATA','REMARKS'] if table.kind=='porting' else ['ID / OP / FACE','U / V mm','CUT Ø / DEPTH mm','SPECIFICATION / REMARKS']
     fractions=[.16,.62,.22] if table.kind=='porting' else [.16,.16,.24,.44]

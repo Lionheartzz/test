@@ -49,7 +49,7 @@ export function guided(ctx,open){
         if(token!==generation||requestId!==request)return;results.removeAttribute('aria-busy');results.replaceChildren();let count=0;
         for(const row of rows){
           if(mode==='cavity'){count++;const card=element('section',null,'library-card');card.append(element('h3',row.name),element('p',`${row.manufacturer} · ${row.id}`));action(card,'Select cavity',guard(async()=>{card.append(element('p','Preparing complete cavity geometry and source records…','loading-state'));for(const b of card.querySelectorAll('button'))b.disabled=true;const d=await api('/api/catalog/definition?'+new URLSearchParams({id:row.id}));if(token===generation&&dialog.open&&card.isConnected)add(d);}));results.append(card);continue;}
-          if(mode==='cartridge'){count++;const card=element('section',null,'library-card');card.append(element('h3',row.model),element('p',`${row.manufacturer} · ${row.function||'Function unspecified'}`));action(card,'Choose compatible cavity',guard(async()=>{const cavities=await api('/api/cartridges/'+encodeURIComponent(row.id)+'/cavities');if(cavities.length!==1)throw Error(cavities.length?'Multiple compatible cavities exist; choose the cavity explicitly in Library.':'No valid compatibility relationship exists.');add(cavities[0],row);}));results.append(card);}
+          if(mode==='cartridge'){count++;const card=element('section',null,'library-card');card.append(element('h3',row.model),element('p',`${row.manufacturer} · ${row.function||'Function unspecified'}`));action(card,'Choose compatible cavity',guard(async()=>{const cavities=await api('/api/cartridges/'+encodeURIComponent(row.id)+'/cavities');card.querySelectorAll('.compatible-cavity').forEach(node=>node.remove());if(!cavities.length){card.append(element('p','No explicit compatibility relationship exists.','compatible-cavity'));return;}for(const cavity of cavities){const choice=element('div',null,'compatible-cavity');choice.append(element('strong',cavity.label),element('p',`${cavity.unit_system.toUpperCase()} · ${cavity.family||'Type unspecified'} · ${cavity.manufacturer||'Manufacturer unspecified'}`));action(choice,'Select this cavity',()=>add(cavity,row));card.append(choice);}}));results.append(card);}
         }
         if(!count)results.append(element('p',mode==='cartridge'?'No explicit cartridge compatibility is stored in SQLite. Continue with Cavity first and leave Cartridge unassigned.':'No matches. Refine your search.'));
         if(mode==='cavity'&&rows.length===30)results.append(element('p','Showing the first 30 matches. Refine your search to locate a specific cavity.'));
@@ -78,13 +78,12 @@ export function guided(ctx,open){
           const id='PORT_'+crypto.randomUUID().replaceAll('-','');
           const f={id:id.slice(0,40),kind:'port',face:p.face,u:dims[u]*(index+1)/(sameFace.length+1),v:dims[v]/2,circuit:net,size:p.size.slice(0,80),port_type:p.definition?p.definition.label:'Custom straight bore',diameter:p.diameter,depth:p.depth,clearance_diameter:p.clearance};
           if(p.definition){f.port_definition_id=p.definition.id;f.diameter=Math.min(...p.definition.stages.map(s=>s.diameter));f.depth=p.definition.zones[0].end;f.clearance_diameter=p.definition.clearance_diameter;f.clearance_height=p.definition.clearance_height;f.tip_angle=180;}
-          [f.u,f.v]=clamp(f,d,f.u,f.v);d.features.push(f);
+          [f.u,f.v]=clamp(f,d,f.u,f.v);d.features.push(f);if(!p.definition){const n=d.review_items.length+1;d.review_items.push({id:'PORT_SPEC_'+n,kind:'component',subject:f.id,description:`${label}: resolve thread/fitting installation and machining specification for this one-off custom straight bore.`,status:'open'});}
         }
         let count=0,total=selected.reduce((n,s)=>n+s.quantity,0);
         for(const s of selected){for(let j=0;j<s.quantity;j++){
           const [u,v]=axes[s.face],f={id:'CV'+(++count),kind:'cavity',face:s.face,u:dims[u]*count/(total+1),v:dims[v]/2,cavity_id:s.def.id,interface_nets:{...s.mapping},cartridge_id:s.cartridge_id};[f.u,f.v]=clamp(f,d,f.u,f.v);d.features.push(f);
         }}
-        if(configured.length)d.review_items.push({id:'PORT_SPEC',kind:'component',subject:'External ports',description:'Confirm port standards, sizes, depths and material grade. Source machining profiles are pinned where selected; custom bores and fitting installation require engineering review.',status:'open'});
         syncNets(d);const checked=await post('/api/check-design',d);if(newProject(checked,Object.fromEntries(d.library.map(x=>[x.id,x])))){dialog.close();notice('New project ready. Refine placement and routes, then Save Project or Validate.');}
       }));
     };block();

@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {featureLabel,returnNetToAutomatic} from '../web/kinematics.js';
-import {displayExternalPortName,displayMemberName} from '../web/presentation.js';
+import {displayExternalPortName,displayMemberName,displayIdentity} from '../web/presentation.js';
 
 test('generated route labels hide hash ids and keep a deterministic cavity/net alias',()=>{
   const design={features:[
@@ -37,4 +37,20 @@ test('opaque external-port identities use deterministic engineering labels only 
   assert.equal(displayMemberName(design,'CV1:port1'),'CV1-P');
   assert.equal(displayMemberName(design,'PORT_first'),'P1');
   assert.equal(design.features[1].id,'PORT_first');
+});
+
+test('net IDs and multi-cavity route branches use stable presentation names',()=>{
+  const design={nets:[{id:'NET_P',label:'P'}],features:[
+    {id:'CV1',kind:'cavity',interface_nets:{port1:'NET_P'}},
+    {id:'CV2',kind:'cavity',interface_nets:{port1:'NET_P'}},
+    {id:'R-hash-1',kind:'drilling',route_net:'NET_P',connects_to:['CV1:port1']},
+    {id:'R-hash-2',kind:'drilling',route_net:'NET_P',connects_to:['CV1:port1','R-hash-1']},
+    {id:'R-hash-3',kind:'drilling',route_net:'NET_P',connects_to:['CV2:port1']},
+    {id:'R-hash-4',kind:'drilling',route_net:'NET_P',connects_to:['R-hash-1','R-hash-3']},
+  ]};
+  assert.equal(displayIdentity(design,'NET_P'),'P');
+  assert.equal(featureLabel(design.features[2],design),'CV1-P1');
+  assert.equal(featureLabel(design.features[3],design),'CV1-P2');
+  assert.equal(featureLabel(design.features[4],design),'CV2-P1');
+  assert.equal(featureLabel(design.features[5],design),'P1');
 });

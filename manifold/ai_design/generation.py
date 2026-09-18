@@ -227,7 +227,8 @@ def candidate(plan, generation_id, variant):
             for zone,port in c['mapping'].items():terminal_map[port]=f.id+':'+zone
             from ..schema import SchematicComponent
             design.schematic_intent.components.append(SchematicComponent(id=key[:39],label=str(c['label'])[:160],function=str(c['function'])[:200],
-                cartridge_id=c.get('cartridge_id'),cavity_id=definition.id,placement_id=f.id,interface_nets=f.circuits))
+                cartridge_id=c.get('cartridge_id'),cavity_id=definition.id,placement_id=f.id,
+                expected_interfaces=list(f.circuits),interface_nets=f.circuits))
             if key in settings['hard_component_faces']:design.constraints.required_feature_faces[f.id]=face
     points=terminal_points(design)
     default_faces=('left','right','front','back')

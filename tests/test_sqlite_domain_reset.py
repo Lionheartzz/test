@@ -6,13 +6,16 @@ import pytest
 from manifold.engineering_db import (
     compatible,
     create_custom_cavity,
+    create_custom_external_port,
     database_path,
     get_definition,
     initialize_schema,
     search_definitions,
+    set_custom_active,
     validate_database,
     validate_references,
 )
+from manifold.presentation import feature_name, identity_name
 from manifold.geometry import build_geometry
 from manifold.import_mdtools import import_database
 from manifold.project_migration import convert
@@ -100,6 +103,17 @@ def test_schematic_conformance_exists_only_when_intent_exists(engineering_db):
     assert not any(row['rule']=='schematic_conformance' for row in report['checks'])
 
 
+def test_manual_schematic_expected_interface_can_be_unmapped_then_bound(engineering_db):
+    intent=dict(assets=[],components=[dict(id='COMP1',label='Manual valve',function='control',
+        cavity_id='CAV_A',expected_interfaces=['port1'],interface_nets={},placement_id='CV1')])
+    design=cavity_only(schematic_intent=intent)
+    report=validate(design,build_geometry(design))
+    assert next(row for row in report['checks'] if row['rule']=='schematic_conformance')['status']=='FAIL'
+    design.schematic_intent.components[0].interface_nets={'port1':'P'}
+    report=validate(design,build_geometry(design))
+    assert next(row for row in report['checks'] if row['rule']=='schematic_conformance')['status']=='PASS'
+
+
 def test_engineering_review_owned_by_cavity_produces_no_route_candidates(engineering_db):
     design=cavity_only()
     report=dict(counts={'FAIL':1,'WARNING':0},checks=[dict(
@@ -146,6 +160,43 @@ def test_custom_cavity_is_new_searchable_sqlite_definition(engineering_db):
     assert [row['id'] for row in found['items']]==[custom.id]
     design=cavity_only().model_copy(deep=True);design.features[0].cavity_id=custom.id
     validate_references(design)
+    set_custom_active(custom.id,False)
+    assert search_definitions(query='Operator T-10A',unit='custom')['total']==0
+    validate_references(design)
+    set_custom_active(custom.id,True)
+    assert search_definitions(query='Operator T-10A',unit='custom')['total']==1
+
+
+def test_custom_external_port_and_custom_archive_use_sqlite_active_state(engineering_db):
+    cavity=get_definition('CAV_A')
+    source=cavity.model_copy(update={'kind':'external-port','label':'Reusable SAE port'})
+    saved=create_custom_external_port(source)
+    assert saved.id.startswith('custom_port_')
+    assert get_definition(saved.id).kind=='external-port'
+    assert search_definitions(query='Reusable SAE',kind='port_definition')['items'][0]['id']==saved.id
+    design=cavity_only().model_copy(deep=True);design.features[1].port_definition_id=saved.id
+    validate_references(design)
+    set_custom_active(saved.id,False)
+    assert search_definitions(query='Reusable SAE',kind='port_definition')['total']==0
+    assert get_definition(saved.id,include_inactive=True).active is False
+    validate_references(design)
+    set_custom_active(saved.id,True)
+    assert get_definition(saved.id).active is True
+    with pytest.raises(ValueError,match='Imported master'):
+        set_custom_active('CAV_A',False)
+
+
+def test_python_presentation_matches_owner_aware_multi_cavity_routes():
+    design={'nets':[{'id':'NET_P','label':'P'}],'features':[
+        {'id':'CV1','kind':'cavity','interface_nets':{'port1':'NET_P'}},
+        {'id':'CV2','kind':'cavity','interface_nets':{'port1':'NET_P'}},
+        {'id':'R-hash-1','kind':'drilling','route_net':'NET_P','connects_to':['CV1:port1']},
+        {'id':'R-hash-2','kind':'drilling','route_net':'NET_P','connects_to':['CV1:port1','R-hash-1']},
+        {'id':'R-hash-3','kind':'drilling','route_net':'NET_P','connects_to':['CV2:port1']},
+        {'id':'R-hash-4','kind':'drilling','route_net':'NET_P','connects_to':['R-hash-1','R-hash-3']},
+    ]}
+    assert identity_name(design,'NET_P')=='P'
+    assert [feature_name(design,row) for row in design['features'][2:]]==['CV1-P1','CV1-P2','CV2-P1','P1']
 
 
 def test_net_color_and_label_survive_project_json(engineering_db):

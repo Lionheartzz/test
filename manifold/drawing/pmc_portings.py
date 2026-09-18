@@ -72,6 +72,12 @@ def table_layout(table,rows):
     return grid
 
 
+def required_physical_rows(table, rows):
+    """Paper rows after source grouping, compact-label batching and column pairing."""
+    groups = porting_groups(rows, table)
+    return max(1, math.ceil(len(groups) / column_pairs(table)))
+
+
 def add_overflow(source,edit,rows):
     """Additional sheets only when the source PORTINGS content actually overflows."""
     if not edit.tables:return

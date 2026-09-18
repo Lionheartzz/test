@@ -90,6 +90,8 @@ def public(doc, with_checks=True):
         'porting':[dict(id=r['id'],label=r['label']+' / '+r['face']) for r in rows],
         'machining':[dict(id=r['id'],label=f'{r["label"]} / {r["face"]} / operation {r["operation"]}') for r in operations],
     }
+    from .render import table_metrics
+    data['table_metrics'] = table_metrics(doc['source'], Edit.model_validate(doc['edit']))
     data['assets'] = doc['source']['authored'].get('schematics', [])
     if with_checks:
         from .render import check_drawing
@@ -134,6 +136,8 @@ def save_edit(project_id,drawing_id,expected,edit):
         check(doc,expected)
         if projects.read(project_id).get('archived'):
             raise ValueError('Restore the project before editing drawings')
+        from .render import validate_table_display_rows
+        validate_table_display_rows(doc['source'], edit)
         return write_edit(doc,edit)
 
 

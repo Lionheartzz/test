@@ -248,8 +248,19 @@ class SchematicComponent(Strict):
     function: str = Field(default='', max_length=200)
     cartridge_id: Identifier | None = None
     cavity_id: Identifier | None = None
+    expected_interfaces: list[Identifier] = Field(default_factory=list, max_length=40)
     interface_nets: dict[str, Circuit] = Field(default_factory=dict)
     placement_id: Identifier | None = None
+
+    @model_validator(mode='after')
+    def expected_port_state(self):
+        if not self.expected_interfaces and self.interface_nets:
+            self.expected_interfaces=list(self.interface_nets)
+        if len(set(self.expected_interfaces))!=len(self.expected_interfaces):
+            raise ValueError('Duplicate expected schematic interface')
+        if set(self.interface_nets)-set(self.expected_interfaces):
+            raise ValueError('Mapped schematic interface must be explicitly expected')
+        return self
 
     @property
     def feature_id(self):return self.placement_id

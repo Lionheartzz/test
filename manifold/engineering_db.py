@@ -330,6 +330,56 @@ def create_custom_cavity(definition: CavityDefinition) -> CavityDefinition:
     return value
 
 
+def create_custom_external_port(definition: CavityDefinition) -> CavityDefinition:
+    """Insert one reusable, user-authored external-port definition."""
+    import uuid
+    if definition.kind != "external-port":
+        raise ValueError("Custom engineering definition must be an external port")
+    if not definition.usable:
+        raise ValueError("Custom external port must contain complete usable engineering data")
+    if len(definition.zones) != 1 or definition.zones[0].offset_u or definition.zones[0].offset_v:
+        raise ValueError("External-port definition requires one centered hydraulic interface")
+    identifier = "custom_port_" + uuid.uuid4().hex[:19]
+    value = CavityDefinition.model_validate(
+        definition.model_dump() | {
+            "id": identifier, "usable": True, "unusable_reason": "",
+            "active": True, "kind": "external-port",
+        }
+    )
+    interface = value.zones[0]
+    with _connect(writable=True) as connection, connection:
+        connection.execute(
+            "INSERT INTO external_port_definitions "
+            "(id,name,family,unit_system,manufacturer,thread_spec,stages_json,primitives_json,"
+            "boundaries_json,machining_json,interface_json,clearance_diameter,clearance_height,"
+            "usable,unusable_reason,active) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                value.id, value.label, value.family, value.unit_system, value.manufacturer,
+                value.thread_note, json.dumps([row.model_dump() for row in value.stages], separators=(",", ":")),
+                json.dumps([row.model_dump() for row in value.cutting_primitives], separators=(",", ":")),
+                json.dumps([row.model_dump() for row in value.boundaries], separators=(",", ":")),
+                json.dumps(value.machining, separators=(",", ":")),
+                json.dumps(interface.model_dump(), separators=(",", ":")),
+                value.clearance_diameter, value.clearance_height, 1, "", 1,
+            ),
+        )
+    return value
+
+
+def set_custom_active(identifier: str, active: bool) -> CavityDefinition:
+    """Archive/restore only user-authored definitions; imported masters stay operator-managed."""
+    if not identifier.startswith(("custom_", "legacy_")):
+        raise ValueError("Imported master definitions cannot be archived from the product UI")
+    with _connect(writable=True) as connection, connection:
+        table = "cavities" if connection.execute(
+            "SELECT 1 FROM cavities WHERE id=?", (identifier,)
+        ).fetchone() else "external_port_definitions"
+        cursor = connection.execute(f"UPDATE {table} SET active=? WHERE id=?", (int(active), identifier))
+        if cursor.rowcount != 1:
+            raise ValueError("Custom engineering definition was not found")
+        return _get_definition(connection, identifier, include_inactive=True)
+
+
 def search_cartridges(query="", offset=0, limit=40):
     where = ["active=1"]
     values: list[object] = []

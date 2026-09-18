@@ -32,8 +32,10 @@ export function displayRouteName(feature,design){
   const route=features.filter(item=>item.kind==='drilling'&&(item.route_net||item.frozen_net)===netId).sort(stableFeatureOrder);
   const referencedOwners=new Set(route.flatMap(item=>item.connects_to||[]).filter(value=>String(value).includes(':')).map(value=>String(value).split(':')[0]));
   const owners=features.filter(item=>item.kind==='cavity'&&!item.suppressed&&(Object.values(item.interface_nets||{}).includes(netId)||referencedOwners.has(item.id))).sort(stableFeatureOrder);
-  const prefix=owners.length===1?`${displayFeatureName(owners[0],design)}-${displayNetName(design,netId)}`:displayNetName(design,netId);
-  return `${prefix}${Math.max(0,route.findIndex(item=>item.id===feature.id))+1}`;
+  const ownerFor=item=>{const direct=[...new Set((item.connects_to||[]).filter(value=>String(value).includes(':')).map(value=>String(value).split(':')[0]))].filter(id=>owners.some(owner=>owner.id===id));return direct.length===1?owners.find(owner=>owner.id===direct[0]):owners.length===1?owners[0]:null;};
+  const owner=ownerFor(feature),peers=route.filter(item=>(ownerFor(item)?.id||null)===(owner?.id||null));
+  const prefix=owner?`${displayFeatureName(owner,design)}-${displayNetName(design,netId)}`:displayNetName(design,netId);
+  return `${prefix}${Math.max(0,peers.findIndex(item=>item.id===feature.id))+1}`;
 }
 
 export function displayFeatureName(feature,design){
@@ -66,7 +68,7 @@ export function displayRuleName(rule){return ruleNames[rule]||String(rule||'').r
 
 export function displayReviewName(value){
   const text=String(value||'');
-  if(text==='PORT_SPEC')return 'External port specification';
+  if(text==='PORT_SPEC'||text.startsWith('PORT_SPEC_'))return 'External port specification';
   if(text==='External ports')return 'External ports';
   return text.startsWith('REVIEW_')?'Engineering review item':text;
 }
@@ -76,6 +78,7 @@ export function displayIdentity(design,value){
   if(text.startsWith('F:'))text=text.slice(2).split(':step:')[0];
   const feature=(design?.features||[]).find(item=>item.id===text);
   if(feature)return displayFeatureName(feature,design);
+  if((design?.nets||[]).some(net=>net.id===text))return displayNetName(design,text);
   const split=text.indexOf(':');
   if(split>0){
     const owner=text.slice(0,split),suffix=text.slice(split+1);

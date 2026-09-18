@@ -263,7 +263,8 @@ def validate(design, g, definitions=None):
         result('net_intent', [net.id, *missing], len(missing), 0, not missing, 'Every required hydraulic terminal must exist, including suppressed component requirements.')
     for component in design.components:
         f = by_id.get(component.feature_id)
-        matches = (f is not None and not f.suppressed and f.kind == 'cavity' and f.circuits == component.ports
+        complete = set(component.interface_nets)==set(component.expected_interfaces)
+        matches = (complete and f is not None and not f.suppressed and f.kind == 'cavity' and f.circuits == component.ports
                    and (not component.cavity_definition or component.cavity_definition == f.definition)
                    and (not component.cartridge_id or component.cartridge_id == f.cartridge_id))
         result('schematic_conformance', [component.id], matches, True, matches,

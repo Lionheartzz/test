@@ -240,6 +240,13 @@ def custom_cavity(payload:CustomCavityRequest):
     except (ValueError,RuntimeError) as exc:raise HTTPException(422,str(exc))
 
 
+@app.post('/api/catalog/custom-external-port')
+def custom_external_port(payload:CustomCavityRequest):
+    from .engineering_db import create_custom_external_port
+    try:return create_custom_external_port(payload.definition).model_dump()
+    except (ValueError,RuntimeError) as exc:raise HTTPException(422,str(exc))
+
+
 @app.get('/api/catalog/manifest')
 def catalog_manifest():
     from .engineering_db import validate_database
@@ -326,7 +333,9 @@ class LibraryVisibility(Strict):
 
 @app.post('/api/library/visibility')
 def library_visibility(payload: LibraryVisibility):
-    raise HTTPException(410,'Master definitions are managed by explicit database operations.')
+    from .engineering_db import set_custom_active
+    try:return set_custom_active(payload.id,not payload.deleted).model_dump()
+    except ValueError as exc:raise HTTPException(422,str(exc))
 
 
 @app.post('/api/assets')
