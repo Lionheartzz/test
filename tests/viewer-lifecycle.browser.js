@@ -30,8 +30,8 @@ window.setupViewerLifecycle=()=>{
   return {start:point(40,66),moves:[point(43.2,65.5),point(43.1,65.6),point(43.3,65.4),point(43.2,65.5)]};
 };
 
-window.assertViewerLifecycle=()=>{
-  const {frames,viewer}=window.viewerLifecycle;
+window.assertViewerLifecycle=async()=>{
+  const {frames,viewer,container}=window.viewerLifecycle;
   const moves=frames.filter(f=>!f.done);
   if(moves.length<4)throw Error('Continuous drag did not deliver four pointer movements: '+JSON.stringify(frames));
   for(const frame of moves){
@@ -49,5 +49,16 @@ window.assertViewerLifecycle=()=>{
   if(Object.keys(sqliteDraft).includes('library'))throw Error('SQLite definition fixture is not using the real hydrated contract');
   viewer.preview(sqliteDraft);viewer.setDesign(sqliteDraft);sqliteDraft.features[0].u=74;viewer.updateFeature(sqliteDraft,'CV1');
   const hydratedState=viewer.inspection();if(!hydratedState.parts.some(p=>p.owner==='CV1'&&p.dragPreview))throw Error('Hydrated SQLite cavity did not update incrementally');
-  return {passed:true,moves,dragTimings,hydratedSqliteDrag:true,adoptedAutomatic:false};
+  const cavity={id:'CV1',kind:'cavity',face:'top',u:30,v:30,diameter:12,depth:20,interface_nets:{port1:'NET_P'},rotation:0,connects_to:[]};
+  const route={id:'ROUTE_INTERNAL',kind:'drilling',face:'left',u:30,v:30,diameter:8,depth:50,tip_angle:180,plugged:true,plug_length:8,circuit:'NET_P',route_net:'NET_P',connects_to:['CV1:port1'],rotation:0};
+  const labels={block:{length:100,width:80,height:60},library:[],nets:[{id:'NET_P',label:'P'}],features:[cavity,route],schematic_intent:null};
+  const text=()=>[...container.querySelectorAll('.model-label')].map(node=>node.textContent);
+  const hasRouteLabel=()=>text().some(value=>value.startsWith('CV1-P1'));
+  viewer.preview(labels);await new Promise(requestAnimationFrame);if(!hasRouteLabel())throw Error('Approximate labels lost Hydraulic Net display context: '+text());
+  viewer.load({block:labels.block,parts:[],placements:{CV1:{origin:[30,30,0],direction:[0,0,-1]},ROUTE_INTERNAL:{origin:[0,30,30],direction:[1,0,0]}},geometry_kind:'exact-brep'},labels);
+  await new Promise(requestAnimationFrame);if(!hasRouteLabel())throw Error('Exact labels lost Hydraulic Net display context: '+text());
+  route.u=31;viewer.updateFeature(labels,route.id);await new Promise(requestAnimationFrame);if(!hasRouteLabel())throw Error('Incremental labels lost Hydraulic Net display context: '+text());
+  labels.schematic_intent={assets:[],components:[{id:'COMP1',label:'Valve 1',placement_id:'CV1'}]};viewer.preview(labels);await new Promise(requestAnimationFrame);
+  if(!text().includes('Valve 1'))throw Error('Schematic component label was unavailable to Viewer: '+text());
+  return {passed:true,moves,dragTimings,hydratedSqliteDrag:true,fullDisplayContext:true,adoptedAutomatic:false};
 };

@@ -13,7 +13,7 @@ def effective_result(run):
 def interpret(result, options):
     settings = dict(maximum=[2000.0]*3, minimum=[1.0]*3, port_faces={}, component_faces={},
                     hard_port_faces={}, hard_component_faces={}, forbidden=[], material='Unspecified - review required',
-                    priority='fewer_plugs', flows={}, pressures={}, dispositions=[], conflicts=[])
+                    priority='fewer_plugs', flows={}, pressures={}, mounting_requirements=[], dispositions=[], conflicts=[])
     port_labels = {p['id']: str(value(result, p['id'], 'label') or p['id']) for p in result['ports'] if p['component_id'] is None}
     component_labels = {c['id']: str(value(result, c['id'], 'label') or c['id']) for c in result['components']}
     seen = {}
@@ -104,6 +104,9 @@ def interpret(result, options):
         elif category == 'material' and isinstance(val, str):
             settings['material'] = val[:120]
             row.update(status='partially_applied', message='Material recorded on block; pressure/material suitability is not certified by this geometry engine.')
+        elif category == 'mounting':
+            settings['mounting_requirements'].append(row)
+            row.update(status='review_required',message='Thread identity and every hole position must be resolved explicitly before generation; no coordinates are inferred.')
         elif category in ('pressure', 'flow') and isinstance(val, (int, float)) and not isinstance(val, bool):
             scale = {'bar': 1, 'psi': 0.0689475729} if category == 'pressure' else {'l/min': 1, 'lpm': 1, 'gpm': 3.785411784}
             if unit.lower() not in scale or val <= 0:

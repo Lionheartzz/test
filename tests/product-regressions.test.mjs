@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {featureLabel,returnNetToAutomatic} from '../web/kinematics.js';
+import {featureLabel,returnNetToAutomatic,smartAlign} from '../web/kinematics.js';
 import {displayExternalPortName,displayMemberName,displayIdentity} from '../web/presentation.js';
 import {nextExpectedInterface,renameExpectedInterface} from '../web/workflows.js';
 import {inspectGeneratedDraft} from '../web/ai-generation.js';
@@ -15,8 +15,8 @@ test('generated route labels hide hash ids and keep a deterministic cavity/net a
   assert.equal(featureLabel(design.features[2],design),'CV1-P2');
 });
 
-test('returning a refined route to automatic removes only owned geometry and stale contacts',()=>{
-  const design={nets:[{id:'P',routing:'manual',routing_variant:'xyz:nearest:direct',construction_access:[{face:'top',u:1,v:2}]},{id:'T',routing:'automatic'}],features:[
+test('returning a refined route to automatic removes only owned geometry and preserves construction access',()=>{
+  const design={block:{length:100,width:100,height:100},nets:[{id:'P',routing:'manual',routing_variant:'xyz:nearest:direct',construction_access:[{id:'ACCESS_P',face:'top',fraction:.5}]},{id:'T',routing:'automatic'}],features:[
     {id:'CV1',kind:'cavity',connects_to:[]},
     {id:'P-FROZEN',kind:'drilling',frozen_net:'P',connects_to:['CV1:port1']},
     {id:'T-ROUTE',kind:'drilling',route_net:'T',connects_to:['P-FROZEN']},
@@ -24,7 +24,7 @@ test('returning a refined route to automatic removes only owned geometry and sta
   returnNetToAutomatic(design,'P');
   assert.deepEqual(design.features.map(f=>f.id),['CV1','T-ROUTE']);
   assert.deepEqual(design.features[1].connects_to,[]);
-  assert.equal(design.nets[0].routing,'automatic');assert.equal(design.nets[0].routing_variant,null);assert.deepEqual(design.nets[0].construction_access,[]);
+  assert.equal(design.nets[0].routing,'automatic');assert.equal(design.nets[0].routing_variant,null);assert.deepEqual(design.nets[0].construction_access,[{id:'ACCESS_P',face:'top',fraction:.5}]);
   assert.equal(design.nets[1].routing,'automatic');
 });
 
@@ -62,9 +62,9 @@ test('manual schematic intent uses bound cavity interface IDs and keeps mappings
   const component={expected_interfaces:[],interface_nets:{}};
   for(let i=0;i<4;i++)component.expected_interfaces.push(nextExpectedInterface(component,placement));
   assert.deepEqual(component.expected_interfaces,['P','T','A','B']);
-  const legacy={expected_interfaces:['port1'],interface_nets:{port1:'P'}};
+  const legacy={expected_interfaces:['port1'],interface_nets:{port1:'P'},interface_dispositions:{port1:'connected'}};
   renameExpectedInterface(legacy,'port1','P');
-  assert.deepEqual(legacy,{expected_interfaces:['P'],interface_nets:{P:'P'}});
+  assert.deepEqual(legacy,{expected_interfaces:['P'],interface_nets:{P:'P'},interface_dispositions:{P:'connected'}});
 });
 
 test('AI draft handoff resolves SQLite definitions before entering the Viewer',async()=>{
@@ -74,4 +74,12 @@ test('AI draft handoff resolves SQLite definitions before entering the Viewer',a
   assert.equal(calls[0][1],'/api/import-project');
   assert.equal(handoff.definitions.CAV_A.id,'CAV_A');
   assert.deepEqual(calls.map(row=>row[0]),['inspect','open']);
+});
+
+test('Smart Align uses the SQLite external-port hydraulic window without duplicated depth',()=>{
+  const definition={id:'PORT_DEF',stages:[{diameter:12}],clearance_diameter:16,boundaries:[],zones:[{id:'port1',start:10,end:20}]};
+  const port={id:'PORT_DB',kind:'port',face:'left',u:30,v:25,port_definition_id:'PORT_DEF',circuit:'P',suppressed:false};
+  const target={id:'DRILL',kind:'drilling',face:'top',u:14.5,v:30,diameter:8,depth:20,clearance_diameter:8,plugged:false,suppressed:false};
+  const design={block:{length:100,width:80,height:60},library:[definition],features:[target,port]};
+  assert.deepEqual(smartAlign(target,design,target.u,target.v,2,[port]).values,[15,30]);
 });

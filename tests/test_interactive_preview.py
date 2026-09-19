@@ -100,7 +100,7 @@ def test_review_failure_keeps_full_validation_and_step_evidence(tmp_path,monkeyp
     def fail(*args):raise RuntimeError('mesh fixture failed')
     monkeypatch.setattr(geometry,'review_model',fail)
     folder=tmp_path/'build';report=store.build_outputs(bores(cross=cross),folder)
-    assert report['status']==('FAIL' if cross else 'PASS')
+    assert report['status']==('FAIL' if cross else 'WARNING')
     assert next(c for c in report['checks'] if c['rule']=='step_round_trip')['status']=='PASS'
     assert json.loads((folder/'validation.json').read_text())['counts']==report['counts']
     assert cq.importers.importStep(str(folder/'production.step')).val().isValid()

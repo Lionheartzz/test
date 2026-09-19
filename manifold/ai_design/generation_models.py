@@ -11,9 +11,22 @@ class Binding(Strict):
     decision: str = Field(default='', max_length=2000)
 
 
+class ThreadedMountingHole(Strict):
+    thread_definition_id: str = Field(pattern=r'^[A-Za-z][A-Za-z0-9_-]{0,39}$')
+    face: Face = 'top'
+    u: float = Field(ge=0,le=2000)
+    v: float = Field(ge=0,le=2000)
+    depth: float = Field(gt=0,le=2000)
+    thread_depth: float = Field(gt=0,le=2000)
+    through: bool = False
+
+
 class GenerationOptions(Strict):
     bindings: dict[Key, Binding] = Field(default_factory=dict, max_length=12)
     port_definitions: dict[Key, Binding] = Field(default_factory=dict, max_length=24)
+    provisional_ports: dict[Key, str] = Field(default_factory=dict,max_length=24)
+    threaded_mounting_holes: list[ThreadedMountingHole] = Field(default_factory=list,max_length=40)
+    mounting_decision: str = Field(default='',max_length=2000)
     net_overrides: dict[Key, str] = Field(default_factory=dict, max_length=80)
     topology_decision: str = Field(default='', max_length=2000)
     component_faces: dict[Key, Face] = Field(default_factory=dict, max_length=12)

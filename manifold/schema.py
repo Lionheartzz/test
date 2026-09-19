@@ -1,3 +1,4 @@
+import math
 from typing import Literal, Annotated
 from pydantic import BaseModel, ConfigDict, Field, model_validator, model_serializer
 
@@ -18,6 +19,31 @@ class Block(Strict):
     width: Positive
     height: Positive
     material: str = Field(min_length=1, max_length=120)
+    material_id: Identifier | None = None
+    stock_id: Identifier | None = None
+    stock_dimensions: tuple[Positive, Positive, Positive] | None = None
+    machining_allowance: tuple[float, float, float] | None = None
+
+    @model_serializer(mode='wrap')
+    def compact_optional_master_state(self,handler):
+        value=handler(self)
+        for key in ('material_id','stock_id','stock_dimensions','machining_allowance'):
+            if value.get(key) is None:value.pop(key,None)
+        return value
+
+    @model_validator(mode='after')
+    def stock_is_not_finished_geometry(self):
+        selected=bool(self.stock_id)
+        if selected != bool(self.stock_dimensions) or selected != bool(self.machining_allowance):
+            raise ValueError('Stock selection requires its separate stock dimensions and machining allowance')
+        if self.stock_id and not self.material_id:
+            raise ValueError('Stock selection requires a source-backed material')
+        if self.machining_allowance and any(value < 0 or value > 200 for value in self.machining_allowance):
+            raise ValueError('Machining allowance must be between 0 and 200 mm')
+        if self.stock_dimensions and any(stock + 1e-6 < finished+2*allowance for stock,finished,allowance in
+                                         zip(self.stock_dimensions,(self.length,self.width,self.height),self.machining_allowance)):
+            raise ValueError('Selected stock must contain the finished block plus declared machining allowance on both sides')
+        return self
 
 
 class Stage(Strict):
@@ -82,6 +108,7 @@ class CavityDefinition(Strict):
     family: str = Field(default='',max_length=160)
     unit_system: Literal['metric','inch','custom'] = 'custom'
     thread_note: str = Field(default='',max_length=300)
+    thread_definition_id: Identifier | None = None
     stages: list[Stage] = Field(min_length=1, max_length=40)
     zones: list[Zone] = Field(default_factory=list, max_length=64)
     clearance_diameter: Positive
@@ -120,6 +147,11 @@ class CavityDefinition(Strict):
         return self
 
 
+class MachiningModifierPlacement(Strict):
+    modifier_id: Identifier
+    start: Coordinate = 0
+
+
 class Feature(Strict):
     id: Identifier
     kind: Literal['cavity', 'port', 'drilling', 'mounting']
@@ -151,6 +183,11 @@ class Feature(Strict):
     parent_id: Identifier | None = None
     local_offset: tuple[float, float] = (0, 0)
     through: bool = False
+    mounting_mode: Literal['plain','threaded'] = 'plain'
+    thread_definition_id: Identifier | None = None
+    thread_depth: Positive | None = None
+    closure_definition_id: Identifier | None = None
+    machining_modifiers: list[MachiningModifierPlacement] = Field(default_factory=list,max_length=20)
 
     @property
     def definition(self):
@@ -170,7 +207,13 @@ class Feature(Strict):
     @model_serializer(mode='wrap')
     def preserve_legacy_shape(self,handler):
         value=handler(self)
-        if self.kind!='mounting':value.pop('through',None)
+        if self.kind!='mounting':
+            value.pop('through',None);value.pop('mounting_mode',None);value.pop('thread_definition_id',None);value.pop('thread_depth',None)
+        elif self.mounting_mode=='plain':
+            value.pop('mounting_mode',None);value.pop('thread_definition_id',None);value.pop('thread_depth',None)
+        if self.kind!='drilling':value.pop('closure_definition_id',None)
+        elif value.get('closure_definition_id') is None:value.pop('closure_definition_id',None)
+        if not value.get('machining_modifiers'):value.pop('machining_modifiers',None)
         return value
 
     @model_validator(mode='after')
@@ -190,8 +233,12 @@ class Feature(Strict):
                 raise ValueError('Angled direction requires an inward drilling axis with entry cosine >= 0.25')
             self.direction=tuple(x/length for x in self.direction)
         if self.kind=='mounting':
-            if self.circuit is not None or self.interface_nets or self.connects_to or self.definition or self.plugged or self.diameter is None or self.depth is None:
-                raise ValueError('Mounting hole requires explicit diameter/depth and no hydraulic identity, library cavity, closure or contacts')
+            if self.circuit is not None or self.interface_nets or self.connects_to or self.definition or self.plugged or self.depth is None or self.closure_definition_id:
+                raise ValueError('Mounting hole requires machining depth and no hydraulic identity, cavity, closure or contacts')
+            if self.mounting_mode=='plain' and (self.diameter is None or self.thread_definition_id or self.thread_depth):
+                raise ValueError('Plain mounting hole requires an explicit diameter and no thread definition')
+            if self.mounting_mode=='threaded' and (self.diameter is not None or not self.thread_definition_id or self.thread_depth is None or self.thread_depth>self.depth):
+                raise ValueError('Threaded mounting hole requires a thread definition and thread depth no greater than drill depth; tap diameter comes from SQLite')
             if self.through and self.tip_angle!=180:
                 raise ValueError('Through mounting geometry uses an explicit flat-ended cut at the exit face')
         elif self.kind == 'cavity':
@@ -204,6 +251,8 @@ class Feature(Strict):
             raise ValueError('Bore requires circuit, diameter, depth; no cavity definition')
         if self.plugged and (self.kind != 'drilling' or self.plug_length >= self.depth):
             raise ValueError('Plug requires a drilling deeper than its engagement')
+        if self.closure_definition_id and (self.kind!='drilling' or not self.plugged):
+            raise ValueError('A closure definition may only bind a plugged construction drilling')
         if self.kind == 'port' and not self.definition and self.clearance_diameter < self.diameter:
             raise ValueError('Port clearance diameter cannot be smaller than bore')
         return self
@@ -250,6 +299,7 @@ class SchematicComponent(Strict):
     cavity_id: Identifier | None = None
     expected_interfaces: list[Identifier] = Field(default_factory=list, max_length=40)
     interface_nets: dict[str, Circuit] = Field(default_factory=dict)
+    interface_dispositions: dict[str, Literal['connected','blocked','terminated','unknown']] = Field(default_factory=dict)
     placement_id: Identifier | None = None
 
     @model_validator(mode='after')
@@ -260,6 +310,14 @@ class SchematicComponent(Strict):
             raise ValueError('Duplicate expected schematic interface')
         if set(self.interface_nets)-set(self.expected_interfaces):
             raise ValueError('Mapped schematic interface must be explicitly expected')
+        if set(self.interface_dispositions)-set(self.expected_interfaces):
+            raise ValueError('Interface disposition must reference an expected schematic interface')
+        for identifier in self.expected_interfaces:
+            disposition=self.interface_dispositions.setdefault(identifier,'connected' if identifier in self.interface_nets else 'unknown')
+            if disposition=='connected' and identifier not in self.interface_nets:
+                continue
+            if disposition!='connected' and identifier in self.interface_nets:
+                raise ValueError('Blocked, terminated or unknown schematic interfaces cannot map to a hydraulic net')
         return self
 
     @property
@@ -330,6 +388,40 @@ class DesignOrigin(Strict):
     notes: str = Field(default='', max_length=2000)
 
 
+class Engraving(Strict):
+    """A shallow authored production marking; it has no hydraulic identity."""
+    id: Identifier
+    face: Face
+    u: Coordinate
+    v: Coordinate
+    text: str = Field(min_length=1,max_length=40)
+    rotation: float = Field(default=0,ge=-360,le=360)
+    text_height: float = Field(default=5,gt=0,le=50)
+    depth: float = Field(default=.3,gt=0,le=5)
+
+
+class BlockModifier(Strict):
+    """Deliberately limited stock machining, not a general solid-model feature."""
+    id: Identifier
+    kind: Literal['rectangular-cutout','chamfer']
+    face: Face
+    u: Coordinate = 0
+    v: Coordinate = 0
+    width: Positive | None = None
+    height: Positive | None = None
+    depth: Positive | None = None
+    rotation: float = Field(default=0,ge=-360,le=360)
+    size: float | None = Field(default=None,gt=0,le=100)
+
+    @model_validator(mode='after')
+    def parameters_for_kind(self):
+        if self.kind=='rectangular-cutout' and (None in (self.width,self.height,self.depth) or self.size is not None):
+            raise ValueError('Rectangular cutout requires width, height and depth only')
+        if self.kind=='chamfer' and (self.size is None or any(value is not None for value in (self.width,self.height,self.depth))):
+            raise ValueError('Chamfer requires a size only')
+        return self
+
+
 class Design(Strict):
     schema_version: Literal[2] = 2
     name: str = Field(min_length=1, max_length=120)
@@ -343,6 +435,8 @@ class Design(Strict):
     constraints: DesignConstraints = Field(default_factory=DesignConstraints)
     review_items: list[EngineeringReview] = Field(default_factory=list, max_length=100)
     origin: DesignOrigin = Field(default_factory=DesignOrigin)
+    engravings: list[Engraving] = Field(default_factory=list,max_length=80)
+    block_modifiers: list[BlockModifier] = Field(default_factory=list,max_length=40)
 
     @property
     def components(self):return self.schematic_intent.components if self.schematic_intent else []
@@ -354,8 +448,24 @@ class Design(Strict):
         if len({r.id for r in self.review_items}) != len(self.review_items):
             raise ValueError('Engineering review IDs must be unique')
         ids = [f.id for f in self.features]
-        if len(set(ids)) != len(ids):
+        authored_ids=ids+[row.id for row in self.engravings]+[row.id for row in self.block_modifiers]
+        if len(set(authored_ids)) != len(authored_ids):
             raise ValueError('IDs must be unique')
+        from .kinematics import FACE_AXES,dimensions
+        dims=dimensions(self.block)
+        for row in self.engravings:
+            u,v,_,_=FACE_AXES[row.face]
+            if row.u>dims[u] or row.v>dims[v]:raise ValueError(f'{row.id}: engraving origin is outside its block face')
+        for row in self.block_modifiers:
+            u,v,axis,_=FACE_AXES[row.face]
+            if row.kind=='rectangular-cutout':
+                angle=math.radians(row.rotation)
+                extent_u=(abs(row.width*math.cos(angle))+abs(row.height*math.sin(angle)))/2
+                extent_v=(abs(row.width*math.sin(angle))+abs(row.height*math.cos(angle)))/2
+                if row.u<extent_u or row.u+extent_u>dims[u] or row.v<extent_v or row.v+extent_v>dims[v] or row.depth>dims[axis]:
+                    raise ValueError(f'{row.id}: rectangular cutout must remain within the finished block')
+            elif row.size>=min(dims)/2:
+                raise ValueError(f'{row.id}: chamfer size is too large for the block')
         nodes = set()
         for f in self.features:
             if f.kind == 'cavity':
@@ -387,11 +497,14 @@ class Design(Strict):
         if len({n.id for n in self.nets}) != len(self.nets):
             raise ValueError('Duplicate hydraulic net ID')
         accesses = [a.id for n in self.nets for a in n.construction_access]
+        access_owners = {a.id:n.id for n in self.nets for a in n.construction_access}
         if len(set(accesses)) != len(accesses) or any(a in ids for a in accesses):
-            # Resolved snapshots may contain the generated implementation of an access.
+            # Resolved and deliberately frozen routes may contain the implementation
+            # of an explicitly declared construction access on the same net.
             for access in accesses:
                 matches = [f for f in self.features if f.id == access]
-                if len(set(accesses)) != len(accesses) or (matches and not all(f.route_net for f in matches)):
+                owner=access_owners[access]
+                if len(set(accesses)) != len(accesses) or (matches and not all(f.route_net==owner or f.frozen_net==owner for f in matches)):
                     raise ValueError('Construction access IDs must be unique and not collide with authored features')
         for f in self.features:
             if f.route_net and (f.kind != 'drilling' or not any(n.id == f.route_net and n.routing == 'automatic' for n in self.nets)):

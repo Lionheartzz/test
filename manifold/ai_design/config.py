@@ -1,5 +1,6 @@
 """Local operator configuration. Secrets never enter analyses, projects or exports."""
 import json
+import os
 import threading
 from urllib.parse import urlsplit
 from typing import Literal
@@ -8,6 +9,7 @@ from ..schema import Strict
 from .. import store
 
 _lock = threading.Lock()
+POSIX = os.name == 'posix'
 
 
 class ReasoningSettings(Strict):
@@ -67,6 +69,17 @@ def path():
     return store.ROOT / '.pmc-local' / 'ai-provider.json'
 
 
+def prepare_private(target):
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if POSIX:
+        os.chmod(target.parent, 0o700)
+
+
+def finish_private(target):
+    if POSIX:
+        os.chmod(target, 0o600)
+
+
 def read():
     if not path().exists():
         return ProviderSettings()
@@ -106,7 +119,7 @@ def save(settings):
             raise ValueError('Enter an API key for this endpoint or explicitly choose anonymous access')
         data = settings.model_dump(exclude={'api_key'})
         data['api_key'] = settings.api_key.get_secret_value()
-        store.atomic_json(path(), data)
+        target=path();prepare_private(target);store.atomic_json(target, data);finish_private(target)
     return public(settings)
 
 
@@ -117,5 +130,5 @@ def clear_key():
         settings.enabled = False
         data = settings.model_dump(exclude={'api_key'})
         data['api_key'] = ''
-        store.atomic_json(path(), data)
+        target=path();prepare_private(target);store.atomic_json(target, data);finish_private(target)
     return public(settings)

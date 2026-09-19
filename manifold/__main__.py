@@ -55,7 +55,8 @@ def main():
         bad = build_outputs(invalid_demo(), folder / 'invalid')
         good = build_outputs(demo(), folder / 'corrected')
         assert bad['status'] == 'FAIL' and any(c['rule'] == 'circuit_intersection' and c['status'] == 'FAIL' for c in bad['checks'])
-        assert good['status'] == 'PASS', good['counts']
+        assert good['counts']['FAIL'] == 0, good['counts']
+        assert any(c['rule'] == 'construction_closure' and c['status'] == 'WARNING' for c in good['checks'])
         print(json.dumps(dict(invalid=bad['counts'], corrected=good['counts'], output=str(folder))))
     else:
         import uvicorn

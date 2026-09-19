@@ -1,9 +1,11 @@
 function alias(object,name,get,set){Object.defineProperty(object,name,{configurable:true,enumerable:false,get,set});}
 
-export function hydrateDesign(design,definitions={}){
+export function hydrateDesign(design,definitions={},threads={}){
   if(!design)return design;
   const values=Array.isArray(definitions)?definitions:Object.values(definitions||{});
   alias(design,'library',()=>values,()=>{throw Error('Engineering definitions are read-only SQLite data');});
+  const threadValues=Array.isArray(threads)?threads:Object.values(threads||{});
+  alias(design,'threads',()=>threadValues,()=>{throw Error('Thread definitions are read-only SQLite data');});
   alias(design,'components',()=>design.schematic_intent?.components||[],()=>{throw Error('Set schematic_intent explicitly');});
   alias(design,'schematics',()=>design.schematic_intent?.assets||[],()=>{throw Error('Set schematic_intent explicitly');});
   for(const feature of design.features||[]){
@@ -18,4 +20,4 @@ export function hydrateDesign(design,definitions={}){
   return design;
 }
 
-export function cloneDesign(design){return hydrateDesign(structuredClone(design),Object.fromEntries((design.library||[]).map(d=>[d.id,d])));}
+export function cloneDesign(design){return hydrateDesign(structuredClone(design),Object.fromEntries((design.library||[]).map(d=>[d.id,d])),Object.fromEntries((design.threads||[]).map(d=>[d.id,d])));}

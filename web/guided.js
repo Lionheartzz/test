@@ -29,7 +29,7 @@ export function guided(ctx,open){
       }
       action(content,'Back · Block',block);action(content,'Next · Cartridges and cavities',()=>{
         if(!names.length||new Set(names).size!==names.length||names.some(x=>!/^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(x))){$('workflow-error').textContent='Use unique hydraulic net IDs.';return;}
-        for(const n of names)for(const p of portConfig[n]){if(p.mode!=='custom'&&!p.definition){$('workflow-error').textContent='Select a machining definition for every configured port.';return;}if(p.mode==='custom'&&(!(p.diameter>0)||!(p.depth>0)||p.clearance<p.diameter)){ $('workflow-error').textContent='Port bore dimensions must be positive and fitting clearance must cover its diameter.';return;}}
+        for(const n of names)for(const p of portConfig[n]){if(p.mode!=='oneoff'&&!p.definition){$('workflow-error').textContent='Select a machining definition for every configured port.';return;}if(p.mode==='oneoff'&&(!(p.diameter>0)||!(p.depth>0)||p.clearance<p.diameter)){ $('workflow-error').textContent='Port bore dimensions must be positive and fitting clearance must cover its diameter.';return;}}
         choose();
       });
     };

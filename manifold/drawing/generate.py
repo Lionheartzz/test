@@ -25,6 +25,14 @@ def paper(sheet):
     return (b, a) if sheet.landscape else (a, b)
 
 
+def schematic_assets(authored):
+    """Read schema-2 assets while retaining immutable schema-1 snapshots."""
+    intent = authored.get('schematic_intent')
+    if isinstance(intent, dict):
+        return intent.get('assets', [])
+    return authored.get('schematics', [])
+
+
 def snapshot(project_id, expected, *, load_solid=True):
     from .storage import safe_folder, saved_project_state
     record, project_revision = saved_project_state(project_id)
@@ -98,29 +106,40 @@ def anchors(source):
                            signature=signature, model=model)
         result[key+':end'] = dict(point=[o+d*depth for o,d in zip(origin,direction)], label=f'{label} depth end', signature=signature)
         thread_spec = facts.get('thread_specification', '')
+        thread = profile.get('thread_facts') or {}
         definition_label = facts.get('label') or definition_id
-        spec = thread_spec if definition_id else (f.size if f.kind == 'port' else f'Ø{f.diameter:g} × {f.depth:g} deep')
+        spec = thread_spec if definition_id else f.size if f.kind == 'port' else ''
         if definition_id:
             spec = f'{definition_label} [{definition_id}]' + (f' / {spec}' if spec else '')
-        if f.kind=='mounting':spec=f'MOUNTING Ø{f.diameter:g} '+('THROUGH' if f.through else f'/ {f.depth:g} deep')+' / explicit plain bore; no thread inferred'
+        if f.kind=='mounting' and thread:
+            spec=f"{thread['display_name']} THD / THREAD DEPTH {f.thread_depth:g} / TAP DRILL Ø{thread['tap_diameter_mm']:g} × {f.depth:g}"
+        elif f.kind=='mounting':spec=f'MOUNTING Ø{f.diameter:g} '+('THROUGH' if f.through else f'/ {f.depth:g} deep')+' / explicit plain bore; no thread inferred'
+        elif not definition_id and f.kind!='port':spec=f'Ø{f.diameter:g} × {f.depth:g} deep'
         if f.plugged:
-            spec += f' / plug engagement {f.plug_length:g}; entry machining unresolved'
+            closure=profile.get('closure') or {}
+            spec += (' / CLOSURE '+(closure.get('display_name') or closure.get('model') or closure.get('id')) if closure.get('entry_machining_status')=='resolved'
+                     else f' / plug engagement {f.plug_length:g}; entry machining unresolved')
         # Display the pinned engineering definition, never a guessed product
         # identity or an internal database key in the PMC PORTINGS cells.
         if definition_id:
             pmc_spec=definition_label
             if thread_spec:pmc_spec+=' / '+thread_spec
+        elif f.kind=='mounting' and thread:pmc_spec=f"{thread['display_name']} THD HOLE"
         elif f.kind=='mounting' and f.through:pmc_spec=f'Ø{f.diameter:g} THRU'
         elif f.kind in ('mounting','drilling'):pmc_spec=f'Ø{f.diameter:g} × {f.depth:g} DEEP / {f.tip_angle:g}° POINT'
         else:pmc_spec=f.size
-        if f.plugged:pmc_spec+=f' / PLUG {f.plug_length:g}; ENTRY SPEC REQUIRED'
+        if f.plugged:
+            closure=profile.get('closure') or {}
+            pmc_spec+=(' / '+(closure.get('display_name') or closure.get('model') or closure.get('id'))
+                       if closure.get('entry_machining_status')=='resolved' else f' / PLUG {f.plug_length:g}; ENTRY SPEC REQUIRED')
         row = dict(id=f.id, feature=f.id, face=f.face, label=label, specification=spec,
                    machining_label=result[key]['machining_label'],
                    kind=f.kind,pmc_specification=pmc_spec,
                    model=model, u=f.u, v=f.v, diameter=diameter, depth=depth,
                     source='Immutable build engineering facts' if definition_id else 'Manifold feature parameters')
         rows.append(row)
-        for index, step in enumerate(steps or [dict(diameter=f.diameter, start=0, end=f.depth)], 1):
+        fallback_diameter=profile.get('cylinder_diameter_mm') or f.diameter
+        for index, step in enumerate(steps or [dict(diameter=fallback_diameter, start=0, end=f.depth)], 1):
             theta=math.radians(f.rotation)
             du,dv=step.get('offset_u',0),step.get('offset_v',0)
             start=list(origin);ua,va,*_=FACE_AXES[f.face]
@@ -140,6 +159,16 @@ def anchors(source):
                 machining_notes=json.dumps(facts.get('machining_operations',recipes.get(definition_id,[])),ensure_ascii=False) if definition_id else '',tooling=[],
                 profile=step.get('kind', 'cylinder'), tip_angle=None if definition_id or (f.kind=='mounting' and f.through) else f.tip_angle,
                 direction=direction, specification=spec, source=row['source'], closure=profile.get('closure')))
+    for engraving in design.engravings:
+        from ..geometry import face_origin
+        origin,direction,_,_=face_origin(engraving.face,engraving.u,engraving.v,design.block)
+        key=f'E:{engraving.id}';signature=digest(engraving.model_dump())
+        result[key]=dict(point=origin,label=engraving.text,feature=engraving.id,face=engraving.face,direction=direction,
+                         machining_label=engraving.id,diameter=0,depth=engraving.depth,angle=0,signature=signature,model='')
+        rows.append(dict(id=engraving.id,feature=engraving.id,face=engraving.face,label=engraving.text,
+                         specification=f'ENGRAVE {engraving.text} / {engraving.text_height:g} HIGH × {engraving.depth:g} DEEP',
+                         machining_label=engraving.id,kind='engraving',pmc_specification=f'ENGRAVE {engraving.text}',model='',
+                         u=engraving.u,v=engraving.v,diameter=0,depth=engraving.depth,source='Immutable authored build fact'))
     return result, rows, machining
 
 

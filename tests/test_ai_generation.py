@@ -62,7 +62,9 @@ def selection_request(task,run,**options):
     selected=dict(definition_key='db:'+CAVITY_ID,definition_sha256=service.digest(definition.model_dump()),
                   zone_ports={'port1':'RV1_P','port2':'RV1_T'},decision='QA fixture: select existing VC08-2 geometry and map P/T for draft testing only.')
     return GenerationRequest(expected_revision=task['revision'],run_id=run['id'],options={
-        'bindings':{'VALVE_RV1':selected},'max_attempts':2,**options})
+        'bindings':{'VALVE_RV1':selected},
+        'provisional_ports':{'EXT_P':'QA explicitly approves a one-off straight bore.','EXT_T':'QA explicitly approves a one-off straight bore.'},
+        'max_attempts':2,**options})
 
 
 def reading(text='P on left.'):
@@ -91,7 +93,9 @@ def test_semantic_contract_computes_ids_and_exact_requirement_offsets(client):
     with pytest.raises(ValueError):CircuitReading.model_validate(malformed)
 
 
-def test_settings_are_operator_local_redacted_and_require_new_endpoint_key(client):
+def test_settings_are_operator_local_redacted_and_require_new_endpoint_key(client,monkeypatch):
+    permissions=[];monkeypatch.setattr(config,'POSIX',True)
+    monkeypatch.setattr(config.os,'chmod',lambda path,mode:permissions.append((Path(path),mode)))
     assert not client.get('/api/ai-design/settings').json()['ready']
     secret='fixture-secret-never-return'
     settings=dict(base_url='https://model.example/v1',model='operator-chosen-vision',api_key=secret,enabled=True)
@@ -107,6 +111,8 @@ def test_settings_are_operator_local_redacted_and_require_new_endpoint_key(clien
     remote=TestClient(app,client=('192.168.1.44',3333))
     assert remote.get('/api/ai-design/settings',headers={'Host':'127.0.0.1:8765'}).status_code==403
     assert client.post('/api/ai-design/settings/clear-key',json={},headers=HEADERS).json()['key_present'] is False
+    assert any(path.name=='private' and mode==0o700 for path,mode in permissions)
+    assert sum(path.name=='ai-provider.json' and mode==0o600 for path,mode in permissions)==2
 
 
 def test_pdf_pages_render_locally_and_preserve_identity(client):
@@ -202,6 +208,7 @@ def test_generation_requires_real_bindings_and_rejects_stale_or_conflicting_inte
     blank=GenerationRequest(expected_revision=task['revision'],run_id=run['id'])
     result=generation.preflight(task['id'],blank)
     assert not result['ready'] and result['blocked']
+    assert any('Custom Straight Bore' in item for item in result['blocked'])
     request=selection_request(task,run)
     request.options.bindings['VALVE_RV1'].zone_ports={'port1':'RV1_P','port2':'RV1_P'}
     assert not generation.preflight(task['id'],request)['ready']

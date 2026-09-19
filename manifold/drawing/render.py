@@ -215,8 +215,8 @@ def fitting_rows(table,rows,available):
 def asset_file(doc,asset):
     from ..schema import SchematicAsset
     from ..workflow import asset_path
-    from .generate import digest
-    row=next((a for a in doc['source']['authored'].get('schematics',[]) if a['sha256']==asset),None)
+    from .generate import digest,schematic_assets
+    row=next((a for a in schematic_assets(doc['source']['authored']) if a['sha256']==asset),None)
     if row is None:raise ValueError('Schematic must belong to this drawing source')
     path=asset_path(SchematicAsset.model_validate(row))
     if path.is_symlink() or not path.is_file() or digest(path.read_bytes())!=asset:

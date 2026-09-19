@@ -27,15 +27,27 @@ def saved_revision(design):
     payload=json.dumps(design,sort_keys=True,separators=(',',':'),ensure_ascii=False)
     return hashlib.sha256(payload.encode()).hexdigest()
 
+def status(record, *, engine_revision=None, engine_current=None):
+    """Return saved-project/build state without opening engineering definitions."""
+    revision=saved_revision(record['design']);pointer=record.get('build')
+    current_revision=engine_revision if engine_revision is not None else store.engine_revision()
+    current_engine=engine_current if engine_current is not None else store.engine_current()
+    stale=not pointer or pointer['design_revision']!=revision or \
+          pointer.get('engine_revision')!=current_revision or not current_engine
+    return dict(project_id=record['id'],revision=revision,
+                build=dict(build_id=pointer['build_id']) if pointer else None,
+                stale=stale,updated_at=record['updated_at'])
+
 def snapshot(record):
     from .network import endpoints
-    from .engineering_db import definitions_for_design,validate_references
+    from .engineering_db import definitions_for_design,thread_definitions_for_design,validate_references
     design=Design.model_validate(record['design'])
     validate_references(design)
     engineering={key:value.model_dump() for key,value in definitions_for_design(design).items()}
+    threads=thread_definitions_for_design(design)
     revision=store.revision(design)
     pointer=record.get('build')
-    return dict(project_id=record['id'],design=design.model_dump(),engineering=dict(definitions=engineering),revision=revision,build=pointer,network=endpoints(),
+    return dict(project_id=record['id'],design=design.model_dump(),engineering=dict(definitions=engineering,threads=threads),revision=revision,build=pointer,network=endpoints(),
                 updated_at=record['updated_at'],archived=record.get('archived',False),
                 stale=not pointer or pointer['design_revision']!=revision or pointer.get('engine_revision')!=store.engine_revision() or not store.engine_current())
 
@@ -134,12 +146,11 @@ def listing():
     loaded_engine_current=store.engine_current()
     for p in folder().glob('*.json'):
         try:
-            r=read(p.stem);d=r['design'];revision=saved_revision(d);pointer=r.get('build')
-            stale=bool(pointer) and (pointer['design_revision']!=revision or
-                  pointer.get('engine_revision')!=loaded_engine_revision or not loaded_engine_current)
-            status='SAVED DRAFT' if not pointer else 'STALE' if stale else pointer['status']
-            entries.append(dict(id=r['id'],name=d['name'],updated_at=r['updated_at'],revision=revision,
-                                archived=r.get('archived',False),status=status,features=len(d['features']),
+            r=read(p.stem);d=r['design'];pointer=r.get('build')
+            current=status(r,engine_revision=loaded_engine_revision,engine_current=loaded_engine_current)
+            label='SAVED DRAFT' if not pointer else 'STALE' if current['stale'] else pointer['status']
+            entries.append(dict(id=r['id'],name=d['name'],updated_at=r['updated_at'],revision=current['revision'],
+                                archived=r.get('archived',False),status=label,features=len(d['features']),
                                 project_context=d.get('project_context','metric'),block=d.get('block')))
         except (ValueError,OSError,KeyError,TypeError):
             entries.append(dict(id=p.stem,name=p.stem,status='UNREADABLE',archived=False,error='Project file requires repair; original retained.'))
@@ -150,6 +161,11 @@ def save_request(payload:SaveRequest):
     try:return save(payload.design,payload.project_id,payload.expected_revision)
     except (ValueError,RuntimeError) as exc:raise HTTPException(409,str(exc))
     except FileNotFoundError:raise HTTPException(404,'Project not found')
+
+@router.get('/{key}/status')
+def project_status(key:str):
+    try:return status(read(key))
+    except (ValueError,FileNotFoundError,KeyError,TypeError):raise HTTPException(404,'Project not found or invalid')
 
 @router.get('/{key}')
 def get_project(key:str):

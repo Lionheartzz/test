@@ -12,6 +12,8 @@ def validate(design, g, definitions=None):
     if definitions is None:
         from .engineering_db import definitions_for_design
         definitions=definitions_for_design(design)
+    from .engineering_db import thread_definitions_for_design,select_tool,manufacturing_policy
+    threads=thread_definitions_for_design(design);policy=manufacturing_policy()
     checks = []
     threshold = design.rules.minimum_overlap_volume
     wall = design.rules.minimum_wall
@@ -214,10 +216,24 @@ def validate(design, g, definitions=None):
         result('external_face_entry', [f.id], outside, 0, outside <= EPS,
                'Cut starts on its declared external face and remains within stock.', unit='mm³')
         if f.kind != 'cavity' and not f.definition:
-            result('drill_reach', [f.id], (f.depth + tip_depth(f)) / f.diameter,
+            diameter=threads[f.thread_definition_id]['tap_diameter_mm'] if f.thread_definition_id else f.diameter
+            point_depth=0 if f.kind=='mounting' and f.through else diameter/2/math.tan(math.radians(f.tip_angle/2)) if f.tip_angle!=180 else 0
+            result('drill_reach', [f.id], (f.depth + point_depth) / diameter,
                    design.rules.max_depth_diameter_ratio,
-                   (f.depth + tip_depth(f)) / f.diameter <= design.rules.max_depth_diameter_ratio,
+                   (f.depth + point_depth) / diameter <= design.rules.max_depth_diameter_ratio,
                    'Axial drilling depth/diameter screen; tooling review still required.', severity='WARNING', unit='L/D')
+            tool=select_tool(diameter,f.depth+point_depth,tool_type='drill',unit=design.project_context,exact_diameter=True)
+            result('source_tool_available',[f.id],tool['id'] if tool else None,
+                   f'Ø{diameter:g} tool reaching {f.depth+point_depth:g} mm',bool(tool),
+                   'Manufacturing requires a source-backed drill with the authored cutting diameter and sufficient reach.')
+            if f.kind=='mounting' and f.mounting_mode=='threaded':
+                result('thread_extent',[f.id],f.thread_depth,f.depth,f.thread_depth<=f.depth,
+                       'Thread extent cannot exceed its source-backed tap-drill depth.',unit='mm')
+            if f.direction and policy:
+                components=sum(abs(value)>1e-7 for value in f.direction)
+                permitted=bool(policy['simple_angle_holes_allowed']) if components==2 else bool(policy['compound_angle_holes_allowed'])
+                result('angled_drilling_policy',[f.id],'simple' if components==2 else 'compound','allowed by MDTools policy',permitted,
+                       'Angled drilling requires explicit source-backed manufacturing policy permission.')
         if f.kind == 'drilling' and not f.plugged:
             ports = [p for p in design.features if p.kind == 'port' and p.face == f.face
                      and abs(p.u - f.u) < EPS and abs(p.v - f.v) < EPS
@@ -232,6 +248,8 @@ def validate(design, g, definitions=None):
                             for plug_shape in [g.plugs[f.id]])
             result('plug_engagement', [f.id], intrusion, 0, intrusion <= EPS,
                    'No intersecting cut may enter the plug engagement region.', unit='mm³')
+            result('construction_closure',[f.id],f.closure_definition_id or 'unresolved','resolved closure definition',
+                   bool(f.closure_definition_id),'Construction access may preview, but manufacturing closure identity and entry machining remain unresolved.',severity='WARNING')
     for a, b in combinations(g.envelopes, 2):
         distance = g.envelopes[a].distance(g.envelopes[b])
         result('installation_access', [a, b], distance, design.rules.minimum_access_gap,
@@ -263,12 +281,15 @@ def validate(design, g, definitions=None):
         result('net_intent', [net.id, *missing], len(missing), 0, not missing, 'Every required hydraulic terminal must exist, including suppressed component requirements.')
     for component in design.components:
         f = by_id.get(component.feature_id)
-        complete = set(component.interface_nets)==set(component.expected_interfaces)
-        matches = (complete and f is not None and not f.suppressed and f.kind == 'cavity' and f.circuits == component.ports
+        connected={identifier for identifier in component.expected_interfaces if component.interface_dispositions.get(identifier,'unknown')=='connected'}
+        unknown={identifier for identifier in component.expected_interfaces if component.interface_dispositions.get(identifier,'unknown')=='unknown'}
+        complete = set(component.interface_nets)==connected and not unknown
+        actual_subset={key:value for key,value in (f.circuits.items() if f and f.kind=='cavity' else []) if key in connected}
+        matches = (complete and f is not None and not f.suppressed and f.kind == 'cavity' and actual_subset == component.ports
                    and (not component.cavity_definition or component.cavity_definition == f.definition)
                    and (not component.cartridge_id or component.cartridge_id == f.cartridge_id))
         result('schematic_conformance', [component.id], matches, True, matches,
-               'Schematic intent must match a placed active cavity, optional cartridge assignment and interface nets.')
+               'Connected interfaces must match project nets; blocked/terminated interfaces require no net; unknown intent remains unresolved.')
     if design.constraints.envelope_max:
         dims = (design.block.length,design.block.width,design.block.height)
         result('block_envelope', ['block'], str(dims), str(design.constraints.envelope_max), all(a <= limit for a,limit in zip(dims,design.constraints.envelope_max)), 'Block must fit requested maximum envelope.')
@@ -307,6 +328,14 @@ def validate(design, g, definitions=None):
                     outside = max(0.0,g.nodes[key].Volume()-g.nodes[key].intersect(g.cuts[f.id]).Volume())
                     result('mapped_interface_containment',[key],outside,0,outside<=EPS,'Mapped hydraulic windows must be contained in the exact cavity cutting volume.',unit='mm³')
                     result('mapped_interface_volume',[key],g.nodes[key].Volume(),'> 0',g.nodes[key].Volume()>EPS,'A mapped working-area window must contain fluid volume.',unit='mm³')
+    for identifier,shape in g.manufacturing_features.items():
+        # Coplanar cutters begin exactly on a stock face.  OCCT can report an
+        # empty common for that valid case, so verify the actual subtractive
+        # result rather than relying on shape.intersect(block).
+        removed=max(0.0,g.block.Volume()-g.block.cut(shape).Volume())
+        valid=shape.isValid() and shape.Volume()>EPS and removed>EPS
+        result('authored_block_machining',[identifier],round(removed,6),'> 0 valid in-stock machining',valid,
+               'Authored engraving, cutout or chamfer must create valid exact stock removal.',unit='mm³')
     result('solid_validity', ['block'], g.production.isValid(), True, g.production.isValid(), 'OCCT BRep validity.')
     result('solid_count', ['block'], len(g.production.Solids()), 1, len(g.production.Solids()) == 1,
            'Machined block must remain one connected solid.')
@@ -314,14 +343,14 @@ def validate(design, g, definitions=None):
            EPS < g.production.Volume() < g.block.Volume(), 'Production solid must contain actual subtractive geometry.', unit='mm³')
     counts = {s: sum(c['status'] == s for c in checks) for s in ['PASS', 'WARNING', 'FAIL']}
     unresolved_machining = [d.id for d in definitions.values() if d.id in active_definitions and not d.machining]
-    unresolved_plug_entries = [f.id for f in design.features if f.plugged and not f.suppressed]
+    unresolved_plug_entries = [f.id for f in design.features if f.plugged and not f.suppressed and not f.closure_definition_id]
     return dict(status='FAIL' if counts['FAIL'] else 'WARNING' if counts['WARNING'] else 'PASS', counts=counts,
                 manufacturing_ready=not unresolved_machining and not unresolved_plug_entries and not counts['FAIL'] and not counts['WARNING'],
                 unresolved_machining=unresolved_machining,
                 unresolved_plug_entries=unresolved_plug_entries,
                 checks=checks, graph={n: sorted(v) for n, v in graph.items()},
                 scope='Exact geometry, declared interfaces, velocity/flow area and pressure-derived ligament screening. No fatigue, pressure-drop or vendor certification.',
-                limitations=['Library demo cavities and straight-bore ports are illustrative and not manufacturer machining specifications.',
+                limitations=['SQLite engineering definitions are used as imported; custom straight-bore ports remain engineer-defined rather than manufacturer machining specifications.',
                              'Cartridge zones assume an installed sealing cartridge; valve-state flow is not simulated.',
                              'Threads are metadata; helical threads, tolerances, finishes and seals are not modeled.',
                              'Plug volumes represent declared engagement exclusions. No source plug-entry machining profile is bound; counterbores, seats and threads remain unresolved.',

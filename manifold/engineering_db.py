@@ -16,7 +16,7 @@ from .schema import CavityDefinition
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB = ROOT / "data" / "pmc_engineering.db"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def database_path() -> Path:
@@ -59,6 +59,13 @@ def validate_database(path: Path | None = None) -> dict:
                 "external_port_definitions",
                 "cartridges",
                 "cartridge_cavities",
+                "thread_definitions",
+                "tool_definitions",
+                "closure_definitions",
+                "materials",
+                "material_stock",
+                "machining_modifiers",
+                "manufacturing_policy",
             }
             if version != SCHEMA_VERSION or not required <= tables:
                 raise RuntimeError(
@@ -103,6 +110,21 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             clip_to_cut INTEGER NOT NULL DEFAULT 1 CHECK(clip_to_cut IN (0,1)),
             PRIMARY KEY(cavity_id, interface_id)
         );
+        CREATE TABLE thread_definitions (
+            id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            family TEXT NOT NULL,
+            nominal_size TEXT NOT NULL DEFAULT '',
+            pitch_tpi TEXT NOT NULL DEFAULT '',
+            thread_class TEXT NOT NULL DEFAULT '',
+            applicability TEXT NOT NULL DEFAULT 'internal' CHECK(applicability IN ('internal','external','both')),
+            tapered INTEGER NOT NULL DEFAULT 0 CHECK(tapered IN (0,1)),
+            unit_system TEXT NOT NULL CHECK(unit_system IN ('metric','inch','custom')),
+            tap_diameter_mm REAL CHECK(tap_diameter_mm > 0),
+            usable INTEGER NOT NULL CHECK(usable IN (0,1)),
+            unusable_reason TEXT NOT NULL DEFAULT '',
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
+        );
         CREATE TABLE external_port_definitions (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -119,7 +141,8 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             clearance_height REAL NOT NULL CHECK(clearance_height > 0),
             usable INTEGER NOT NULL CHECK(usable IN (0,1)),
             unusable_reason TEXT NOT NULL DEFAULT '',
-            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+            thread_definition_id TEXT REFERENCES thread_definitions(id) ON UPDATE CASCADE ON DELETE RESTRICT
         );
         CREATE TABLE cartridges (
             id TEXT PRIMARY KEY,
@@ -136,9 +159,68 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             valid INTEGER NOT NULL DEFAULT 1 CHECK(valid IN (0,1)),
             PRIMARY KEY(cartridge_id, cavity_id)
         );
+        CREATE TABLE tool_definitions (
+            id TEXT PRIMARY KEY,
+            tool_type TEXT NOT NULL CHECK(tool_type IN ('drill','flat-bottom-drill','spotface')),
+            diameter_mm REAL NOT NULL CHECK(diameter_mm > 0),
+            max_depth_mm REAL NOT NULL CHECK(max_depth_mm > 0),
+            unit_system TEXT NOT NULL CHECK(unit_system IN ('metric','inch')),
+            usable INTEGER NOT NULL DEFAULT 1 CHECK(usable IN (0,1)),
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+            UNIQUE(tool_type,diameter_mm,max_depth_mm,unit_system)
+        );
+        CREATE TABLE closure_definitions (
+            id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            construction_port_definition_id TEXT REFERENCES external_port_definitions(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+            model TEXT NOT NULL DEFAULT '',
+            machining_json TEXT NOT NULL DEFAULT '[]',
+            engagement_mm REAL CHECK(engagement_mm > 0),
+            envelope_json TEXT NOT NULL DEFAULT '{}',
+            usable INTEGER NOT NULL CHECK(usable IN (0,1)),
+            unusable_reason TEXT NOT NULL DEFAULT '',
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
+        );
+        CREATE TABLE materials (
+            id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            material_type TEXT NOT NULL DEFAULT '',
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
+        );
+        CREATE TABLE material_stock (
+            id TEXT PRIMARY KEY,
+            material_id TEXT NOT NULL REFERENCES materials(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+            unit_system TEXT NOT NULL CHECK(unit_system IN ('metric','inch')),
+            size_1_mm REAL NOT NULL CHECK(size_1_mm > 0),
+            size_2_mm REAL NOT NULL CHECK(size_2_mm > 0),
+            allowance_1_mm REAL NOT NULL DEFAULT 0 CHECK(allowance_1_mm >= 0),
+            allowance_2_mm REAL NOT NULL DEFAULT 0 CHECK(allowance_2_mm >= 0),
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+            UNIQUE(material_id,unit_system,size_1_mm,size_2_mm)
+        );
+        CREATE TABLE machining_modifiers (
+            id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK(kind IN ('o-ring-groove','counterbore','undercut')),
+            unit_system TEXT NOT NULL CHECK(unit_system IN ('metric','inch')),
+            primitives_json TEXT NOT NULL,
+            machining_json TEXT NOT NULL DEFAULT '[]',
+            usable INTEGER NOT NULL CHECK(usable IN (0,1)),
+            unusable_reason TEXT NOT NULL DEFAULT '',
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
+        );
+        CREATE TABLE manufacturing_policy (
+            id INTEGER PRIMARY KEY CHECK(id=1),
+            slenderness_ratio_limit REAL NOT NULL CHECK(slenderness_ratio_limit > 0),
+            simple_angle_holes_allowed INTEGER NOT NULL CHECK(simple_angle_holes_allowed IN (0,1)),
+            compound_angle_holes_allowed INTEGER NOT NULL CHECK(compound_angle_holes_allowed IN (0,1))
+        );
         CREATE INDEX cavity_search ON cavities(active, unit_system, manufacturer, name);
         CREATE INDEX external_port_search ON external_port_definitions(active, unit_system, manufacturer, name);
-        PRAGMA user_version = 1;
+        CREATE INDEX thread_search ON thread_definitions(active,unit_system,family,display_name);
+        CREATE INDEX tool_search ON tool_definitions(active,tool_type,diameter_mm,max_depth_mm);
+        CREATE INDEX material_stock_search ON material_stock(active,material_id,unit_system,size_1_mm,size_2_mm);
+        PRAGMA user_version = 2;
         """
     )
 
@@ -164,6 +246,7 @@ def _definition(row: sqlite3.Row, interfaces: list[sqlite3.Row], *, kind: str) -
             unit_system=row["unit_system"],
             manufacturer=row["manufacturer"],
             thread_note=row["thread_spec"],
+            thread_definition_id=row["thread_definition_id"] if kind == "external-port" and "thread_definition_id" in row.keys() else None,
             stages=json.loads(row["stages_json"]),
             zones=zones,
             cutting_primitives=json.loads(row["primitives_json"]),
@@ -352,7 +435,7 @@ def create_custom_external_port(definition: CavityDefinition) -> CavityDefinitio
             "INSERT INTO external_port_definitions "
             "(id,name,family,unit_system,manufacturer,thread_spec,stages_json,primitives_json,"
             "boundaries_json,machining_json,interface_json,clearance_diameter,clearance_height,"
-            "usable,unusable_reason,active) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "usable,unusable_reason,active,thread_definition_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 value.id, value.label, value.family, value.unit_system, value.manufacturer,
                 value.thread_note, json.dumps([row.model_dump() for row in value.stages], separators=(",", ":")),
@@ -360,7 +443,7 @@ def create_custom_external_port(definition: CavityDefinition) -> CavityDefinitio
                 json.dumps([row.model_dump() for row in value.boundaries], separators=(",", ":")),
                 json.dumps(value.machining, separators=(",", ":")),
                 json.dumps(interface.model_dump(), separators=(",", ":")),
-                value.clearance_diameter, value.clearance_height, 1, "", 1,
+                value.clearance_diameter, value.clearance_height, 1, "", 1,value.thread_definition_id,
             ),
         )
     return value
@@ -434,6 +517,105 @@ def compatible_cartridges(cavity_id: str):
         return [dict(row) for row in rows]
 
 
+def search_threads(query="", unit="", *, include_inactive=False, usable_only=False, limit=200,
+                   connection: sqlite3.Connection | None = None):
+    if connection is None:
+        with _connect() as opened:
+            return search_threads(query,unit,include_inactive=include_inactive,usable_only=usable_only,
+                                  limit=limit,connection=opened)
+    where=["1=1" if include_inactive else "active=1"]
+    values=[]
+    if usable_only:where.append("usable=1")
+    if unit:where.append("unit_system=?");values.append(unit)
+    for token in query.lower().split():
+        where.append("lower(display_name || ' ' || family || ' ' || nominal_size || ' ' || pitch_tpi || ' ' || thread_class) LIKE ?")
+        values.append(f"%{token}%")
+    rows=connection.execute(
+        f"SELECT * FROM thread_definitions WHERE {' AND '.join(where)} ORDER BY family,display_name,tap_diameter_mm,id LIMIT ?",
+        [*values,limit]).fetchall()
+    return [dict(row) for row in rows]
+
+
+def thread_definition(identifier: str, *, include_inactive=True, connection: sqlite3.Connection | None = None):
+    if connection is None:
+        with _connect() as opened:return thread_definition(identifier,include_inactive=include_inactive,connection=opened)
+    row=connection.execute("SELECT * FROM thread_definitions WHERE id=?",(identifier,)).fetchone()
+    if row is None or not include_inactive and not row["active"]:
+        raise ValueError(f"Thread definition not found: {identifier}")
+    return dict(row)
+
+
+def thread_definitions_for_design(design, *, connection: sqlite3.Connection | None = None):
+    identifiers={f.thread_definition_id for f in design.features if getattr(f,'thread_definition_id',None)}
+    if connection is None:
+        with _connect() as opened:return thread_definitions_for_design(design,connection=opened)
+    return {identifier:thread_definition(identifier,connection=connection) for identifier in identifiers}
+
+
+def tool_definitions(tool_type="drill", *, unit="", connection: sqlite3.Connection | None = None):
+    if connection is None:
+        with _connect() as opened:return tool_definitions(tool_type,unit=unit,connection=opened)
+    where=["active=1","usable=1","tool_type=?"];values=[tool_type]
+    if unit:where.append("unit_system=?");values.append(unit)
+    return [dict(row) for row in connection.execute(
+        f"SELECT * FROM tool_definitions WHERE {' AND '.join(where)} ORDER BY diameter_mm,max_depth_mm,id",values)]
+
+
+def select_tool(minimum_diameter: float, required_depth: float, *, tool_type="drill", unit="",
+                exact_diameter=False, connection: sqlite3.Connection | None = None):
+    rows=tool_definitions(tool_type,unit=unit,connection=connection)
+    candidates=[row for row in rows if row["max_depth_mm"]+1e-6>=required_depth and
+                (abs(row["diameter_mm"]-minimum_diameter)<=.011 if exact_diameter else row["diameter_mm"]+1e-6>=minimum_diameter)]
+    return min(candidates,key=lambda row:(row["diameter_mm"],row["max_depth_mm"],row["id"])) if candidates else None
+
+
+def manufacturing_policy(*, connection: sqlite3.Connection | None = None):
+    if connection is None:
+        with _connect() as opened:return manufacturing_policy(connection=opened)
+    row=connection.execute("SELECT * FROM manufacturing_policy WHERE id=1").fetchone()
+    return dict(row) if row else None
+
+
+def modifier_definition(identifier: str, *, connection: sqlite3.Connection | None = None):
+    if connection is None:
+        with _connect() as opened:return modifier_definition(identifier,connection=opened)
+    row=connection.execute("SELECT * FROM machining_modifiers WHERE id=?",(identifier,)).fetchone()
+    if row is None:raise ValueError(f"Machining modifier not found: {identifier}")
+    value=dict(row);value["primitives"]=json.loads(value.pop("primitives_json"));value["machining"]=json.loads(value.pop("machining_json"))
+    return value
+
+
+def modifier_definitions_for_design(design, *, connection: sqlite3.Connection | None = None):
+    identifiers={placement.modifier_id for feature in design.features for placement in feature.machining_modifiers}
+    if connection is None:
+        with _connect() as opened:return modifier_definitions_for_design(design,connection=opened)
+    return {identifier:modifier_definition(identifier,connection=connection) for identifier in identifiers}
+
+
+def closure_definitions_for_design(design, *, connection: sqlite3.Connection | None = None):
+    identifiers={feature.closure_definition_id for feature in design.features if feature.closure_definition_id}
+    if connection is None:
+        with _connect() as opened:return closure_definitions_for_design(design,connection=opened)
+    result={}
+    for identifier in identifiers:
+        row=connection.execute('SELECT * FROM closure_definitions WHERE id=?',(identifier,)).fetchone()
+        if row is None:raise ValueError(f'Closure definition not found: {identifier}')
+        value=dict(row);value['machining']=json.loads(value.pop('machining_json'));value['envelope']=json.loads(value.pop('envelope_json'))
+        result[identifier]=value
+    return result
+
+
+def materials(*, connection: sqlite3.Connection | None = None):
+    if connection is None:
+        with _connect() as opened:return materials(connection=opened)
+    result=[]
+    for row in connection.execute("SELECT * FROM materials WHERE active=1 ORDER BY display_name"):
+        value=dict(row);value["stock"]=[dict(item) for item in connection.execute(
+            "SELECT * FROM material_stock WHERE material_id=? AND active=1 ORDER BY unit_system,size_1_mm,size_2_mm",(row["id"],))]
+        result.append(value)
+    return result
+
+
 def validate_references(design, *, connection: sqlite3.Connection | None = None) -> None:
     if connection is None:
         with _connect() as opened:
@@ -445,6 +627,17 @@ def validate_references(design, *, connection: sqlite3.Connection | None = None)
             "SELECT 1 FROM cartridges WHERE id=?", (cartridge_id,)
         ).fetchone() is None:
             raise ValueError(f"Cartridge does not exist: {cartridge_id}")
+    if design.block.material_id:
+        material=connection.execute("SELECT 1 FROM materials WHERE id=?",(design.block.material_id,)).fetchone()
+        if material is None:raise ValueError(f"Material does not exist: {design.block.material_id}")
+    if design.block.stock_id:
+        stock=connection.execute("SELECT material_id,size_1_mm,size_2_mm FROM material_stock WHERE id=?",(design.block.stock_id,)).fetchone()
+        if stock is None or design.block.material_id!=stock[0]:raise ValueError("Selected stock does not belong to the selected material")
+        cross_section=design.block.stock_dimensions[1:]
+        source=(stock[1],stock[2])
+        if not (all(abs(a-b)<=1e-6 for a,b in zip(cross_section,source)) or
+                all(abs(a-b)<=1e-6 for a,b in zip(cross_section,reversed(source)))):
+            raise ValueError('Selected stock cross-section does not match its source-backed master dimensions')
     for feature in design.features:
         if feature.kind == "cavity":
             definition = resolved[feature.cavity_id]
@@ -456,3 +649,18 @@ def validate_references(design, *, connection: sqlite3.Connection | None = None)
                 raise ValueError(
                     f"{feature.id}: cartridge {feature.cartridge_id} is not compatible with cavity {feature.cavity_id}"
                 )
+        elif feature.kind == "port" and feature.port_definition_id:
+            definition=resolved[feature.port_definition_id]
+            if not definition.usable:raise ValueError(f"{feature.id}: external port is unusable: {definition.unusable_reason}")
+        elif feature.kind == "mounting" and feature.mounting_mode == "threaded":
+            thread=thread_definition(feature.thread_definition_id,connection=connection)
+            if not thread["usable"] or thread["tap_diameter_mm"] is None:
+                raise ValueError(f"{feature.id}: thread machining is unusable: {thread['unusable_reason']}")
+        if feature.closure_definition_id:
+            closure=connection.execute("SELECT usable,unusable_reason FROM closure_definitions WHERE id=?",(feature.closure_definition_id,)).fetchone()
+            if closure is None:raise ValueError(f"{feature.id}: closure definition does not exist")
+            if not closure[0]:raise ValueError(f"{feature.id}: closure is unusable: {closure[1]}")
+        for placement in feature.machining_modifiers:
+            modifier=modifier_definition(placement.modifier_id,connection=connection)
+            if not modifier["usable"]:
+                raise ValueError(f"{feature.id}: machining modifier is unavailable: {placement.modifier_id}")

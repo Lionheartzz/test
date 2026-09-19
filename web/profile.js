@@ -1,7 +1,7 @@
 export function profileEditor(ctx,parent,def,{editable=true,interfaceNames={}}={}){
   const {element,field,action}=ctx,ns='http://www.w3.org/2000/svg';
-  const box=element('section',null,'library-card');box.append(element('h3','Cavity definition · geometry and interfaces'));
-  box.append(element('p',`${def.native?def.native.geometry_status+' · '+def.native.datum_mode:'PMC engineering definition'} · mm. Select a cut, interface or boundary to inspect it. Native dimensions are retained separately; this view shows the active CAD interpretation.`));
+  const box=element('section',null,'library-card');box.append(element('h3','SQLite engineering definition · geometry and interfaces'));
+  box.append(element('p','Executable dimensions are shown in mm from the runtime engineering database. Select a cut, interface or boundary to inspect it.'));
   const scroll=element('div',null,'profile-scroll'),svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 1000 430');svg.setAttribute('role','img');svg.setAttribute('aria-label','Dimensioned cavity section and top view');svg.classList.add('profile-drawing');svg.style.width='100%';scroll.append(svg);box.append(scroll);parent.append(box);
   const selection=element('p',null,'property-note'),legend=element('div',null,'profile-legend');box.append(selection,legend);
   let active={kind:'cut',index:0};
@@ -9,6 +9,7 @@ export function profileEditor(ctx,parent,def,{editable=true,interfaceNames={}}={
   const cuts=()=>def.cutting_primitives?.length?def.cutting_primitives:def.stages;
   const ref=c=>c.source_ref||'PMC authored geometry';
   const angle=c=>2*Math.atan(Math.abs(c.diameter-c.end_diameter)/(2*(c.end-c.start)))*180/Math.PI;
+  const boundaryText=(b,index)=>[`B${index+1}`,b.category,`height ${fmt(b.height)} mm${b.height===0?' (planar only)':''}`,b.circle?'exact circle':'polygon'].filter(Boolean).join(' · ');
   function draw(){
     svg.replaceChildren();const all=cuts(),chosen=active.kind==='cut'?all[active.index]:active.kind==='interface'?def.zones[active.index]:null;
     const offset=[chosen?.offset_u||0,chosen?.offset_v||0],section=all.filter(c=>(c.offset_u||0)===offset[0]&&(c.offset_v||0)===offset[1]);
@@ -50,14 +51,14 @@ export function profileEditor(ctx,parent,def,{editable=true,interfaceNames={}}={
     for(const [i,z]of def.zones.entries()){const on=active.kind==='interface'&&active.index===i,zone=shape('circle',{cx:tx+(z.offset_u||0)*topScale,cy:ty-(z.offset_v||0)*topScale,r:z.diameter*topScale/2,fill:on?'#41ca8b22':'none',stroke:on?'#83e4b6':'#41ca8b88','stroke-width':on?3:1});zone.style.cursor='pointer';zone.onclick=()=>{active={kind:'interface',index:i};draw();};}
     text(24,418,`Depth + inward · extent ${fmt(depth)} mm · section through selected axis; other offset cuts appear in top view`, '#a4bbcc',12);
     const c=all[active.index],z=def.zones[active.index],b=def.boundaries?.[active.index];
-    selection.textContent=active.kind==='cut'?`C${active.index+1} · ${c.kind||'cylinder'} · Ø${fmt(c.diameter)}${c.kind==='cone'?' → Ø'+fmt(c.end_diameter):''} · datum depths ${fmt(c.start)}–${fmt(c.end)} mm · local offset U ${fmt(c.offset_u||0)}, V ${fmt(c.offset_v||0)} · source: ${ref(c)}`:active.kind==='interface'?`${interfaceNames[z.id]||`Interface ${active.index+1} · ${z.id}`} · Ø${fmt(z.diameter)} · depth ${fmt(z.start)}–${fmt(z.end)} · offset ${fmt(z.offset_u||0)}, ${fmt(z.offset_v||0)} · ${z.clip_to_cut?'clipped to actual cutting volume':'declared cylindrical window'}`:`B${active.index+1} · ${b.category} · height ${fmt(b.height)} mm${b.height===0?' (planar only)':''} · ${b.association} · source role: ${b.source_role||'unspecified'} · ${b.source}`;
+    selection.textContent=active.kind==='cut'?`C${active.index+1} · ${c.kind||'cylinder'} · Ø${fmt(c.diameter)}${c.kind==='cone'?' → Ø'+fmt(c.end_diameter):''} · datum depths ${fmt(c.start)}–${fmt(c.end)} mm · local offset U ${fmt(c.offset_u||0)}, V ${fmt(c.offset_v||0)} · source: ${ref(c)}`:active.kind==='interface'?`${interfaceNames[z.id]||`Interface ${active.index+1} · ${z.id}`} · Ø${fmt(z.diameter)} · depth ${fmt(z.start)}–${fmt(z.end)} · offset ${fmt(z.offset_u||0)}, ${fmt(z.offset_v||0)} · ${z.clip_to_cut?'clipped to actual cutting volume':'declared cylindrical window'}`:boundaryText(b,active.index);
     for(const button of legend.querySelectorAll('button'))button.classList.toggle('active',button.dataset.selection===active.kind+active.index);
   }
   for(const [kind,rows]of [['cut',cuts()],['interface',def.zones],['boundary',def.boundaries||[]]]){
     const details=element('details');details.open=kind!=='cut';details.append(element('summary',`${kind==='cut'?'Machining profile':kind==='interface'?'Hydraulic interfaces':'Footprint and clearance boundaries'} · ${rows.length}`));legend.append(details);
-    rows.forEach((r,i)=>{const title=kind==='cut'?`C${i+1} · ${r.kind||'cylinder'} · Ø${fmt(r.diameter)} · ${fmt(r.start)}–${fmt(r.end)} mm · ${ref(r)}`:kind==='interface'?`${interfaceNames[r.id]||`Interface ${i+1} · ${r.id}`} · depth ${fmt(r.start)}–${fmt(r.end)} mm`:`B${i+1} · ${r.category} · ${r.circle?'exact circle':'polygon'} · ${r.source_role||r.association}`;action(details,title,()=>{active={kind,index:i};draw();});details.lastElementChild.dataset.selection=kind+i;});
+    rows.forEach((r,i)=>{const title=kind==='cut'?`C${i+1} · ${r.kind||'cylinder'} · Ø${fmt(r.diameter)} · ${fmt(r.start)}–${fmt(r.end)} mm · ${ref(r)}`:kind==='interface'?`${interfaceNames[r.id]||`Interface ${i+1} · ${r.id}`} · depth ${fmt(r.start)}–${fmt(r.end)} mm`:boundaryText(r,i);action(details,title,()=>{active={kind,index:i};draw();});details.lastElementChild.dataset.selection=kind+i;});
   }
-  const source=element('details');source.append(element('summary','Threads, seals and source interpretation'));box.append(source);
+  const source=element('details');source.append(element('summary','Threads and machining metadata'));box.append(source);
   source.append(element('p',def.thread_note||'No thread specification supplied.'));
   if(def.native){const r=def.native.mapping_record||def.native.record;source.append(element('p',`Source datum: ${def.native.datum_mode}. ${def.native.mapping_record?'An explicit PMC interpretation is active; original source retained.':'Mapped from the pinned source record.'}`));
     for(const t of r.threads||[])source.append(element('p','Thread record: '+JSON.stringify(t)));

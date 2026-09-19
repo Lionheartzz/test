@@ -107,15 +107,17 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
       metrics.edges_ms+=performance.now()-started;edges.userData={...p,kind:p.kind==='body'?'edge':p.kind+'-edge'};edges.renderOrder=4;target.add(edges);
     }
   }
-  function addLabel(f,features,placement){
+  function addLabel(f,context,placement){
     if(!placement)return;
+    const features=context.features;
     if (f.kind === 'drilling' && !f.plugged && features.some(p => p.kind === 'port' && p.face === f.face && p.u === f.u && p.v === f.v)) return;
-    const element = document.createElement('div'); element.className = 'model-label'; element.textContent = featureLabel(f,{features});
+    const element = document.createElement('div'); element.className = 'model-label'; element.textContent = featureLabel(f,context);
     const label = new CSS2DObject(element); label.position.set(...placement.origin).addScaledVector(new THREE.Vector3(...placement.direction), -8);
     label.userData = f; labelGroup.add(label);
   }
-  function load(model, features) {
+  function load(model, value) {
     const loadStarted=performance.now(),metrics={kind:'exact-load',geometry_ms:0,normals_ms:0,edges_ms:0,labels_ms:0};
+    const context=Array.isArray(value)?{...(design||{}),features:value}:value,features=context.features;design=context;
     dragOwners.clear();
     renderedFeatures=features.map(f=>({...f}));
     references.load(model.geometry_kind,features);const first = !block; block = model.block;machinedBody=model.geometry_kind!=='parameter-preview';container.dataset.geometry=machinedBody?'machined-brep':'parameter-preview';
@@ -136,7 +138,7 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
     let labelsStarted=performance.now();
     for (const f of features) {
       const pose = model.placements[f.id]; if (!pose) continue;
-      addLabel(f,features,pose);
+      addLabel(f,context,pose);
     }
     metrics.labels_ms=performance.now()-labelsStarted;metrics.load_ms=performance.now()-loadStarted;
     updateVisibility(); select(selected); if (first) fit();
@@ -162,7 +164,8 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
     h.position.set(...p.origin).addScaledVector(d,f.kind==='drilling'?f.depth/2:-.3);h.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),d);h.userData={owner:f.id,kind:f.kind,circuit:f.circuit};h.renderOrder=10;handles.add(h);
     const definitionId=f.cavity_id||f.port_definition_id,def=design.library?.find(x=>x.id===definitionId),target=new THREE.Mesh(f.kind==='drilling'?new THREE.CylinderGeometry(1,1,f.depth,24):new THREE.CircleGeometry(1,32),new THREE.MeshBasicMaterial({side:THREE.DoubleSide,transparent:true,opacity:0,depthWrite:false,colorWrite:false}));
     target.position.copy(h.position);target.quaternion.copy(h.quaternion);if(f.kind==='drilling')target.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),d);
-    target.userData={owner:f.id,kind:f.kind,inward:d,mouthRadius:def?Math.max(...def.stages.map(s=>s.diameter))/2:f.diameter/2};hitAreas.add(target);
+    const threadDiameter=f.thread_definition_id?design.threads?.find(row=>row.id===f.thread_definition_id)?.tap_diameter_mm:null;
+    target.userData={owner:f.id,kind:f.kind,inward:d,mouthRadius:def?Math.max(...def.stages.map(s=>s.diameter))/2:(threadDiameter||f.diameter)/2};hitAreas.add(target);
   }
   function setDesign(value) {
     design=value;disposeGroup(handles);disposeGroup(hitAreas);disposeGroup(boundaryGroup);
@@ -180,10 +183,10 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
     const add=(geo,p,color,kind,id,owner,circuit)=>{geo.applyQuaternion(p.q);geo.translate(...p.center);parts.push({vertices:Array.from(geo.attributes.position.array),triangles:geo.index?Array.from(geo.index.array):Array.from({length:geo.attributes.position.count},(_,i)=>i),color,kind,id,owner,circuit});geo.dispose();};
     const b=value.block;if(includeBlock)add(new THREE.BoxGeometry(b.length,b.width,b.height),{q:new THREE.Quaternion(),center:[b.length/2,b.width/2,b.height/2]},'#9ba9b9','body','block');
     const cylinder=(f,diam,start,end,color,kind,id,options={})=>{const p=pose(f,b),d=new THREE.Vector3(...p.direction),a=(f.rotation||0)*Math.PI/180,[u,v]=axes[f.face];p.origin[u]+=(options.offset_u||0)*Math.cos(a)-(options.offset_v||0)*Math.sin(a);p.origin[v]+=(options.offset_u||0)*Math.sin(a)+(options.offset_v||0)*Math.cos(a);add(new THREE.CylinderGeometry((options.kind==='cone'?options.end_diameter:diam)/2,diam/2,end-start,32),{q:new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),d),center:p.origin.map((a,i)=>a+p.direction[i]*(start+end)/2)},color,kind,id,f.id,f.circuit);};
-    for(const f of value.features.filter(f=>!f.suppressed&&(!onlyIds||onlyIds.has(f.id)))) {placements[f.id]=pose(f,b);const definitionId=f.cavity_id||f.port_definition_id;if(definitionId){const d=value.library.find(d=>d.id===definitionId);for(const [i,s] of (d.cutting_primitives?.length?d.cutting_primitives:d.stages).entries())cylinder(f,s.diameter,s.start,s.end,f.kind==='port'?(value.nets.find(n=>n.id===f.circuit)?.color||'#9cc8e8'):'#b4c7da',f.kind==='port'?'port':'cavity',f.id+'-'+i,s);for(const z of f.kind==='port'?[]:d.zones){const netId=f.interface_nets[z.id],net=value.nets.find(n=>n.id===netId);cylinder(f,z.diameter,z.start,z.end,net?.color||({P:'#ef5959',T:'#459cff',A:'#41ca8b',B:'#f2d454'}[netId])||'#b08bea','zone',f.id+':'+z.id,z);}}else{cylinder(f,f.diameter,0,f.depth,value.nets.find(n=>n.id===f.circuit)?.color||({P:'#ef5959',T:'#459cff',A:'#41ca8b',B:'#f2d454'}[f.circuit])||'#b08bea',f.kind,f.id);const tip=f.tip_angle===180?0:f.diameter/2/Math.tan((f.tip_angle??118)*Math.PI/360);if(tip)cylinder(f,f.diameter,f.depth,f.depth+tip,value.nets.find(n=>n.id===f.circuit)?.color||'#b08bea',f.kind,f.id+':tip',{kind:'cone',end_diameter:0});if(f.plugged)cylinder(f,f.diameter,0,f.plug_length,'#d5dee9','plug',f.id+':plug');}}
+    for(const f of value.features.filter(f=>!f.suppressed&&(!onlyIds||onlyIds.has(f.id)))) {placements[f.id]=pose(f,b);const definitionId=f.cavity_id||f.port_definition_id;if(definitionId){const d=value.library.find(d=>d.id===definitionId);for(const [i,s] of (d.cutting_primitives?.length?d.cutting_primitives:d.stages).entries())cylinder(f,s.diameter,s.start,s.end,f.kind==='port'?(value.nets.find(n=>n.id===f.circuit)?.color||'#9cc8e8'):'#b4c7da',f.kind==='port'?'port':'cavity',f.id+'-'+i,s);for(const z of f.kind==='port'?[]:d.zones){const netId=f.interface_nets[z.id],net=value.nets.find(n=>n.id===netId);cylinder(f,z.diameter,z.start,z.end,net?.color||({P:'#ef5959',T:'#459cff',A:'#41ca8b',B:'#f2d454'}[netId])||'#b08bea','zone',f.id+':'+z.id,z);}}else{const diameter=f.thread_definition_id?value.threads?.find(row=>row.id===f.thread_definition_id)?.tap_diameter_mm:f.diameter;if(!diameter)throw Error(`${f.id}: thread machining definition is not loaded`);cylinder(f,diameter,0,f.depth,value.nets.find(n=>n.id===f.circuit)?.color||({P:'#ef5959',T:'#459cff',A:'#41ca8b',B:'#f2d454'}[f.circuit])||'#b08bea',f.kind,f.id);const tip=f.tip_angle===180?0:diameter/2/Math.tan((f.tip_angle??118)*Math.PI/360);if(tip)cylinder(f,diameter,f.depth,f.depth+tip,value.nets.find(n=>n.id===f.circuit)?.color||'#b08bea',f.kind,f.id+':tip',{kind:'cone',end_diameter:0});if(f.plugged)cylinder(f,diameter,0,f.plug_length,'#d5dee9','plug',f.id+':plug');}}
     return {block:b,parts,placements,geometry_kind:'parameter-preview'};
   }
-  function preview(value) {load(parameterModel(value),value.features);}
+  function preview(value) {load(parameterModel(value),value);}
   function updateFeature(value,id){
     const started=performance.now(),source=value.features.find(item=>item.id===id);if(!source)return;
     const affected=new Set([id]);let changed=true;while(changed){changed=false;for(const f of value.features)if(f.parent_id&&affected.has(f.parent_id)&&!affected.has(f.id)){affected.add(f.id);changed=true;}}
@@ -193,7 +196,7 @@ export function createViewer(container, onSelect, onDrag = ()=>{}) {
     const metrics={kind:'drag-update',feature_parts:0,elapsed_ms:0,unrelated_objects:group.children.length};
     const model=parameterModel(current,affected,false),build={geometry_ms:0,normals_ms:0,edges_ms:0,labels_ms:0};
     for(const raw of model.parts){materializePart({...raw,drag_preview:true},dragGroup,build);metrics.feature_parts++;}
-    for(const key of affected){const f=byId.get(key);removeObjects(labelGroup,o=>o.userData.id===key);addLabel(f,features,model.placements[key]);removeObjects(handles,o=>o.userData.owner===key);removeObjects(hitAreas,o=>o.userData.owner===key);removeObjects(boundaryGroup,o=>o.userData.owner===key);addBoundaries(f);addControl(f);}
+    for(const key of affected){const f=byId.get(key);removeObjects(labelGroup,o=>o.userData.id===key);addLabel(f,current,model.placements[key]);removeObjects(handles,o=>o.userData.owner===key);removeObjects(hitAreas,o=>o.userData.owner===key);removeObjects(boundaryGroup,o=>o.userData.owner===key);addBoundaries(f);addControl(f);}
     metrics.elapsed_ms=Math.round((performance.now()-started)*100)/100;recordTiming(metrics);updateVisibility();select(selected);
   }
   let down, drag;

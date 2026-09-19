@@ -264,6 +264,34 @@ def catalog_resources():
     return []
 
 
+@app.get('/api/threads')
+def threads(q: str='',unit: str='',usable_only: bool=True,limit: int=Query(200,ge=1,le=500)):
+    from .engineering_db import search_threads
+    return {'items':search_threads(q,unit,usable_only=usable_only,limit=limit)}
+
+
+@app.get('/api/materials')
+def material_catalog():
+    from .engineering_db import materials
+    return {'items':materials()}
+
+
+@app.get('/api/tools')
+def tooling_catalog(type: str=Query('drill',pattern=r'^(drill|flat-bottom-drill|spotface)$'),unit: str=''):
+    from .engineering_db import tool_definitions
+    return {'items':tool_definitions(type,unit=unit)}
+
+
+@app.get('/api/machining-modifiers')
+def machining_modifier_catalog(kind: str=''):
+    from .engineering_db import _connect
+    with _connect() as connection:
+        where="active=1 AND usable=1";values=[]
+        if kind:where+=" AND kind=?";values.append(kind)
+        return {'items':[dict(row) for row in connection.execute(
+            f"SELECT id,display_name,kind,unit_system FROM machining_modifiers WHERE {where} ORDER BY kind,display_name",values)]}
+
+
 @app.get('/api/catalog/resource')
 def catalog_resource(id: str):
     raise HTTPException(410,'Independent legacy JSON resources are not runtime engineering data.')

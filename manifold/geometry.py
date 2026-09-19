@@ -16,6 +16,7 @@ class Geometry:
     plugs: dict
     placements: dict
     boundaries: dict
+    manufacturing_features: dict
 
 
 def placement(f: Feature, block):
@@ -31,17 +32,59 @@ def cylinder(origin, direction, diameter, start, end):
     return cq.Solid.makeCylinder(diameter / 2, end - start, cq.Vector(*at(origin, direction, start)), cq.Vector(*direction))
 
 
+def face_origin(face, u, v, block):
+    from .kinematics import FACE_AXES,dimensions
+    ua,va,axis,sign=FACE_AXES[face];point=[0.0,0.0,0.0]
+    point[ua]=u;point[va]=v;point[axis]=dimensions(block)[axis] if sign<0 else 0
+    direction=[0.0,0.0,0.0];direction[axis]=sign
+    return tuple(point),tuple(direction),ua,va
+
+
+def rectangular_cut(row, block):
+    origin,direction,ua,va=face_origin(row.face,row.u,row.v,block)
+    angle=math.radians(row.rotation);corners=[]
+    for x,y in ((-row.width/2,-row.height/2),(row.width/2,-row.height/2),(row.width/2,row.height/2),(-row.width/2,row.height/2)):
+        point=list(origin);point[ua]+=x*math.cos(angle)-y*math.sin(angle);point[va]+=x*math.sin(angle)+y*math.cos(angle);corners.append(cq.Vector(*point))
+    wire=cq.Wire.makePolygon([*corners,corners[0]])
+    return cq.Solid.extrudeLinear(wire,[],cq.Vector(*(component*row.depth for component in direction)))
+
+
+def engraving_cut(row, block):
+    origin,direction,ua,_=face_origin(row.face,row.u,row.v,block)
+    xdir=[0.0,0.0,0.0];xdir[ua]=1
+    plane=cq.Plane(origin=cq.Vector(*origin),xDir=cq.Vector(*xdir),normal=cq.Vector(*direction))
+    return cq.Workplane(plane).transformed(rotate=(0,0,row.rotation)).text(
+        row.text,row.text_height,row.depth,combine=False,clean=True).val()
+
+
 def tip_depth(f):
     return 0 if f.tip_angle == 180 else f.diameter / 2 / math.tan(math.radians(f.tip_angle / 2))
 
 
 @timed('geometry.construction')
-def build_geometry(design: Design, definitions=None):
+def build_geometry(design: Design, definitions=None, thread_definitions=None, modifier_definitions=None):
     b = design.block
     block = cq.Solid.makeBox(b.length, b.width, b.height)
+    stock=block
+    manufacturing_features={}
+    face_selectors={'top':'>Z','bottom':'<Z','front':'<Y','back':'>Y','left':'<X','right':'>X'}
+    for row in design.block_modifiers:
+        if row.kind=='chamfer':
+            stock=cq.Workplane(obj=stock).faces(face_selectors[row.face]).edges().chamfer(row.size).val()
+            manufacturing_features[row.id]=block.cut(stock)
+        else:
+            manufacturing_features[row.id]=rectangular_cut(row,b)
+    for row in design.engravings:
+        manufacturing_features[row.id]=engraving_cut(row,b)
     if definitions is None:
         from .engineering_db import definitions_for_design
         definitions=definitions_for_design(design)
+    if thread_definitions is None:
+        from .engineering_db import thread_definitions_for_design
+        thread_definitions=thread_definitions_for_design(design)
+    if modifier_definitions is None:
+        from .engineering_db import modifier_definitions_for_design
+        modifier_definitions=modifier_definitions_for_design(design)
     lib = definitions
     cuts, nodes, circuits, envelopes, plugs, placements = {}, {}, {}, {}, {}, {}
     boundaries = {}
@@ -94,11 +137,12 @@ def build_geometry(design: Design, definitions=None):
         else:
             from .kinematics import FACE_AXES
             cosine=abs(direction[FACE_AXES[f.face][2]])
-            extension=f.diameter/2*math.sqrt(max(0,1-cosine*cosine))/cosine if f.direction else 0
-            cut = cylinder(origin, direction, f.diameter, -extension, f.depth)
-            tip = tip_depth(f)
+            diameter=thread_definitions[f.thread_definition_id]['tap_diameter_mm'] if f.kind=='mounting' and f.mounting_mode=='threaded' else f.diameter
+            extension=diameter/2*math.sqrt(max(0,1-cosine*cosine))/cosine if f.direction else 0
+            cut = cylinder(origin, direction, diameter, -extension, f.depth)
+            tip = 0 if f.kind=='mounting' and f.through else diameter/2/math.tan(math.radians(f.tip_angle/2)) if f.tip_angle!=180 else 0
             if tip:
-                cone = cq.Solid.makeCone(f.diameter / 2, 0, tip, cq.Vector(*at(origin, direction, f.depth)), cq.Vector(*direction))
+                cone = cq.Solid.makeCone(diameter / 2, 0, tip, cq.Vector(*at(origin, direction, f.depth)), cq.Vector(*direction))
                 cut = cut.fuse(cone).clean()
             if f.direction:
                 # Trim only at the entry half-space. Other stock breakout remains visible to validation.
@@ -119,9 +163,25 @@ def build_geometry(design: Design, definitions=None):
             circuits[f.id] = f.circuit
             if f.plugged or f.kind == 'port':
                 envelopes[f.id] = cylinder(origin, direction, f.clearance_diameter, -f.clearance_height, 0)
+        if f.machining_modifiers:
+            pieces=[]
+            for placement_value in f.machining_modifiers:
+                modifier=modifier_definitions[placement_value.modifier_id]
+                for primitive in modifier['primitives']:
+                    start=placement_value.start+primitive['start'];end=placement_value.start+primitive['end']
+                    if primitive['kind']=='annulus':
+                        shape=cylinder(origin,direction,primitive['diameter'],start,end).cut(
+                            cylinder(origin,direction,primitive['inner_diameter'],start,end))
+                    else:shape=cylinder(origin,direction,primitive['diameter'],start,end)
+                    pieces.append(shape)
+            if pieces:
+                modifier_cut=pieces[0].fuse(*pieces[1:]) if len(pieces)>1 else pieces[0]
+                cuts[f.id]=cuts[f.id].fuse(modifier_cut)
     with phase('geometry.production_boolean'):
-        production = block.cut(*cuts.values()).clean() if cuts else block
-    return Geometry(block, production, cuts, nodes, circuits, envelopes, plugs, placements, boundaries)
+        all_cuts=[*cuts.values(),*(shape for key,shape in manufacturing_features.items()
+                                   if not any(item.id==key and item.kind=='chamfer' for item in design.block_modifiers))]
+        production = stock.cut(*all_cuts).clean() if all_cuts else stock
+    return Geometry(block, production, cuts, nodes, circuits, envelopes, plugs, placements, boundaries,manufacturing_features)
 
 
 @timed('tessellation',immediate=True)

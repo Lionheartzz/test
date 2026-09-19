@@ -35,7 +35,8 @@ def configure(source, edit):
         centerlines=False,presentation='pmc-overview'))
     edit.tables=[Table(id='porting',sheet='overview',kind='porting',position=(459,250),width=110,
         row_height=10,height=4,count=200,presentation='pmc-customer-portings')]
-    assets=source['authored'].get('schematics',[])
+    from .generate import schematic_assets
+    assets=schematic_assets(source['authored'])
     edit.schematics=[Schematic(id='schematic',sheet='overview',asset=assets[0]['sha256'],position=(20,16),width=104,height=73)] if assets else []
     return edit
 

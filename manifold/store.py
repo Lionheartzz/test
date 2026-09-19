@@ -91,6 +91,8 @@ def build_outputs(design, folder, *, engineering_complete=None):
             while name in used:name=f'{base}_{index}';index+=1
             used.add(name);assembly.add(g.cuts[feature.id],name=name)
             if feature.id in g.plugs:assembly.add(g.plugs[feature.id],name=name+'_PLUG')
+        for identifier,shape in g.manufacturing_features.items():
+            assembly.add(shape,name='MANUFACTURING_'+identifier)
         assembly.save(str(folder/'engineering.step'),exportType='STEP',mode='default')
     # Round trip tests actual serialized CAD, not merely in-memory validity.
     with phase('step.round_trip'):

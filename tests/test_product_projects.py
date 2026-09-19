@@ -20,7 +20,7 @@ def blank(name='Empty project'):
 
 def test_project_library_empty_start_and_independent_reopen(isolated):
     assert isolated.get('/api/health').json()['service']=='pmc-manifold'
-    assert isolated.get('/api/catalog/manifest').json()['schema_version']==1
+    assert isolated.get('/api/catalog/manifest').json()['schema_version']==2
     assert isolated.get('/api/projects').json()==[]
     first=isolated.post('/api/projects',json=dict(design=blank().model_dump()),headers=HEADERS).json()
     second=isolated.post('/api/projects',json=dict(design=blank('Second').model_dump()),headers=HEADERS).json()
@@ -59,6 +59,10 @@ def test_project_library_lists_eight_projects_without_opening_or_engineering_res
     assert by_name['Project 3']['status']=='STALE'
     assert by_name['Project 7']['revision']==expected[7]
     assert all('engineering' not in row and 'network' not in row and row['project_context']=='metric' for row in rows)
+    polled=isolated.get('/api/projects/'+f'{1:032x}'+'/status')
+    assert polled.status_code==200 and polled.json()['build']['build_id']=='a'*32
+    assert polled.json()['revision']==expected[1] and polled.json()['stale'] is False
+    assert calls==[1,1]
 
 def test_project_manage_preserves_copies_history_and_source(isolated):
     first=projects.save(blank());key=first['project_id']
@@ -84,7 +88,7 @@ def test_project_build_failure_and_stale_save_do_not_replace_saved_project(isola
 def test_each_project_retains_its_own_build_pointer(isolated):
     a=projects.save(demo());b=projects.save(blank('B'))
     result=projects.build(a['project_id'],a['revision'])
-    assert result['build']['status']=='PASS' and not result['stale']
+    assert result['build']['status'] in {'PASS','WARNING'} and not result['stale']
     assert projects.snapshot(projects.read(b['project_id']))['build'] is None
     assert store.current() is None
     assert (store.OUTPUT/'builds'/result['build']['build_id']/'production.step').is_file()

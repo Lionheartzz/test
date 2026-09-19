@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -32,6 +33,153 @@ def safe_id(value, fallback):
     if not value or not value[0].isalpha():
         value = "I_" + value
     return value[:40] or fallback
+
+
+def stable_id(prefix, *values):
+    body=json.dumps(values,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode("utf-8")
+    return prefix+hashlib.sha256(body).hexdigest()[:24]
+
+
+def mdb_rows(source: Path, filename: str, table: str):
+    """Read one known R2 table during explicit Windows initialization only."""
+    if not re.fullmatch(r"[A-Za-z0-9_ -]+", table):
+        raise ValueError("Unsafe MDTools table name")
+    path=source/"raw"/"2026-R2"/filename
+    if not path.is_file():
+        raise RuntimeError(f"Merged MDTools raw database is missing: {path}")
+    if sys.platform!="win32":
+        raise RuntimeError("MDTools MDB import requires the Windows ACE provider")
+    script=r'''
+$ErrorActionPreference='Stop'
+$connection=New-Object System.Data.OleDb.OleDbConnection("Provider=Microsoft.ACE.OLEDB.12.0;Data Source=$env:PMC_MDB_PATH;Mode=Read;")
+try {
+  $connection.Open();$command=$connection.CreateCommand();$table=$env:PMC_MDB_TABLE.Replace(']',']]')
+  $command.CommandText="SELECT * FROM [$table]";$reader=$command.ExecuteReader();$rows=@()
+  while($reader.Read()) {$row=[ordered]@{};for($i=0;$i-lt$reader.FieldCount;$i++) {$value=$reader.GetValue($i);if($value-ne[DBNull]::Value){$row[$reader.GetName($i)]=$value}};$rows += [pscustomobject]$row}
+  $reader.Close();ConvertTo-Json -Compress -Depth 5 -InputObject @($rows)
+} finally {$connection.Close()}
+'''
+    environment=os.environ.copy();environment["PMC_MDB_PATH"]=str(path);environment["PMC_MDB_TABLE"]=table
+    try:
+        completed=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",script],
+                                 check=True,capture_output=True,text=True,encoding="utf-8",env=environment)
+        result=json.loads(completed.stdout or "[]")
+    except (OSError,subprocess.CalledProcessError,json.JSONDecodeError) as exc:
+        detail=getattr(exc,"stderr","") or str(exc)
+        raise RuntimeError(f"Cannot read {filename}:{table}: {detail[:500]}") from exc
+    return [result] if isinstance(result,dict) else result
+
+
+def thread_record(row, scale):
+    pitch=str(row.get("ThreadPitch") or "").strip()
+    size=str(row.get("ThreadSize") or "").strip()
+    klass=str(row.get("ThreadClass") or "").strip()
+    if not any((pitch,size,klass)):return None
+    tap_text=""
+    has_tap_operation=False
+    for index in range(1,8):
+        operation=str(row.get(f"MachineOperation{index}") or "").upper()
+        if "TAP" in operation and "DRILL" not in operation:
+            has_tap_operation=True
+            value=str(row.get(f"MachineDia{index}") or "").strip()
+            if value and not value.startswith("$"):tap_text=value;break
+    display=pitch or size or tap_text
+    if klass and klass.upper() not in display.upper():display=f"{display}-{klass}"
+    declared_key=re.sub(r'[^A-Z0-9]','',display.upper())
+    tool_key=re.sub(r'[^A-Z0-9]','',tap_text.upper())
+    identity_conflict=bool(tool_key and declared_key and tool_key!=declared_key)
+    upper=(pitch+" "+display).upper().replace(' ','')
+    if upper.startswith('M'):family='Metric'
+    elif upper.startswith('G'):family='BSPP'
+    elif upper.startswith(('RC','R','RP')):family='BSPT'
+    elif 'NPTF' in upper:family='NPTF'
+    elif 'NPT' in upper:family='NPT'
+    elif any(token in upper for token in ('UNC','UNF','-UN')):family='Unified'
+    else:family='Other'
+    tap=None
+    for index in range(1,8):
+        operation=str(row.get(f"MachineOperation{index}") or "").upper()
+        # A generic DRILL on a threaded cavity can be an unrelated hydraulic
+        # passage.  Only an explicitly declared TAP DRILL is an unambiguous
+        # reusable minor-bore definition.
+        if "TAP" not in operation or "DRILL" not in operation:continue
+        raw=str(row.get(f"MachineDia{index}") or "").strip()
+        match=re.fullmatch(r"\$STEP(\d+)",raw,re.I)
+        value=number(row.get(f"Circle{int(match.group(1))}Dia")) if match else number(raw)
+        if value and value>0:tap=value*scale;break
+    semantic_unit='metric' if family=='Metric' else 'inch'
+    tapered=family in ('NPT','NPTF','BSPT')
+    nominal_match=re.match(r'^M\s*(\d+(?:[.,]\d+)?)\s*[Xx]',display)
+    impossible_metric_bore=bool(tap is not None and nominal_match and tap>=float(nominal_match.group(1).replace(',','.')))
+    signature=(re.sub(r"\s+","",display).upper(),family,semantic_unit,round(tap,6) if tap else None,tool_key)
+    return dict(id=stable_id('thread_',*signature),display_name=display[:120],family=family,
+                nominal_size=size[:80],pitch_tpi=pitch[:80],thread_class=klass[:40],applicability='internal',
+                tapered=int(tapered),unit_system=semantic_unit,tap_diameter_mm=tap,
+                usable=int(tap is not None and has_tap_operation and not identity_conflict and not impossible_metric_bore),
+                unusable_reason=('Declared thread identity conflicts with the source TAP operation' if identity_conflict else
+                                 'No explicit source TAP operation' if not has_tap_operation else
+                                 'Source TAP DRILL does not fit the declared metric thread major diameter' if impossible_metric_bore else
+                                 '' if tap else 'No explicit source-backed TAP DRILL diameter'),active=1)
+
+
+def import_support_masters(connection,source,thread_rows):
+    for row in sorted({item['id']:item for item in thread_rows}.values(),key=lambda item:item['id']):
+        connection.execute("INSERT INTO thread_definitions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",tuple(row.values()))
+    counts=dict(threads=connection.execute("SELECT count(*) FROM thread_definitions").fetchone()[0],tools=0,
+                closures=0,materials=0,stock=0,modifiers=0)
+    for table,tool_type,unit in (
+        ('DrillTool','drill','inch'),('FlatBottomDrillTool','flat-bottom-drill','inch'),
+        ('SpotFaceTool','spotface','inch'),('MetricDrillTool','drill','metric'),
+        ('MetricFlatBottomDrillTool','flat-bottom-drill','metric'),('MetricSpotFaceTool','spotface','metric')):
+        scale=25.4 if unit=='inch' else 1.0
+        for raw in mdb_rows(source,'ToolingAndManufacturing.mdb',table):
+            diameter=number(raw.get('ToolDia'));depth=number(raw.get('MaxToolDepth'))
+            if not diameter or not depth:continue
+            connection.execute("INSERT OR IGNORE INTO tool_definitions VALUES (?,?,?,?,?,?,?)",
+                (f"tool_{unit}_{tool_type.replace('-','_')}_{int(raw['ID'])}",tool_type,diameter*scale,depth*scale,unit,1,1))
+    counts['tools']=connection.execute("SELECT count(*) FROM tool_definitions").fetchone()[0]
+    policy=mdb_rows(source,'ToolingAndManufacturing.mdb','ManufacturingTable')
+    if policy:
+        row=policy[0];connection.execute("INSERT INTO manufacturing_policy VALUES (?,?,?,?)",
+            (1,float(row['SlendernessRatioLimits']),int(bool(row['SimpleAngleHolesAllowed'])),int(bool(row['CompoundAngleHolesAllowed']))))
+    index=mdb_rows(source,'VESTMDToolsMaterialLibrary.mdb','MaterialTableNameIndex')
+    for raw in index:
+        material_id=f"material_{int(raw['ID'])}"
+        connection.execute("INSERT INTO materials VALUES (?,?,?,1)",(material_id,str(raw.get('MaterialName') or material_id)[:120],str(raw.get('MaterialType') or '')[:120]))
+        for unit,key in (('inch','MaterialSizeTableNameInch'),('metric','MaterialSizeTableNameMM')):
+            table=raw.get(key)
+            if not table:continue
+            scale=25.4 if unit=='inch' else 1.0
+            for stock in mdb_rows(source,'VESTMDToolsMaterialLibrary.mdb',str(table)):
+                a,b=number(stock.get('MaterialSize1')),number(stock.get('MaterialSize2'))
+                if not a or not b:continue
+                connection.execute("INSERT OR IGNORE INTO material_stock VALUES (?,?,?,?,?,?,?,1)",
+                    (f"stock_{int(raw['ID'])}_{unit}_{int(stock['ID'])}",material_id,unit,a*scale,b*scale,
+                     (number(stock.get('MachiningAllowance1')) or 0)*scale,(number(stock.get('MachiningAllowance2')) or 0)*scale))
+    counts['materials']=connection.execute("SELECT count(*) FROM materials").fetchone()[0]
+    counts['stock']=connection.execute("SELECT count(*) FROM material_stock").fetchone()[0]
+    for filename,unit in (('InchVESTMDToolsLibrary.mdb','inch'),('MMVESTMDToolsLibrary.mdb','metric')):
+        scale=25.4 if unit=='inch' else 1.0
+        machining={int(row['ORingIndex']):row for row in mdb_rows(source,filename,'ORingMachiningInfo')}
+        for raw in mdb_rows(source,filename,'OringGrooves'):
+            outer=number(raw.get('GrooveOuterDia'));width=number(raw.get('GrooveWidth'));length=number(raw.get('GrooveLength'))
+            usable=bool(outer and width and length and outer>2*width)
+            primitives=[] if not usable else [dict(kind='annulus',source_ref='source-backed o-ring groove',start=0,end=length*scale,
+                diameter=outer*scale,end_diameter=0,inner_diameter=(outer-2*width)*scale,offset_u=0,offset_v=0)]
+            info=machining.get(int(raw['OringIndex']))
+            operations=[] if not info else [dict(operation=info.get('MachiningOperation'),tool=info.get('MachiningToolName'),
+                diameter=info.get('MachiningDiameter'),depth=info.get('MachiningDepth'))]
+            kind='counterbore' if bool(raw.get('IsCounterBore')) else 'o-ring-groove'
+            connection.execute("INSERT INTO machining_modifiers VALUES (?,?,?,?,?,?,?,?,?)",
+                (f"modifier_{unit}_oring_{int(raw['OringIndex'])}",f"O-ring {raw.get('DashNumber') or raw['OringIndex']}",kind,unit,
+                 json.dumps(primitives,separators=(',',':')),json.dumps(operations,separators=(',',':')),int(usable),
+                 '' if usable else 'Source groove dimensions are incomplete',1))
+        for raw in mdb_rows(source,filename,'UnderCuts'):
+            connection.execute("INSERT INTO machining_modifiers VALUES (?,?,?,?,?,?,?,?,?)",
+                (f"modifier_{unit}_undercut_{int(raw['UnderCutIndex'])}",str(raw.get('UnderCutID') or f"Undercut {raw['UnderCutIndex']}")[:120],
+                 'undercut',unit,'[]','[]',0,'Source undercut depth/height axes are not unambiguous for automatic CAD',1))
+    counts['modifiers']=connection.execute("SELECT count(*) FROM machining_modifiers").fetchone()[0]
+    return counts
 
 
 def source_boundary(raw, source_type="", scale=1.0):
@@ -138,7 +286,10 @@ def linked_special_cuts(source):
     """
     raw = source / "raw"
     if not raw.is_dir():
-        return set()
+        raise RuntimeError(
+            f"Merged MDTools raw relationship source is missing: {raw}. "
+            "Cannot verify mandatory undercut/O-ring relationships."
+        )
     if sys.platform != "win32":
         raise RuntimeError(
             "MDTools special-cut relationship admission requires the Windows ACE provider; "
@@ -281,7 +432,7 @@ def active_revision(identity):
     return next((revision for revision in identity.get("revisions", []) if revision.get("revision_id") == identifier and revision.get("active", True)), None)
 
 
-def import_database(source: Path, destination: Path) -> dict:
+def import_database(source: Path, destination: Path, *, preserve_custom_from: Path | None = None) -> dict:
     source, destination = source.resolve(), destination.resolve()
     cavity_file, footprint_file = source / "cavities_master.jsonl", source / "footprints_master.jsonl"
     if not cavity_file.is_file() or not footprint_file.is_file():
@@ -289,12 +440,25 @@ def import_database(source: Path, destination: Path) -> dict:
     if destination.exists():
         raise ValueError(f"Import target already exists: {destination}. Choose a new staging path.")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    footprints = defaultdict(list)
+    footprints = defaultdict(list);thread_rows=[];identities=[]
     with footprint_file.open(encoding="utf-8") as handle:
         for line in handle:
             record = json.loads(line)
             if record.get("active"):
                 footprints[record["cavity_revision_id"]].append(record)
+                units={str(item.get('unit') or '').lower() for item in record.get('sources',[]) if item.get('unit')}
+                if len(units)!=1:
+                    continue
+                scale=25.4 if units.pop()=='inch' else 1.0
+                candidate=thread_record(record['row'],scale)
+                if candidate:thread_rows.append(candidate)
+    with cavity_file.open(encoding="utf-8") as handle:
+        for line in handle:
+            identity=json.loads(line);identities.append(identity)
+            revision=active_revision(identity)
+            if revision:
+                candidate=thread_record(revision['row'],25.4 if identity['unit']=='inch' else 1.0)
+                if candidate:thread_rows.append(candidate)
     special_cut_sources = linked_special_cuts(source)
     report = dict(cavities=0, external_ports=0, cartridges=0, compatibility=0,
                   duplicate_records=0, rejected=0, unusable=0, zero_footprint=0,
@@ -302,9 +466,14 @@ def import_database(source: Path, destination: Path) -> dict:
     connection = sqlite3.connect(destination)
     try:
         initialize_schema(connection)
-        with cavity_file.open(encoding="utf-8") as handle, connection:
-            for line in handle:
-                identity = json.loads(line)
+        if (source/'raw'/'2026-R2').is_dir():
+            report.update(import_support_masters(connection,source,thread_rows))
+        else:
+            for row in sorted({item['id']:item for item in thread_rows}.values(),key=lambda item:item['id']):
+                connection.execute("INSERT INTO thread_definitions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",tuple(row.values()))
+            report.update(threads=len({item['id'] for item in thread_rows}),tools=0,closures=0,materials=0,stock=0,modifiers=0)
+        with connection:
+            for identity in identities:
                 revision = active_revision(identity)
                 if revision is None:
                     report["rejected"] += 1
@@ -361,6 +530,10 @@ def import_database(source: Path, destination: Path) -> dict:
                     reasons.append("Required special cut is not executable")
                 if boundary_incomplete:
                     reasons.append("Declared mounting boundary is not safely interpretable")
+                cavity_type = str(row.get("CavityType") or "").upper()
+                external_interface = zones[0] if cavity_type in {"P", "PORT"} and len(zones) == 1 else None
+                if cavity_type in {"P", "PORT"} and external_interface is None:
+                    reasons.append("External port requires one executable hydraulic interface")
                 usable = not reasons
                 reason = "; ".join(reasons)
                 if not usable:
@@ -372,22 +545,21 @@ def import_database(source: Path, destination: Path) -> dict:
                 )
                 height = max([item["end"] for item in primitives] + [1.0])
                 thread = str(row.get("ThreadPitch") or row.get("ThreadSize") or "")
+                normalized_thread=thread_record(row,scale)
+                thread_definition_id=normalized_thread['id'] if normalized_thread else None
                 common = (identity["canonical_id"], identity["display_name"], identity["display_family"],
                           identity["unit"], explicit_manufacturer(identity, revision, row), thread,
                           json.dumps(stages, separators=(",", ":")), json.dumps(primitives, separators=(",", ":")),
                           json.dumps(boundaries, separators=(",", ":")),
                           json.dumps(machining(row), separators=(",", ":")), clearance, height,
                           int(usable), reason, 1)
-                cavity_type = str(row.get("CavityType") or "").upper()
                 if cavity_type in {"P", "PORT"}:
-                    interface = zones[0] if len(zones) == 1 else None
-                    if interface is None:
-                        usable, reason = False, "External port requires one executable hydraulic interface"
-                        common = (*common[:-3], 0, reason, 1)
-                        report["unusable"] += 1
                     connection.execute(
-                        "INSERT INTO external_port_definitions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                        (*common[:10], json.dumps(interface or {}, separators=(",", ":")), *common[10:]),
+                        "INSERT INTO external_port_definitions "
+                        "(id,name,family,unit_system,manufacturer,thread_spec,stages_json,primitives_json,boundaries_json,"
+                        "machining_json,interface_json,clearance_diameter,clearance_height,usable,unusable_reason,active,thread_definition_id) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (*common[:10], json.dumps(external_interface or {}, separators=(",", ":")), *common[10:],thread_definition_id),
                     )
                     report["external_ports"] += 1
                 else:
@@ -406,6 +578,8 @@ def import_database(source: Path, destination: Path) -> dict:
                              zone.get("offset_u", 0), zone.get("offset_v", 0), int(zone.get("clip_to_cut", True))),
                         )
                     report["cavities"] += 1
+            if preserve_custom_from:
+                preserve_custom_definitions(connection,preserve_custom_from)
         violations=connection.execute("PRAGMA foreign_key_check").fetchall()
         if violations:
             raise ValueError(f"Imported database violates foreign keys: {violations[:10]}")
@@ -420,12 +594,36 @@ def import_database(source: Path, destination: Path) -> dict:
     return report
 
 
+def preserve_custom_definitions(connection,existing_path: Path):
+    """Copy user-owned custom/legacy rows into a staged import transaction."""
+    existing_path=existing_path.resolve()
+    if not existing_path.is_file():raise ValueError(f"Existing engineering database not found: {existing_path}")
+    old=sqlite3.connect(existing_path);old.row_factory=sqlite3.Row
+    try:
+        for row in old.execute("SELECT * FROM cavities WHERE id LIKE 'custom_%' OR id LIKE 'legacy_%'"):
+            connection.execute("INSERT INTO cavities VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",tuple(row))
+            for interface in old.execute("SELECT * FROM cavity_interfaces WHERE cavity_id=?",(row['id'],)):
+                connection.execute("INSERT INTO cavity_interfaces VALUES (?,?,?,?,?,?,?,?)",tuple(interface))
+        old_columns={row[1] for row in old.execute("PRAGMA table_info(external_port_definitions)")}
+        for row in old.execute("SELECT * FROM external_port_definitions WHERE id LIKE 'custom_%' OR id LIKE 'legacy_%'"):
+            columns=[item[1] for item in connection.execute("PRAGMA table_info(external_port_definitions)")]
+            values=[row[column] if column in old_columns else None for column in columns]
+            thread_id=row['thread_definition_id'] if 'thread_definition_id' in old_columns else None
+            if thread_id and connection.execute('SELECT 1 FROM thread_definitions WHERE id=?',(thread_id,)).fetchone() is None:
+                thread=old.execute('SELECT * FROM thread_definitions WHERE id=?',(thread_id,)).fetchone()
+                if thread is None:raise ValueError(f'Custom external port references missing thread definition: {thread_id}')
+                connection.execute('INSERT INTO thread_definitions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',tuple(thread))
+            connection.execute(f"INSERT INTO external_port_definitions ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})",values)
+    finally:old.close()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Initialize PMC engineering SQLite from merged MDTools master")
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--preserve-custom-from", type=Path)
     args = parser.parse_args(argv)
-    report = import_database(args.source, args.output)
+    report = import_database(args.source, args.output,preserve_custom_from=args.preserve_custom_from)
     print(json.dumps(report, indent=2))
 
 

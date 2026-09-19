@@ -44,7 +44,7 @@ def part(model,kind):
 
 def test_A_same_net_is_exact_union_without_internal_overlap():
     d=bores();g=build_geometry(d);m=review_model(d,g)
-    assert validate(d,g)['status']=='PASS'
+    assert validate(d,g)['status']=='WARNING' # Source plug-entry machining is deliberately unresolved.
     common=g.nodes['X'].intersect(g.nodes['Y']).Volume()
     assert common>1
     net=part(m,'hydraulic-net')
@@ -94,7 +94,7 @@ def test_E_cross_net_failure_keeps_separate_networks_and_collision():
 def test_F_source_port_complete_profile_separate_hydraulic_window(tmp_path):
     from manifold.manufacturing import manufacturing_outputs
     d=port();g=build_geometry(d);m=review_model(d,g);r=validate(d,g)
-    assert r['status']=='PASS'
+    assert r['status']=='WARNING' # Source plug-entry machining is deliberately unresolved.
     assert g.cuts['PORT'].Volume()>g.nodes['PORT'].Volume()
     assert g.nodes['PORT'].intersect(g.nodes['LATERAL']).Volume()>1
     assert part(m,'port-machining')['volume_mm3']==pytest.approx(g.cuts['PORT'].Volume())
@@ -198,7 +198,7 @@ def test_exact_preview_never_searches_candidates_and_reports_resolution_reason(m
     assert result.status_code==200,result.text[:500]
     assert result.json()['route_selection']=='CURRENT_PROPOSAL_NOT_OPTIMIZED'
     assert any(p['kind']=='hydraulic-net' for p in result.json()['model']['parts'])
-    invalid=automatic();invalid.nets[0].flow_lpm=1000;invalid.nets[0].diameter_mode='automatic';invalid.constraints.standard_drills=[4]
+    invalid=automatic();invalid.nets[0].flow_lpm=1000;invalid.nets[0].diameter_mode='automatic';invalid.block.length=2000
     for endpoint in ('preview','preview-solid'):
         result=client.post('/api/'+endpoint,json=invalid.model_dump(),headers=headers)
-        assert result.status_code==422 and 'hydraulic sizing unresolved' in result.json()['detail'] and 'no available standard drill' in result.json()['detail']
+        assert result.status_code==422 and 'hydraulic sizing unresolved' in result.json()['detail'] and 'no source-backed drill' in result.json()['detail']

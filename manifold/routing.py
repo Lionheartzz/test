@@ -348,10 +348,11 @@ def route_options(design, net, *, expanded=False, definitions=None):
 @timed('route.proposal')
 def _resolve_proposals(design):
     resolved = resolve_parents(design)
-    from .engineering_db import definitions_for_design
+    from .engineering_db import definitions_for_design,tool_definitions
     definitions=definitions_for_design(resolved)
     from .sizing import route_sizing
-    sizing={n.id:route_sizing(n,resolved.constraints.standard_drills) for n in resolved.nets}
+    tools=tool_definitions('drill',unit=resolved.project_context)
+    sizing={n.id:route_sizing(n,tools=tools,required_depth=max(dimensions(resolved.block))) for n in resolved.nets}
     for net in resolved.nets:
         if net.routing=='automatic':net.diameter=sizing[net.id]['diameter_mm']
     automatic = {n.id for n in resolved.nets if n.routing == 'automatic'}

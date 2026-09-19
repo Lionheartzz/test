@@ -30,8 +30,10 @@ def failure(report, rule):
 
 def test_corrected_demo_passes_and_step_roundtrips(tmp_path):
     report = build_outputs(demo(), tmp_path / 'build')
-    assert report['status'] == 'PASS'
-    assert report['counts']['FAIL'] == report['counts']['WARNING'] == 0
+    assert report['status'] == 'WARNING'
+    assert report['unresolved_plug_entries']==['XD-P']
+    assert report['counts']['FAIL'] == 0
+    assert report['counts']['WARNING'] == 1
     assert report['checks'][-1]['rule'] == 'step_round_trip'
     assert (tmp_path / 'build' / 'production.step').stat().st_size > 10000
     engineering = tmp_path / 'build' / 'engineering.step'

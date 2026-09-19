@@ -40,6 +40,9 @@ def seed_database(path):
     connection.execute('INSERT INTO cartridges VALUES (?,?,?,?,?,?)',
         ('CART_BAD','PMC','MODEL-BAD','Test valve','{}',1))
     connection.execute('INSERT INTO cartridge_cavities VALUES (?,?,?)',('CART_OK','CAV_A',1))
+    connection.execute('INSERT INTO tool_definitions VALUES (?,?,?,?,?,?,?)',
+        ('TOOL_8','drill',8,160,'metric',1,1))
+    connection.execute('INSERT INTO manufacturing_policy VALUES (?,?,?,?)',(1,25,0,0))
     connection.commit();connection.close()
 
 
@@ -110,6 +113,7 @@ def test_manual_schematic_expected_interface_can_be_unmapped_then_bound(engineer
     report=validate(design,build_geometry(design))
     assert next(row for row in report['checks'] if row['rule']=='schematic_conformance')['status']=='FAIL'
     design.schematic_intent.components[0].interface_nets={'port1':'P'}
+    design.schematic_intent.components[0].interface_dispositions={'port1':'connected'}
     report=validate(design,build_geometry(design))
     assert next(row for row in report['checks'] if row['rule']=='schematic_conformance')['status']=='PASS'
 
@@ -228,6 +232,7 @@ def test_net_color_and_label_survive_project_json(engineering_db):
 
 
 def test_zero_footprint_import_uses_cavity_engineering_data(tmp_path,monkeypatch):
+    monkeypatch.setattr('manifold.import_mdtools.linked_special_cuts',lambda source:set())
     source=tmp_path/'merged';source.mkdir()
     revision_id='rev_1'
     identity=dict(canonical_id='ZERO_FP',display_name='Zero footprint cavity',display_family='QA',unit='metric',
@@ -246,6 +251,7 @@ def test_zero_footprint_import_uses_cavity_engineering_data(tmp_path,monkeypatch
 
 
 def test_import_admission_and_source_boundaries_are_conservative(tmp_path,monkeypatch):
+    monkeypatch.setattr('manifold.import_mdtools.linked_special_cuts',lambda source:set())
     source=tmp_path/'merged';source.mkdir()
     def identity(identifier, row, **revision_fields):
         revision_id='rev_'+identifier
@@ -258,6 +264,7 @@ def test_import_admission_and_source_boundaries_are_conservative(tmp_path,monkey
         identity('MISSING_WINDOW',base|{'NumberofPorts':2}),
         identity('SPECIAL_CUT',base,special_feature_refs={'undercuts':[{'index':1}]}),
         identity('BOUNDARY_OK',base),identity('BOUNDARY_BAD',base),
+        identity('BAD_PORT',base|{'CavityType':'P','IsSunCavity':True}),
     ]
     (source/'cavities_master.jsonl').write_text(''.join(json.dumps(row)+'\n' for row in records),encoding='utf-8')
     def footprint(identifier,envelope):
@@ -268,7 +275,7 @@ def test_import_admission_and_source_boundaries_are_conservative(tmp_path,monkey
                 footprint('BOUNDARY_BAD','L;0;0;20;0;')]
     (source/'footprints_master.jsonl').write_text(''.join(json.dumps(row)+'\n' for row in footprints),encoding='utf-8')
     destination=tmp_path/'imported.db';report=import_database(source,destination)
-    assert report['unusable']==4
+    assert report['unusable']==5 and report['external_ports']==1
     monkeypatch.setenv('PMC_ENGINEERING_DB',str(destination))
     assert 'Sun/LS installation datum' in get_definition('SUN_DATUM').unusable_reason
     assert 'hydraulic windows' in get_definition('MISSING_WINDOW').unusable_reason
@@ -277,6 +284,14 @@ def test_import_admission_and_source_boundaries_are_conservative(tmp_path,monkey
     assert boundary.points==[(0,0),(20,0),(20,10),(0,10)]
     assert get_definition('BOUNDARY_OK').usable
     assert 'mounting boundary' in get_definition('BOUNDARY_BAD').unusable_reason
+
+
+def test_production_import_fails_closed_without_raw_special_cut_relationships(tmp_path):
+    source=tmp_path/'merged';source.mkdir()
+    (source/'cavities_master.jsonl').write_text('',encoding='utf-8')
+    (source/'footprints_master.jsonl').write_text('',encoding='utf-8')
+    with pytest.raises(RuntimeError,match='raw relationship source is missing'):
+        import_database(source,tmp_path/'engineering.db')
 
 
 def test_inactive_definition_resolves_for_existing_project_but_not_selection(engineering_db):

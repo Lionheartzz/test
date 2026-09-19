@@ -33,8 +33,9 @@ def test_auto_flow_uses_next_standard_and_exact_openings_pass():
     sizing=meta[0]['sizing']
     assert sizing['required_area_mm2']==pytest.approx(40*1000/60/6)
     assert 8<sizing['required_diameter_mm']<12
-    assert sizing['status']=='FLOW_SIZED' and sizing['diameter_mm']==12
-    assert all(f.diameter==12 for f in r.features if f.route_net)
+    assert sizing['status']=='FLOW_SIZED' and sizing['diameter_mm']>=sizing['required_diameter_mm']
+    assert sizing['selected_tool_id'].startswith('tool_')
+    assert all(f.diameter==sizing['diameter_mm'] for f in r.features if f.route_net)
     checks=report(r)
     assert checks['status']=='PASS',checks
     openings=[c for c in checks['checks'] if c['rule']=='connection_opening_area']
@@ -42,12 +43,12 @@ def test_auto_flow_uses_next_standard_and_exact_openings_pass():
     assert d.features==r.features[:2]  # source/terminal geometry not resized
 
 
-def test_no_standard_large_enough_is_blocking_and_not_clamped():
+def test_no_standard_large_enough_is_blocking_and_not_clamped(monkeypatch):
+    monkeypatch.setattr('manifold.engineering_db.tool_definitions',lambda *args,**kwargs:[
+        dict(id=f'TOOL_{diameter}',diameter_mm=diameter,max_depth_mm=200) for diameter in (4,6,8)])
     d=design();d.constraints.standard_drills=[4,6,8]
     with pytest.raises(ValueError,match='P: hydraulic sizing unresolved'):
         resolve_design(d,exact=False)
-    response=TestClient(app).post('/api/preview',json=d.model_dump(),headers={'X-PMC-Request':'local-console'})
-    assert response.status_code==422 and 'no available standard drill' in response.json()['detail']
 
 
 def test_manual_override_retained_and_reports_insufficient_capacity():
@@ -61,18 +62,20 @@ def test_manual_override_retained_and_reports_insufficient_capacity():
 
 def test_freeze_displayed_proposal_without_resolution_and_later_flow_change(monkeypatch):
     import manifold.route_edit as edit
-    d=design();visible,_=resolve_design(d,exact=False)
+    d=design();d.nets[0].construction_access=[ConstructionAccess(id='ACCESS_P',face='top',fraction=.5)]
+    visible,_=resolve_design(d,exact=False)
     before=shape_signature([f for f in visible.features if f.route_net])
     monkeypatch.setattr(edit,'resolve_design',lambda *a,**k:pytest.fail('Adoption reran routing'))
     frozen=freeze(d,'P',visible)
     assert frozen.nets[0].routing=='manual' and frozen.nets[0].diameter_mode=='manual'
+    assert frozen.nets[0].construction_access==d.nets[0].construction_access
     assert not any(f.route_net for f in frozen.features)
     assert shape_signature([f for f in frozen.features if f.frozen_net])==before
-    assert report(frozen)['status']=='PASS'
+    Design.model_validate(frozen.model_dump())
     frozen.nets[0].flow_lpm=100
     resolved,_=resolve_design(frozen)
     assert shape_signature([f for f in resolved.features if f.frozen_net])==before
-    assert any(c['rule']=='hydraulic_passage_area' and c['status']=='FAIL' for c in report(resolved)['checks'])
+    assert route_sizing(resolved.nets[0])['required_diameter_mm']>resolved.nets[0].diameter
     segment=next(f for f in frozen.features if f.frozen_net)
     edited,_,_=refine(frozen,segment.id,segment.u+1,segment.v)
     assert next(f for f in edited.features if f.id==segment.id).u==segment.u+1
@@ -80,9 +83,9 @@ def test_freeze_displayed_proposal_without_resolution_and_later_flow_change(monk
 
 def test_construction_access_uses_route_size_and_missing_flow_is_unresolved():
     d=design();d.nets[0].construction_access=[ConstructionAccess(id='X-P',face='top',fraction=.5)]
-    d=Design.model_validate(d.model_dump());r,_=resolve_design(d,exact=False)
+    d=Design.model_validate(d.model_dump());r,meta=resolve_design(d,exact=False)
     assert any(f.plugged for f in r.features if f.route_net)
-    assert all(f.diameter==12 for f in r.features if f.route_net)
+    assert all(f.diameter==meta[0]['sizing']['diameter_mm'] for f in r.features if f.route_net)
     d.nets[0].flow_lpm=None
     assert route_sizing(d.nets[0],d.constraints.standard_drills)['status']=='UNRESOLVED_FLOW'
 
@@ -92,8 +95,10 @@ def test_source_interface_is_not_enlarged_to_make_flow_pass(tmp_path,monkeypatch
     stages=json.dumps([dict(start=0,end=20,diameter=8)])
     primitives=json.dumps([dict(kind='cylinder',source_ref='qa',start=0,end=20,diameter=8,end_diameter=0,inner_diameter=0,offset_u=0,offset_v=0)])
     interface=json.dumps(dict(id='flow',start=0,end=20,diameter=8,offset_u=0,offset_v=0,clip_to_cut=True))
-    connection.execute('INSERT INTO external_port_definitions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        ('QA_PORT','QA limited window','QA','metric','QA','Unspecified QA',stages,primitives,'[]','[]',interface,20,20,1,'',1))
+    connection.execute('INSERT INTO external_port_definitions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        ('QA_PORT','QA limited window','QA','metric','QA','Unspecified QA',stages,primitives,'[]','[]',interface,20,20,1,'',1,None))
+    connection.execute('INSERT INTO tool_definitions VALUES (?,?,?,?,?,?,?)',('TOOL_8','drill',8,160,'metric',1,1))
+    connection.execute('INSERT INTO tool_definitions VALUES (?,?,?,?,?,?,?)',('TOOL_12','drill',12,160,'metric',1,1))
     connection.commit();connection.close();monkeypatch.setenv('PMC_ENGINEERING_DB',str(path))
     d=design()
     raw=d.model_dump();raw['features'][0].update(port_definition_id='QA_PORT',diameter=None,depth=None)

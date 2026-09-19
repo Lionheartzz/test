@@ -51,7 +51,8 @@ def configure(source, edit):
             hidden=detail,centerlines=False,presentation='pmc-internal' if detail else 'pmc-overview'))
         edit.tables.append(Table(id=sheet.id+'-portings',sheet=sheet.id,kind='porting',position=(313,247),width=279,
             row_height=5.6,height=3.5,count=200,presentation='pmc-portings'))
-    assets=source['authored'].get('schematics',[])
+    from .generate import schematic_assets
+    assets=schematic_assets(source['authored'])
     if assets:edit.schematics=[Schematic(id=sheet.id+'-schematic',sheet=sheet.id,asset=assets[0]['sha256'],position=(20,8),width=94,height=103) for sheet in edit.sheets]
     return edit
 

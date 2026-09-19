@@ -19,6 +19,27 @@ def search(inputs,query='',role='cavity'):
     return [summary('db:'+row['id'],get_definition(row['id'])) for row in rows]
 
 
+def port_standard(value):
+    text=str(value or '').upper().replace('"','').strip()
+    standard=('NPTF' if 'NPTF' in text else 'NPT' if 'NPT' in text else
+              'BSPT' if any(token in text for token in ('BSPT',' RC',' R ',' RP')) else
+              'BSPP' if 'BSPP' in text or re.search(r'(^|\s)G\s*\d',text) else None)
+    match=re.search(r'(?<!\d)(\d+(?:[ -]\d+/\d+|/\d+))(?!\d)',text)
+    return (standard,re.sub(r'\s+','-',match.group(1)) if match else None)
+
+
+def exact_port_candidates(inputs,specification):
+    standard,size=port_standard(specification)
+    if not standard or not size:return []
+    rows=search_definitions(query=size.replace('-',' '),unit=inputs.project_context,kind='port_definition',status='usable',limit=200)['items']
+    result=[]
+    for row in rows:
+        row_standard,row_size=port_standard(' '.join((row['name'],row['family'],row['thread_spec'])))
+        if (row_standard,row_size)==(standard,size):
+            result.append(summary('db:'+row['id'],get_definition(row['id'])))
+    return result
+
+
 def load(inputs,key,sha=None):
     if not key.startswith('db:'):raise ValueError('AI generation accepts SQLite engineering IDs only')
     definition=get_definition(key[3:])

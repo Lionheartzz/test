@@ -32,7 +32,7 @@ def test_parent_rotation_and_cycle_rejection():
 
 def test_auto_route_reproduces_demo_and_follows_terminals(tmp_path):
     d=adopt_routes(demo());r=store.build_outputs(d,tmp_path/'pass')
-    assert r['status']=='PASS'
+    assert r['status']=='WARNING'
     before,_=resolve_design(d)
     d.features[0].u+=5
     after,_=resolve_design(d)
@@ -84,7 +84,7 @@ def test_unknown_net_color_build(tmp_path):
         f.circuits={k:'SUPPLY' if v=='P' else v for k,v in f.circuits.items()}
     for n in d.nets:
         if n.id=='P':n.id='SUPPLY'
-    assert store.build_outputs(d,tmp_path/'custom-net')['status']=='PASS'
+    assert store.build_outputs(d,tmp_path/'custom-net')['status']=='WARNING'
 
 
 def test_freeze_keeps_exact_contacts_and_roundtrips(tmp_path):
@@ -95,4 +95,4 @@ def test_freeze_keeps_exact_contacts_and_roundtrips(tmp_path):
     assert next(n for n in frozen.nets if n.id=='P').routing=='manual'
     bores=[f for f in frozen.features if f.kind=='drilling' and f.circuit=='P']
     assert len(bores)==2 and all(f.route_net is None and f.connects_to for f in bores)
-    assert store.build_outputs(frozen,tmp_path/'frozen')['status']=='PASS'
+    assert store.build_outputs(frozen,tmp_path/'frozen')['status']=='WARNING'

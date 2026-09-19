@@ -3,11 +3,19 @@ export const sizes = b => [b.length,b.width,b.height];
 export {displayRouteName as routeDisplayLabel,displayFeatureName as featureLabel} from './presentation.js';
 
 export function returnNetToAutomatic(design,netId){
-  const owned=new Set(design.features.filter(f=>f.route_net===netId||f.frozen_net===netId).map(f=>f.id));
+  const net=design.nets.find(n=>n.id===netId);if(!net)throw Error('Hydraulic net not found: '+netId);
+  net.construction_access??=[];
+  const route=design.features.filter(f=>f.route_net===netId||f.frozen_net===netId);
+  for(const access of route.filter(f=>f.kind==='drilling'&&f.plugged)){
+    const trunks=route.filter(f=>f.kind==='drilling'&&!f.plugged&&(access.connects_to||[]).includes(f.id));
+    if(trunks.length!==1||net.construction_access.some(item=>item.id===access.id))continue;
+    const trunk=trunks[0],p=pose(trunk,design.block),q=pose(access,design.block),distance=p.direction.reduce((sum,axis,index)=>sum+(q.origin[index]-p.origin[index])*axis,0),fraction=distance/trunk.depth;
+    if(fraction>=.1&&fraction<=.9)net.construction_access.push({id:access.id,face:access.face,fraction});
+  }
+  const owned=new Set(route.map(f=>f.id));
   design.features=design.features.filter(f=>!owned.has(f.id));
   for(const feature of design.features)feature.connects_to=(feature.connects_to||[]).filter(target=>!owned.has(target.split(':')[0]));
-  const net=design.nets.find(n=>n.id===netId);if(!net)throw Error('Hydraulic net not found: '+netId);
-  net.routing='automatic';net.routing_variant=null;net.construction_access=[];
+  net.routing='automatic';net.routing_variant=null;
 }
 export function pose(f,b) { const [u,v,a,s]=axes[f.face], p=[0,0,0],d=[0,0,0]; p[u]=f.u;p[v]=f.v;p[a]=s>0?0:sizes(b)[a]; d[a]=s;return {origin:p,direction:f.direction||d}; }
 export function bounds(f,design) {
@@ -25,6 +33,6 @@ export function syncNets(d) {
 export function smartAlign(f,design,u,v,tolerance=2,referenceFeatures=design.features){
   const [au,av]=axes[f.face],dims=sizes(design.block),refs=[{p:[0,0,0],label:'Origin'},{p:dims.map(x=>x/2),label:'Block center'}];
   for(const other of design.features){if(other.id===f.id||other.suppressed)continue;const p=pose(other,design.block);refs.push({p:p.origin,label:other.id+' axis'});if(other.kind==='cavity'){const d=design.library.find(d=>d.id===other.cavity_id),[a,b]=axes[other.face],r=(other.rotation||0)*Math.PI/180;for(const z of d.zones){const point=p.origin.map((x,i)=>x+p.direction[i]*(z.start+z.end)/2);point[a]+=(z.offset_u||0)*Math.cos(r)-(z.offset_v||0)*Math.sin(r);point[b]+=(z.offset_u||0)*Math.sin(r)+(z.offset_v||0)*Math.cos(r);refs.push({p:point,label:other.id+':'+z.id});}}}
-  for(const other of referenceFeatures){if(other.id===f.id||other.suppressed||!['drilling','port'].includes(other.kind))continue;const p=pose(other,design.block),end=p.origin.map((x,i)=>x+p.direction[i]*other.depth);refs.push({p:p.origin,axes:p.direction.map((x,i)=>Math.abs(x)<1e-8?i:-1),label:other.id+' centerline'});refs.push({p:end,label:other.id+(other.port_definition_id?' hydraulic window end':' cylinder end')});}
+  for(const other of referenceFeatures){if(other.id===f.id||other.suppressed||!['drilling','port'].includes(other.kind))continue;const p=pose(other,design.block),definition=other.port_definition_id?design.library.find(d=>d.id===other.port_definition_id):null,zone=definition?.zones?.[0],endpointDepth=zone?(zone.start+zone.end)/2:other.depth;refs.push({p:p.origin,axes:p.direction.map((x,i)=>Math.abs(x)<1e-8?i:-1),label:other.id+' centerline'});if(Number.isFinite(endpointDepth)){const end=p.origin.map((x,i)=>x+p.direction[i]*endpointDepth);refs.push({p:end,label:other.id+(definition?' hydraulic endpoint':' cylinder end')});}}
   const guides=[];const values=[u,v].map((value,i)=>{const axis=[au,av][i],sorted=refs.filter(r=>!r.axes||r.axes.includes(axis)).map(r=>({...r,gap:Math.abs(r.p[axis]-value)})).sort((a,b)=>a.gap-b.gap);if(sorted[0]?.gap<=tolerance){guides.push({axis,value:sorted[0].p[axis],label:sorted[0].label});return sorted[0].p[axis];}return Math.round(value);});return {values:clamp(f,design,...values,0),guides};
 }

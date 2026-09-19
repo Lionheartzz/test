@@ -66,8 +66,8 @@ def install_legacy_definition(connection, raw, known):
             value["clearance_diameter"],value["clearance_height"],1,"",1)
     if role=="external-port":
         if len(value["interfaces"])!=1:raise ValueError(f"{raw.get('id')}: external port requires one interface")
-        connection.execute("INSERT INTO external_port_definitions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                           (*common[:10],json.dumps(value["interfaces"][0],separators=(",",":")),*common[10:]))
+        connection.execute("INSERT INTO external_port_definitions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                           (*common[:10],json.dumps(value["interfaces"][0],separators=(",",":")),*common[10:],None))
     else:
         connection.execute("INSERT INTO cavities VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",common)
         for zone in value["interfaces"]:

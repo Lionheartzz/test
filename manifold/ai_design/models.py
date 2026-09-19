@@ -106,7 +106,7 @@ class HydraulicNet(Strict):
 
 class DesignIntent(Strict):
     id: Key
-    category: Literal['component_selection','port_face','envelope','material','pressure','flow','routing','separation','priority','serviceability','source_instruction','other']
+    category: Literal['component_selection','port_face','envelope','material','mounting','pressure','flow','routing','separation','priority','serviceability','source_instruction','other']
     target_labels: list[Annotated[str,Field(max_length=120)]] = Field(default_factory=list,max_length=30)
     property: str = Field(min_length=1,max_length=80)
     operator: Literal['equal','maximum','minimum','prefer','avoid','separate','context']

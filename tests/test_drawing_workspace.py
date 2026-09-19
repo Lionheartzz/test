@@ -262,13 +262,15 @@ def test_original_schematic_pdf_is_vector_and_crop_preserves_aspect(drawing,kind
     c.linkURL('https://example.invalid/source-action',(20,90,380,110),relative=0);c.save()
     assert PdfReader(io.BytesIO(original.getvalue())).pages[0]['/Annots']
     asset=save_asset(original.getvalue(),'connection.pdf','application/pdf')
-    doc['source']['authored']['schematics']=[asset.model_dump()]
+    doc['source']['authored']['schematic_intent']={'assets':[asset.model_dump()],'components':[]}
+    doc['source']['authored'].pop('schematics',None)
     doc['source']['sha256']=digest({k:v for k,v in doc['source'].items() if k!='sha256'})
     edit=initial_edit(doc['source'],kind)
     if kind=='customer':
         assert edit.schematics[0].position==(20,16)
         assert edit.schematics[0].asset==asset.sha256
     doc['edit']=edit.model_dump()
+    assert storage.public(doc,with_checks=False)['assets'][0]['sha256']==asset.sha256
     current=scene(doc,'overview');image=next(p for p in current['primitives'] if p['kind']=='image' and p.get('schematic'))
     assert image['width']/image['height']==pytest.approx(2)
     exported=PdfReader(io.BytesIO(export_pdf(doc)))

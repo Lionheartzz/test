@@ -66,7 +66,15 @@ def topology(result, options):
 def prepare(inputs, result, options):
     result = topology(result, options)
     settings = interpret(result, options)
+    from ..engineering_db import materials
+    material_matches=[row for row in materials() if library.norm(row['display_name'])==library.norm(settings['material'])]
+    settings['material_id']=material_matches[0]['id'] if len(material_matches)==1 else None
     blocked = list(settings['conflicts'])
+    if settings['mounting_requirements'] and not options.threaded_mounting_holes:
+        blocked.append('Threaded mounting-hole intent is present, but exact thread IDs and positions are unresolved. No coordinates were invented.')
+    elif settings['mounting_requirements'] and options.threaded_mounting_holes:
+        for row in settings['mounting_requirements']:
+            row.update(status='applied',message='Engineer-resolved SQLite thread IDs and explicit positions are used; no placement was inferred.')
     if len(result['components']) > 4 or len(result['ports']) > 40 or len(result['nets']) > 16:
         blocked.append('First-generation scope is at most 4 cartridges, 40 hydraulic terminals and 16 nets.')
     if not result['ports'] or not result['nets']:
@@ -80,6 +88,8 @@ def prepare(inputs, result, options):
     known_external = {p['id'] for p in result['ports'] if p['component_id'] is None}
     if not set(options.bindings) <= known_components or not set(options.port_definitions) <= known_external:
         raise ValueError('Library choice refers to a missing component or external port')
+    if not set(options.provisional_ports) <= known_external:
+        raise ValueError('Provisional-port choice refers to a missing external port')
     for component in result['components']:
         key = component['id']
         choices = library.candidates(inputs, result, component)
@@ -123,14 +133,39 @@ def prepare(inputs, result, options):
         if port['component_id'] is not None:
             continue
         selected = options.port_definitions.get(port['id'])
+        specification=library.value(result,port['id'],'port_specification') or ''
+        automatic=False
         definition = library.load(inputs, selected.definition_key, selected.definition_sha256) if selected else None
+        if not definition and specification:
+            matches=library.exact_port_candidates(inputs,specification)
+            if len(matches)==1:
+                definition=library.load(inputs,matches[0]['key'],matches[0]['sha256']);automatic=True
         if definition and (definition.kind != 'external-port' or len(definition.zones) != 1):
             raise ValueError('External ports require a source external-port definition with one hydraulic interface')
-        if definition and not selected.decision.strip():
+        if definition and selected and not selected.decision.strip():
             blocked.append(f'{port["id"]}: confirm the external-port definition choice.')
+        provisional=port['id'] in options.provisional_ports
+        if provisional and not options.provisional_ports[port['id']].strip():
+            blocked.append(f'{port["id"]}: explicit one-off straight-bore use requires an engineering decision.')
+        if not definition and not provisional:
+            detail=(f'No unique usable complete SQLite port matches “{specification}”.' if specification else
+                    'No complete external-port definition was selected.')
+            blocked.append(f'{port["id"]}: {detail} Select a standard/custom SQLite port or explicitly approve a one-off Custom Straight Bore.')
         external.append(dict(id=port['id'], label=library.value(result,port['id'],'label') or port['id'],
                              specification=library.value(result,port['id'],'port_specification') or '',
-                             definition=definition, decision=selected.decision if selected else ''))
+                             definition=definition, decision=selected.decision if selected else options.provisional_ports.get(port['id'],' ' if automatic else ''),
+                             automatic=automatic,provisional=provisional))
+    from ..engineering_db import thread_definition
+    mounting=[]
+    if options.threaded_mounting_holes and not options.mounting_decision.strip():
+        blocked.append('Threaded mounting-hole placement requires an explicit engineering decision.')
+    for index,hole in enumerate(options.threaded_mounting_holes,1):
+        thread=thread_definition(hole.thread_definition_id)
+        if not thread['active'] or not thread['usable']:
+            blocked.append(f'Mounting hole {index}: thread definition is unavailable: {hole.thread_definition_id}')
+        if hole.thread_depth>hole.depth:
+            blocked.append(f'Mounting hole {index}: thread depth exceeds tap-drill depth.')
+        mounting.append(dict(hole=hole,thread=thread))
     for row in settings['dispositions']:
         if row['category'] == 'separation' and row['status'] == 'pending':
             sets = []
@@ -145,7 +180,7 @@ def prepare(inputs, result, options):
             else:
                 row.update(status='applied', message='Targets remain distinct nets; cross-net physical intersections fail deterministic validation.')
     return dict(inputs=inputs, result=result, settings=settings, blocked=blocked, components=components,
-                external=external, port_net=port_net, options=options)
+                external=external,mounting=mounting, port_net=port_net, options=options)
 
 
 def preflight(key, request):
@@ -192,6 +227,7 @@ def candidate(plan, generation_id, variant):
     sizes = [max(lo,min(hi,math.ceil(size*scale/5)*5)) for size,lo,hi in zip(base,settings['minimum'],settings['maximum'])]
     block = dict(zip(('length','width','height'),sizes))
     block['material'] = settings['material']
+    if settings.get('material_id'):block['material_id']=settings['material_id']
     assets=[d.asset.model_dump() for d in inputs.documents]
     raw = dict(schema_version=2,name=(inputs.title[:100] + ' - AI Draft'), project_context=inputs.project_context, block=block,
                features=[], nets=[],schematic_intent=dict(assets=assets,components=[]), rules=dict(minimum_wall=wall),
@@ -199,6 +235,10 @@ def candidate(plan, generation_id, variant):
                    forbidden_drilling_faces=settings['forbidden'],priority=settings['priority'],
                    notes='AI-generated draft from the current normalized schematic intent.'))
     design = Design.model_validate(raw)
+    if settings['material']!='Unspecified - review required' and not settings.get('material_id'):
+        from ..schema import EngineeringReview
+        design.review_items.append(EngineeringReview(id='AI_MATERIAL_REVIEW',kind='component',subject='block',
+            description=f'Explicit material requirement “{settings["material"]}” has no unique source-backed SQLite material match. Material properties and stock suitability remain unresolved.'))
     feature_map, terminal_map, net_ids = {}, {}, {}
     used_nets = set()
     for i,net in enumerate(result['nets'],1):
@@ -272,6 +312,13 @@ def candidate(plan, generation_id, variant):
         used_ports.append(f);design.features.append(f);terminal_map[key]=f.id;feature_map[key]=f.id
         if key in settings['hard_port_faces']:design.constraints.required_feature_faces[f.id]=face
         design.constraints.preferred_port_faces[f.circuit]=face
+    for index,row in enumerate(plan['mounting'],1):
+        hole=row['hole'];axis=FACE_AXES[hole.face][2];through_depth=sizes[axis] if hole.through else hole.depth
+        feature=Feature(id=fid(generation_id,f'MOUNTING_{index}','MNT'),kind='mounting',face=hole.face,u=hole.u,v=hole.v,
+                        mounting_mode='threaded',thread_definition_id=hole.thread_definition_id,thread_depth=through_depth if hole.through else hole.thread_depth,
+                        diameter=None,depth=through_depth,through=hole.through,tip_angle=180 if hole.through else 118)
+        feature.u,feature.v=clamp_placement(feature,design,feature.u,feature.v,snap=0,definitions=by_definition)
+        design.features.append(feature)
     from ..schema import HydraulicNet
     for net in result['nets']:
         flow=parameter_for(result,settings['flows'],net)

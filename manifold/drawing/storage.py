@@ -92,7 +92,8 @@ def public(doc, with_checks=True):
     }
     from .render import table_metrics
     data['table_metrics'] = table_metrics(doc['source'], Edit.model_validate(doc['edit']))
-    data['assets'] = doc['source']['authored'].get('schematics', [])
+    from .generate import schematic_assets
+    data['assets'] = schematic_assets(doc['source']['authored'])
     if with_checks:
         from .render import check_drawing
         data['issues'] = check_drawing(doc)

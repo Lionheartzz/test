@@ -29,7 +29,7 @@ def freeze(design,net_id,proposal=None):
             f.route_net=None;f.frozen_net=net_id
             result.features.append(f)
     net=next(n for n in result.nets if n.id==net_id)
-    net.routing='manual';net.diameter_mode='manual';net.routing_variant=None;net.construction_access=[]
+    net.routing='manual';net.diameter_mode='manual';net.routing_variant=None
     net.diameter=next(f.diameter for f in result.features if f.frozen_net==net_id)
     return Design.model_validate(result.model_dump())
 

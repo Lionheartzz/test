@@ -1,7 +1,7 @@
 import {displayIdentity,displayReviewName} from './presentation.js';
 
 export function projectUI(ctx){
-  const {$,element,field,action,post,get,change,select,notice}=ctx;
+  const {$,element,field,action,post,get,change,select,notice,openSchematic}=ctx;
   const dialog=$('workflow-dialog'),content=$('workflow-content');
   const open=title=>{$('workflow-title').textContent=title;content.replaceChildren();$('workflow-error').textContent='';if(!dialog.open)dialog.showModal();};
   const guard=fn=>async()=>{try{await fn();}catch(e){$('workflow-error').textContent=e.message;}};
@@ -38,9 +38,10 @@ export function projectUI(ctx){
       const advanced=element('details');advanced.append(element('summary','Advanced / Developer information'),element('p',`Review ID: ${r.id} · Subject ID: ${r.subject||'project'}`));card.append(advanced);
     }
     for(const c of intent?.components||[]){
-      const card=element('section',null,'library-card');content.append(card);card.append(element('h3',c.id),element('p',c.function||'Schematic component'));
-      field(card,'Placement · '+c.id,c.placement_id||'',v=>change(()=>{c.placement_id=v||null;c.cavity_id=v?(d.features.find(f=>f.id===v)?.cavity_id||null):null;}),{'':'Not implemented',...Object.fromEntries(d.features.filter(f=>f.kind==='cavity').map(f=>[f.id,f.id]))});
-      for(const [port,net]of Object.entries(c.interface_nets||{}))field(card,`${c.id} port ${port}`,net,v=>change(()=>c.interface_nets[port]=v),Object.fromEntries(d.nets.map(n=>[n.id,n.id])));
+      const card=element('section',null,'library-card'),interfaces=Object.entries(c.interface_nets||{}).map(([id,net])=>`${id} → ${d.nets.find(n=>n.id===net)?.label||net}`).join(' · ');
+      content.append(card);card.append(element('h3',c.label||c.id),element('p',c.function||'Schematic component'),
+        element('p',`Placement: ${c.placement_id||'not implemented'} · Cavity: ${c.cavity_id||'none'} · Cartridge: ${c.cartridge_id||'none'}${interfaces?' · '+interfaces:''}`,'property-note'));
+      action(card,'Open Schematic Intent',openSchematic);
       if(c.placement_id)action(card,'Inspect placement',()=>{select(c.placement_id);dialog.close();});
     }
   }
