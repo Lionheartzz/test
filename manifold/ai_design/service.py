@@ -56,7 +56,7 @@ def compact_result(result:HydraulicRepresentation):
     ports=[]
     for row in result.ports:
         values=facts(row.claim_ids)
-        ports.append(dict(id=row.id,component_id=row.component_id,label=values.pop('label',row.id),facts=values,
+        ports.append(dict(id=row.id,component_id=row.component_id,label=values.pop('label',row.id),facts=values,disposition=row.disposition,
             fact_kinds={claims[key].predicate:claims[key].kind for key in row.claim_ids},
             fact_units={claims[key].predicate:claims[key].unit for key in row.claim_ids}))
     nets=[]

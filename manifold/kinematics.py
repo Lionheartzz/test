@@ -25,6 +25,16 @@ def footprint_radius(feature, library):
     return max(feature.diameter, feature.clearance_diameter if feature.kind == 'port' or feature.plugged else 0) / 2
 
 
+def definition_planar_radius(definition):
+    radius=definition.clearance_diameter/2
+    for boundary in definition.boundaries:
+        if boundary.circle:
+            x,y,r=boundary.circle;radius=max(radius,math.hypot(x,y)+r)
+        else:
+            radius=max(radius,*(math.hypot(x,y) for x,y in boundary.points))
+    return radius
+
+
 def placement_bounds(feature, design, definitions=None):
     u, v, _, _ = FACE_AXES[feature.face]
     if definitions is None:

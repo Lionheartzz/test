@@ -125,10 +125,21 @@ def segment_distance(a,b,c,d):
     return min(math.sqrt(sum((w[i]+s*u[i]-t*v[i])**2 for i in range(3))) for s,t in candidates)
 
 
-def segment(feature, block, start=0, end=None):
+def feature_bore_diameter(feature,thread_definitions=None):
+    if feature.diameter is not None:return feature.diameter
+    if feature.kind=='mounting' and feature.thread_definition_id:
+        if thread_definitions is None:
+            from .engineering_db import thread_definition
+            return thread_definition(feature.thread_definition_id)['tap_diameter_mm']
+        return thread_definitions[feature.thread_definition_id]['tap_diameter_mm']
+    raise ValueError(f'{feature.id}: drilling diameter is unresolved')
+
+
+def segment(feature, block, start=0, end=None,diameter=None):
     p,d = pose(feature,block)
     if end is None:
-        tip = 0 if feature.tip_angle == 180 else feature.diameter/2/math.tan(math.radians(feature.tip_angle/2))
+        diameter=feature_bore_diameter(feature) if diameter is None else diameter
+        tip = 0 if feature.tip_angle == 180 else diameter/2/math.tan(math.radians(feature.tip_angle/2))
         end = feature.depth+tip
     return tuple(a+b*start for a,b in zip(p,d)), tuple(a+b*end for a,b in zip(p,d))
 
@@ -184,12 +195,15 @@ def simple_routes(design,net,definitions=None):
     return routes
 
 
-def proximity_risk(design, net, route, definitions=None):
+def proximity_risk(design, net, route, definitions=None,thread_definitions=None):
     """Conservative cylinder/centerline screen. This is a ranking estimate, never validation."""
     risk = 0.0
     if definitions is None:
         from .engineering_db import definitions_for_design
         definitions=definitions_for_design(design)
+    if thread_definitions is None:
+        from .engineering_db import thread_definitions_for_design
+        thread_definitions=thread_definitions_for_design(design)
     dims = dimensions(design.block)
     for bore in route:
         a,b = segment(bore,design.block)
@@ -232,8 +246,9 @@ def proximity_risk(design, net, route, definitions=None):
             else:
                 if other.circuit == net.id:
                     continue
-                c,d = segment(other,design.block)
-                clearance = segment_distance(a,b,c,d)-radius-other.diameter/2
+                other_diameter=feature_bore_diameter(other,thread_definitions)
+                c,d = segment(other,design.block,diameter=other_diameter)
+                clearance = segment_distance(a,b,c,d)-radius-other_diameter/2
                 risk += max(0,design.rules.minimum_wall-clearance)*(10 if clearance<0 else 1)
         if bore.plugged:
             for other in design.features:
@@ -276,13 +291,16 @@ def route_cost(design, route):
                  + route_margin(design,route)['margin_penalty'],6)
 
 
-def route_obstructions(design, net, route):
+def route_obstructions(design, net, route,thread_definitions=None):
     """Cheap, sufficient evidence of hard failure, never a feasibility certificate.
 
     Capsules INSIDE straight cylindrical cuts prove contact/insufficient wall without
     treating the usual outer capsule proxy (especially its end caps) as exact geometry.
     Source profiles, tips, hydraulic openings and connectivity still need OCCT.
     """
+    if thread_definitions is None:
+        from .engineering_db import thread_definitions_for_design
+        thread_definitions=thread_definitions_for_design(design)
     failures = set()
     obstacles=[f for f in design.features if f.route_net!=net.id]+route
     for bore in route:
@@ -300,11 +318,12 @@ def route_obstructions(design, net, route):
                 # the inner-capsule upper bound on their distance.
                 bounds=[]
                 for f in (bore,other):
-                    tip=0 if f.tip_angle==180 else f.diameter/2/math.tan(math.radians(f.tip_angle/2))
-                    bounds.append(cylinder_bounds(f,design.block,0,f.depth+tip,f.diameter))
+                    diameter=feature_bore_diameter(f,thread_definitions)
+                    tip=0 if f.tip_angle==180 else diameter/2/math.tan(math.radians(f.tip_angle/2))
+                    bounds.append(cylinder_bounds(f,design.block,0,f.depth+tip,diameter))
                 if not any(x[1]<y[0]-1e-6 or y[1]<x[0]-1e-6 for x,y in zip(*bounds)):
                     continue
-            r=other.diameter/2
+            r=feature_bore_diameter(other,thread_definitions)/2
             if other.depth < 2*r:continue
             c,d=segment(other,design.block,r,other.depth-r)
             clearance=segment_distance(a,b,c,d)-radius-r
@@ -313,17 +332,20 @@ def route_obstructions(design, net, route):
     return failures
 
 
-def route_options(design, net, *, expanded=False, definitions=None):
+def route_options(design, net, *, expanded=False, definitions=None,thread_definitions=None):
     if definitions is None:
         from .engineering_db import definitions_for_design
         definitions=definitions_for_design(design)
+    if thread_definitions is None:
+        from .engineering_db import thread_definitions_for_design
+        thread_definitions=thread_definitions_for_design(design)
     orders = list(itertools.permutations(range(3)))
     if net.preferred_axis != 'auto':
         orders = [o for o in orders if o[0] == 'xyz'.index(net.preferred_axis)]
     entries = ['nearest','negative','positive'] if net.entry_preference == 'nearest' else [net.entry_preference]
     options, seen = [],set()
     for i,route in enumerate(simple_routes(design,net,definitions)):
-        options.append(dict(key=f'simple_{i}',route=route,risk=proximity_risk(design,net,route,definitions),cost=route_cost(design,route)))
+        options.append(dict(key=f'simple_{i}',route=route,risk=proximity_risk(design,net,route,definitions,thread_definitions),cost=route_cost(design,route)))
     sides=('p','m','p2','m2') if expanded else ('p','m')
     detours = ['direct'] + [f'offset_{axis}_{side}' for axis in 'xyz' for side in sides]
     for order,entry,detour in itertools.product(orders,entries,detours):
@@ -333,26 +355,27 @@ def route_options(design, net, *, expanded=False, definitions=None):
         if signature in seen:
             continue
         seen.add(signature)
-        risk = proximity_risk(design,net,route,definitions)
+        risk = proximity_risk(design,net,route,definitions,thread_definitions)
         options.append(dict(key=key,route=route,risk=risk,cost=route_cost(design,route)))
     permitted = [o for o in options if all(f.face not in design.constraints.forbidden_drilling_faces for f in o['route'])]
     # Keep an explicitly failing proposal if the constraint makes every candidate impossible.
     # The validator reports the conflict; never remove a required connection to hide it.
     for option in options:
-        option['hard_failures']=len(route_obstructions(design,net,option['route']))
+        option['hard_failures']=len(route_obstructions(design,net,option['route'],thread_definitions))
     if not expanded and all(o['hard_failures'] for o in (permitted or options)):
-        return route_options(design,net,expanded=True,definitions=definitions)
+        return route_options(design,net,expanded=True,definitions=definitions,thread_definitions=thread_definitions)
     return sorted(permitted or options,key=lambda o:(o['hard_failures'],o['cost']+o['risk'],o['cost'],o['key']))
 
 
 @timed('route.proposal')
 def _resolve_proposals(design):
     resolved = resolve_parents(design)
-    from .engineering_db import definitions_for_design,tool_definitions
+    from .engineering_db import definitions_for_design,thread_definitions_for_design,tool_definitions
     definitions=definitions_for_design(resolved)
+    thread_definitions=thread_definitions_for_design(resolved)
     from .sizing import route_sizing
-    tools=tool_definitions('drill',unit=resolved.project_context)
-    sizing={n.id:route_sizing(n,tools=tools,required_depth=max(dimensions(resolved.block))) for n in resolved.nets}
+    tools=tool_definitions('drill')
+    sizing={n.id:route_sizing(n,tools=tools,required_depth=0,preferred_unit=resolved.project_context) for n in resolved.nets}
     for net in resolved.nets:
         if net.routing=='automatic':net.diameter=sizing[net.id]['diameter_mm']
     automatic = {n.id for n in resolved.nets if n.routing == 'automatic'}
@@ -361,16 +384,31 @@ def _resolve_proposals(design):
     for net in sorted(resolved.nets,key=lambda n:n.id):
         if net.routing != 'automatic':
             continue
+        def tool_size(option,context=resolved):
+            if not net.flow_lpm:return sizing[net.id]
+            actual=None
+            for _ in range(12):
+                required_depth=max((f.depth + (0 if f.tip_angle==180 else f.diameter/2/math.tan(math.radians(f.tip_angle/2)))
+                                    for f in option['route']),default=0)
+                actual=route_sizing(net,tools=tools,required_depth=required_depth,preferred_unit=resolved.project_context)
+                if all(abs(f.diameter-actual['diameter_mm'])<=1e-9 for f in option['route']):break
+                for feature in option['route']:feature.diameter=actual['diameter_mm']
+            else:
+                raise ValueError(f'{net.id}: route sizing did not settle on a source-backed drill')
+            option['tool_sizing']=actual
+            option['hard_failures']=len(route_obstructions(context,net,option['route'],thread_definitions))
+            option['risk']=proximity_risk(context,net,option['route'],definitions,thread_definitions)
+            return actual
         # Pinned candidates are materialized directly; enumerating their entire
         # neighbourhood again would multiply the cost of each exact attempt.
-        choices = [] if net.routing_variant else route_options(resolved,net,definitions=definitions)
+        choices = [] if net.routing_variant else route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions)
         if net.routing_variant:
             if net.routing_variant.startswith('simple_'):
-                choices=[dict(key=f'simple_{i}',route=r,risk=proximity_risk(resolved,net,r,definitions),cost=route_cost(resolved,r))
+                choices=[dict(key=f'simple_{i}',route=r,risk=proximity_risk(resolved,net,r,definitions,thread_definitions),cost=route_cost(resolved,r))
                          for i,r in enumerate(simple_routes(resolved,net,definitions))]
                 selected=next((o for o in choices if o['key']==net.routing_variant),None)
                 if selected is None:
-                    choices=route_options(resolved,net,definitions=definitions)
+                    choices=route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions)
                     selected=choices[0]  # Moved/reassigned terminals invalidate the old proposal.
                 route=selected['route']
             else:
@@ -378,10 +416,23 @@ def _resolve_proposals(design):
                 if sorted(order) != ['x','y','z']:
                     raise ValueError('Routing variant must use each axis once')
                 route = propose(resolved,net,tuple('xyz'.index(i) for i in order),entry,detour,definitions)
-                selected = dict(key=net.routing_variant,route=route,risk=proximity_risk(resolved,net,route,definitions),cost=route_cost(resolved,route))
+                selected = dict(key=net.routing_variant,route=route,risk=proximity_risk(resolved,net,route,definitions,thread_definitions),cost=route_cost(resolved,route))
         else:
+            if net.flow_lpm:
+                usable=[];errors=[]
+                for option in choices:
+                    try:tool_size(option);usable.append(option)
+                    except ValueError as exc:errors.append(exc)
+                if not usable:raise errors[0]
+                choices=sorted(usable,key=lambda o:(o['hard_failures'],o['cost']+o['risk'],o['cost'],o['key']))
             selected = choices[0]
             route = selected['route']
+        if net.flow_lpm:
+            # Tool reach uses the actual candidate depth. Unreachable candidates are excluded before
+            # ranking; pinned variants fail clearly instead of silently changing.
+            actual=selected.get('tool_sizing') or tool_size(selected)
+            net.diameter=actual['diameter_mm']
+            sizing[net.id]=actual
         resolved.features.extend(route)
         if len(resolved.features) > 120:
             raise ValueError('Generated design exceeds 120 physical features; reduce routing complexity')
@@ -395,15 +446,22 @@ def _resolve_proposals(design):
     for net in sorted(resolved.nets,key=lambda n:n.id):
         if net.routing!='automatic' or net.routing_variant:continue
         current=[f for f in resolved.features if f.route_net==net.id]
-        failures=route_obstructions(resolved,net,current)
+        failures=route_obstructions(resolved,net,current,thread_definitions)
         if not failures:continue
         context=resolved.model_copy(deep=True)
         context.features=[f for f in context.features if f.route_net!=net.id]
-        option=route_options(context,net,definitions=definitions)[0]
+        option=route_options(context,net,definitions=definitions,thread_definitions=thread_definitions)[0]
+        if net.flow_lpm:
+            try:
+                actual=tool_size(option,context)
+                net.diameter=actual['diameter_mm']
+            except ValueError:
+                continue
         if option['hard_failures']>=len(failures) or len(context.features)+len(option['route'])>120:continue
         resolved.features=context.features+option['route']
         metadata=next(r for r in candidates if r['net']==net.id)
         metadata.update(variant=option['key'],axis_order=option['key'].split(':')[0],proximity_risk=option['risk'],
+                        sizing=actual if net.flow_lpm else metadata['sizing'],
                         drillings=len(option['route']),plugs=sum(f.plugged for f in option['route']),
                         length_mm=round(sum(f.depth for f in option['route']),2),**route_margin(design,option['route']))
     active = {f.id for f in resolved.features if not f.suppressed}

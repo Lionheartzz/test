@@ -12,7 +12,7 @@ def validate(design, g, definitions=None):
     if definitions is None:
         from .engineering_db import definitions_for_design
         definitions=definitions_for_design(design)
-    from .engineering_db import thread_definitions_for_design,select_tool,manufacturing_policy
+    from .engineering_db import thread_definitions_for_design,select_tool,manufacturing_policy,resolve_machining_tools
     threads=thread_definitions_for_design(design);policy=manufacturing_policy()
     checks = []
     threshold = design.rules.minimum_overlap_volume
@@ -218,10 +218,11 @@ def validate(design, g, definitions=None):
         if f.kind != 'cavity' and not f.definition:
             diameter=threads[f.thread_definition_id]['tap_diameter_mm'] if f.thread_definition_id else f.diameter
             point_depth=0 if f.kind=='mounting' and f.through else diameter/2/math.tan(math.radians(f.tip_angle/2)) if f.tip_angle!=180 else 0
-            result('drill_reach', [f.id], (f.depth + point_depth) / diameter,
-                   design.rules.max_depth_diameter_ratio,
-                   (f.depth + point_depth) / diameter <= design.rules.max_depth_diameter_ratio,
-                   'Axial drilling depth/diameter screen; tooling review still required.', severity='WARNING', unit='L/D')
+            project_limit=design.rules.max_depth_diameter_ratio;source_limit=policy['slenderness_ratio_limit'] if policy else project_limit
+            controlling=min(project_limit,source_limit);controller='project rule' if project_limit<=source_limit else 'MDTools manufacturing policy'
+            result('drill_reach', [f.id], (f.depth + point_depth) / diameter,controlling,
+                   (f.depth + point_depth) / diameter <= controlling,
+                   f'Axial drilling depth/diameter limit uses the stricter {controller} ({controlling:g}); project={project_limit:g}, source={source_limit:g}.',severity='WARNING',unit='L/D')
             tool=select_tool(diameter,f.depth+point_depth,tool_type='drill',unit=design.project_context,exact_diameter=True)
             result('source_tool_available',[f.id],tool['id'] if tool else None,
                    f'Ø{diameter:g} tool reaching {f.depth+point_depth:g} mm',bool(tool),
@@ -234,6 +235,12 @@ def validate(design, g, definitions=None):
                 permitted=bool(policy['simple_angle_holes_allowed']) if components==2 else bool(policy['compound_angle_holes_allowed'])
                 result('angled_drilling_policy',[f.id],'simple' if components==2 else 'compound','allowed by MDTools policy',permitted,
                        'Angled drilling requires explicit source-backed manufacturing policy permission.')
+        if f.definition:
+            for operation in resolve_machining_tools(definitions[f.definition],design.project_context):
+                tool=operation['tool']
+                result('source_operation_tool',[f.id,str(operation['operation'])],tool['id'] if tool else None,
+                       f"{operation['tool_type']} Ø{operation['diameter_mm']} reaching {operation['depth_mm']} mm",bool(tool),
+                       'Each declared drill, flat-bottom or spotface operation requires a matching source-backed tool.')
         if f.kind == 'drilling' and not f.plugged:
             ports = [p for p in design.features if p.kind == 'port' and p.face == f.face
                      and abs(p.u - f.u) < EPS and abs(p.v - f.v) < EPS
@@ -317,13 +324,16 @@ def validate(design, g, definitions=None):
         if f.definition and not f.suppressed:
             definition = definitions[f.definition]
             if definition.cutting_primitives:
-                for a,z in combinations(definition.zones,2):
+                routed_zones=[z for z in definition.zones if (f.id if f.kind=='port' else f'{f.id}:{z.id}') in g.nodes]
+                for a,z in combinations(routed_zones,2):
                     keys=[f'{f.id}:{a.id}',f'{f.id}:{z.id}']
                     volume=g.nodes[keys[0]].intersect(g.nodes[keys[1]]).Volume()
                     result('mapped_interface_separation',keys,volume,0,volume<=EPS,
                            'Separate installed hydraulic windows must not overlap. Native draft mappings retain conflicts for correction.',unit='mm³')
             for z in definition.zones:
                 key = f.id if f.kind == 'port' else f'{f.id}:{z.id}'
+                if key not in g.nodes:
+                    continue
                 if z.offset_u or z.offset_v or definitions[f.definition].cutting_primitives:
                     outside = max(0.0,g.nodes[key].Volume()-g.nodes[key].intersect(g.cuts[f.id]).Volume())
                     result('mapped_interface_containment',[key],outside,0,outside<=EPS,'Mapped hydraulic windows must be contained in the exact cavity cutting volume.',unit='mm³')

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import re
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -319,9 +320,33 @@ def definitions_for_design(design, *, connection: sqlite3.Connection | None = No
     return definitions(ids, include_inactive=True, connection=connection)
 
 
+def normalized_thread_family(value) -> str:
+    text=" ".join(str(value.get(key) or "") for key in ("display_name","family","nominal_size","pitch_tpi","thread_class")).upper()
+    if re.search(r"(^|[^A-Z])M\s*\d",text):return "Metric"
+    if "NPTF" in text:return "NPTF"
+    if "NPT" in text:return "NPT"
+    if "BSPT" in text or re.search(r"(^|\s)(RC|RP|R)\s*\d",text):return "BSPT"
+    if "BSPP" in text or re.search(r"(^|\s)G\s*\d",text):return "BSPP"
+    if "UNF" in text:return "UNF"
+    if "UNC" in text:return "UNC"
+    return "Other"
+
+
+def normalized_port_family(value) -> str:
+    text=" ".join(str(value.get(key) or "") for key in ("name","family","thread_spec")).upper()
+    if "NPTF" in text:return "NPTF"
+    if "NPT" in text:return "NPT"
+    if "BSPT" in text or re.search(r"(^|\s)(RC|RP|R)\s*\d",text):return "BSPT"
+    if "BSP" in text or re.search(r"(^|\s)G\s*\d",text):return "BSPP"
+    if "J518" in text or "FLANGE" in text:return "SAE_J518"
+    if "6149" in text:return "ISO_6149"
+    if "J1926" in text or "ORB" in text:return "SAE_ORB"
+    return "OTHER"
+
+
 def search_definitions(*, query="", unit="", kind="cavity", offset=0, limit=40,
                        include_inactive=False, family="", manufacturer="", thread="",
-                       status="all", scope="all"):
+                       status="all", scope="all", standard=""):
     table = "external_port_definitions" if kind in ("external-port", "port_definition") else "cavities"
     where = ["1=1" if include_inactive else "active=1"]
     values: list[object] = []
@@ -348,19 +373,27 @@ def search_definitions(*, query="", unit="", kind="cavity", offset=0, limit=40,
         where.append("lower(name || ' ' || family || ' ' || manufacturer || ' ' || thread_spec) LIKE ?")
         values.append(f"%{token}%")
     with _connect() as connection:
-        total = connection.execute(
-            f"SELECT count(*) FROM {table} WHERE {' AND '.join(where)}", values
-        ).fetchone()[0]
-        rows = connection.execute(
-            f"SELECT id,name,family,unit_system,manufacturer,thread_spec,usable,unusable_reason,active "
-            f"FROM {table} WHERE {' AND '.join(where)} ORDER BY manufacturer,name,id LIMIT ? OFFSET ?",
-            [*values, limit, offset],
-        ).fetchall()
+        if table=="external_port_definitions" and standard:
+            rows=connection.execute(
+                f"SELECT id,name,family,unit_system,manufacturer,thread_spec,usable,unusable_reason,active "
+                f"FROM {table} WHERE {' AND '.join(where)} ORDER BY manufacturer,name,id",values).fetchall()
+        else:
+            total=connection.execute(f"SELECT count(*) FROM {table} WHERE {' AND '.join(where)}",values).fetchone()[0]
+            rows=connection.execute(
+                f"SELECT id,name,family,unit_system,manufacturer,thread_spec,usable,unusable_reason,active "
+                f"FROM {table} WHERE {' AND '.join(where)} ORDER BY manufacturer,name,id LIMIT ? OFFSET ?",
+                [*values,limit,offset]).fetchall()
+    items=[dict(row) for row in rows]
+    if table=="external_port_definitions":
+        items=[row | {"normalized_family":normalized_port_family(row)} for row in items]
+        if standard:
+            items=[row for row in items if row["normalized_family"]==standard]
+            total=len(items);items=items[offset:offset+limit]
     return {
         "total": total,
         "offset": offset,
         "limit": limit,
-        "items": [dict(row) | {"kind": kind, "deleted": not bool(row["active"])} for row in rows],
+        "items": [row | {"kind": kind, "deleted": not bool(row["active"])} for row in items],
         "available": True,
         "source": "PMC engineering SQLite",
     }
@@ -517,11 +550,11 @@ def compatible_cartridges(cavity_id: str):
         return [dict(row) for row in rows]
 
 
-def search_threads(query="", unit="", *, include_inactive=False, usable_only=False, limit=200,
+def search_threads(query="", unit="", *, family="", include_inactive=False, usable_only=False, limit=200,
                    connection: sqlite3.Connection | None = None):
     if connection is None:
         with _connect() as opened:
-            return search_threads(query,unit,include_inactive=include_inactive,usable_only=usable_only,
+            return search_threads(query,unit,family=family,include_inactive=include_inactive,usable_only=usable_only,
                                   limit=limit,connection=opened)
     where=["1=1" if include_inactive else "active=1"]
     values=[]
@@ -530,10 +563,11 @@ def search_threads(query="", unit="", *, include_inactive=False, usable_only=Fal
     for token in query.lower().split():
         where.append("lower(display_name || ' ' || family || ' ' || nominal_size || ' ' || pitch_tpi || ' ' || thread_class) LIKE ?")
         values.append(f"%{token}%")
-    rows=connection.execute(
-        f"SELECT * FROM thread_definitions WHERE {' AND '.join(where)} ORDER BY family,display_name,tap_diameter_mm,id LIMIT ?",
-        [*values,limit]).fetchall()
-    return [dict(row) for row in rows]
+    rows=[dict(row) for row in connection.execute(
+        f"SELECT * FROM thread_definitions WHERE {' AND '.join(where)} ORDER BY family,display_name,tap_diameter_mm,id",
+        values).fetchall()]
+    rows=[row | {"normalized_family":normalized_thread_family(row)} for row in rows]
+    return [row for row in rows if not family or row["normalized_family"]==family][:limit]
 
 
 def thread_definition(identifier: str, *, include_inactive=True, connection: sqlite3.Connection | None = None):
@@ -563,10 +597,24 @@ def tool_definitions(tool_type="drill", *, unit="", connection: sqlite3.Connecti
 
 def select_tool(minimum_diameter: float, required_depth: float, *, tool_type="drill", unit="",
                 exact_diameter=False, connection: sqlite3.Connection | None = None):
-    rows=tool_definitions(tool_type,unit=unit,connection=connection)
+    rows=tool_definitions(tool_type,connection=connection)
     candidates=[row for row in rows if row["max_depth_mm"]+1e-6>=required_depth and
                 (abs(row["diameter_mm"]-minimum_diameter)<=.011 if exact_diameter else row["diameter_mm"]+1e-6>=minimum_diameter)]
-    return min(candidates,key=lambda row:(row["diameter_mm"],row["max_depth_mm"],row["id"])) if candidates else None
+    return min(candidates,key=lambda row:(row["diameter_mm"],0 if unit and row["unit_system"]==unit else 1,
+                                          row["max_depth_mm"],row["id"])) if candidates else None
+
+
+def resolve_machining_tools(definition, preferred_unit='', *, connection: sqlite3.Connection | None = None):
+    result=[]
+    for index,operation in enumerate(definition.machining,1):
+        tool_type=operation.get('tool_type');diameter=operation.get('diameter_mm');depth=operation.get('depth_mm')
+        if not tool_type:continue
+        tool=(select_tool(diameter,depth,tool_type=tool_type,unit=preferred_unit,exact_diameter=True,connection=connection)
+              if diameter and depth is not None else None)
+        result.append(dict(operation=index,operation_name=operation.get('operation') or tool_type,tool_type=tool_type,
+                           diameter_mm=diameter,depth_mm=depth,tool=tool,
+                           status='RESOLVED' if tool else 'UNRESOLVED'))
+    return result
 
 
 def manufacturing_policy(*, connection: sqlite3.Connection | None = None):
@@ -631,20 +679,28 @@ def validate_references(design, *, connection: sqlite3.Connection | None = None)
         material=connection.execute("SELECT 1 FROM materials WHERE id=?",(design.block.material_id,)).fetchone()
         if material is None:raise ValueError(f"Material does not exist: {design.block.material_id}")
     if design.block.stock_id:
-        stock=connection.execute("SELECT material_id,size_1_mm,size_2_mm FROM material_stock WHERE id=?",(design.block.stock_id,)).fetchone()
+        stock=connection.execute("SELECT material_id,size_1_mm,size_2_mm,allowance_1_mm,allowance_2_mm FROM material_stock WHERE id=?",(design.block.stock_id,)).fetchone()
         if stock is None or design.block.material_id!=stock[0]:raise ValueError("Selected stock does not belong to the selected material")
         cross_section=design.block.stock_dimensions[1:]
         source=(stock[1],stock[2])
         if not (all(abs(a-b)<=1e-6 for a,b in zip(cross_section,source)) or
                 all(abs(a-b)<=1e-6 for a,b in zip(cross_section,reversed(source)))):
             raise ValueError('Selected stock cross-section does not match its source-backed master dimensions')
+        direct=all(abs(a-b)<=1e-6 for a,b in zip(cross_section,source))
+        required=(stock[3],stock[4]) if direct else (stock[4],stock[3])
+        if any(abs(a-b)>1e-6 for a,b in zip(design.block.machining_allowance[1:],required)):
+            raise ValueError('Required machining allowance does not match the source stock master')
     for feature in design.features:
         if feature.kind == "cavity":
             definition = resolved[feature.cavity_id]
             if not definition.usable:
                 raise ValueError(f"{feature.id}: cavity is unusable: {definition.unusable_reason}")
-            if set(feature.interface_nets) != {z.id for z in definition.zones}:
-                raise ValueError(f"{feature.id}: assign a hydraulic net to every cavity interface")
+            expected={z.id for z in definition.zones};missing=expected-set(feature.interface_nets)
+            components=[c for c in design.components if c.feature_id==feature.id]
+            nonrouting={interface for component in components for interface,status in component.interface_dispositions.items()
+                        if status in ('blocked','terminated')}
+            if set(feature.interface_nets)-expected or missing-nonrouting:
+                raise ValueError(f"{feature.id}: assign a hydraulic net or explicit blocked/terminated intent to every cavity interface")
             if feature.cartridge_id and not compatible(feature.cartridge_id, feature.cavity_id, connection=connection):
                 raise ValueError(
                     f"{feature.id}: cartridge {feature.cartridge_id} is not compatible with cavity {feature.cavity_id}"

@@ -17,10 +17,11 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from manifold import store, projects
 from manifold.demo import CAVITY_ID
-from manifold.engineering_db import get_definition
+from manifold.engineering_db import get_definition, search_threads
 from manifold.server import app
 from manifold.ai_design import config, service, generation, jobs
-from manifold.ai_design.generation_models import GenerationRequest
+from manifold.ai_design.generation_models import GenerationOptions, GenerationRequest
+from manifold.ai_design.library_resolution import exact_port_candidates
 from manifold.ai_design.providers import AnalysisRequest, DocumentContent, ProviderFailure
 from manifold.ai_design.remote import MultimodalProvider
 from manifold.ai_design.semantic import CircuitReading, normalize
@@ -91,6 +92,28 @@ def test_semantic_contract_computes_ids_and_exact_requirement_offsets(client):
     with pytest.raises(ValueError):normalize(CircuitReading.model_validate(malformed),task,{'DOC1':1})
     malformed=reading();malformed['components'][0]['cavity_dimensions']=[1,2,3]
     with pytest.raises(ValueError):CircuitReading.model_validate(malformed)
+
+
+def test_ai_preserves_mixed_port_standards_and_terminal_dispositions(client):
+    task=TaskInput.model_validate(inputs(client))
+    assert {row['unit'] for row in exact_port_candidates(task,'1/4-18 NPT')}=={'metric','inch'}
+    assert exact_port_candidates(task,'1/4-18 NPTF')
+    assert all('NPTF' in row['label'].upper() or '[SPD]' in row['label'].upper()
+               for row in exact_port_candidates(task,'1/4-18 NPTF'))
+
+    source=dict(kind='schematic',document=1,page=1,bbox=[.2,.2,.4,.4],quote='RV1')
+    unknown=dict(value=None,status='unknown',source=dict(kind='unknown'))
+    raw=reading()
+    raw['external_ports'][0].update(net=unknown,disposition='blocked')
+    raw['external_ports'][1].update(net=unknown,disposition='terminated')
+    result=normalize(CircuitReading.model_validate(raw),task,{'DOC1':1})
+    terminals=result.ports[-2:]
+    assert [row.disposition for row in terminals]==['blocked','terminated']
+    assert all(row.id not in {member for net in result.nets for member in net.members} for row in terminals)
+    assert not any(row.subject_ids and row.subject_ids[0] in {p.id for p in terminals} for row in result.unresolved)
+    with pytest.raises(ValueError,match='Blocked or terminated'):
+        generation.topology(result.model_dump(),GenerationOptions(
+            net_overrides={terminals[0].id:result.nets[0].id},topology_decision='Try routing a blocked port'))
 
 
 def test_settings_are_operator_local_redacted_and_require_new_endpoint_key(client,monkeypatch):
@@ -216,6 +239,28 @@ def test_generation_requires_real_bindings_and_rejects_stale_or_conflicting_inte
     task=service.save(changed,task['id'],task['revision'])
     with pytest.raises(ValueError,match='stale'):
         generation.preflight(task['id'],GenerationRequest(expected_revision=task['revision'],run_id=run['id']))
+
+
+def test_ai_mounting_and_provisional_ports_keep_explicit_engineering_standards(client):
+    task,run=analyzed(client)
+    inputs_model=TaskInput.model_validate(task['inputs'])
+    result=copy.deepcopy(run['result'])
+    external=next(row for row in result['ports'] if row['id']=='EXT_P')
+    external['facts']['port_specification']='1/4-18 NPT'
+    external.setdefault('fact_kinds',{})['port_specification']='schematic'
+    automatic=generation.prepare(inputs_model,result,GenerationOptions(
+        provisional_ports={'EXT_T':'Engineer approved a one-off bore.'}))
+    resolved_port=next(row for row in automatic['external'] if row['id']=='EXT_P')
+    assert resolved_port['automatic'] and resolved_port['definition'].unit_system=='metric'
+    unified=next(row for row in search_threads('',usable_only=True,limit=500)
+                 if row['display_name']=='3/8-16 UNC-2B' and row['unit_system']=='inch')
+    options=GenerationOptions(
+        provisional_ports={'EXT_P':'Engineer requested a one-off bore.','EXT_T':'Engineer requested a one-off bore.'},
+        threaded_mounting_holes=[dict(thread_definition_id=unified['id'],face='top',u=20,v=20,depth=20,thread_depth=16)],
+        mounting_decision='Explicit UNC thread and position entered by the engineer.')
+    plan=generation.prepare(inputs_model,result,options)
+    assert plan['mounting'][0]['thread']['unit_system']=='inch'
+    assert any('cannot be replaced by a straight bore' in row for row in plan['blocked'])
 
 
 def test_jobs_finish_and_restart_status_does_not_claim_success(client,monkeypatch):

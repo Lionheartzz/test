@@ -23,26 +23,32 @@ class Block(Strict):
     stock_id: Identifier | None = None
     stock_dimensions: tuple[Positive, Positive, Positive] | None = None
     machining_allowance: tuple[float, float, float] | None = None
+    stock_excess: tuple[float, float, float] | None = None
 
     @model_serializer(mode='wrap')
     def compact_optional_master_state(self,handler):
         value=handler(self)
-        for key in ('material_id','stock_id','stock_dimensions','machining_allowance'):
+        for key in ('material_id','stock_id','stock_dimensions','machining_allowance','stock_excess'):
             if value.get(key) is None:value.pop(key,None)
         return value
 
     @model_validator(mode='after')
     def stock_is_not_finished_geometry(self):
         selected=bool(self.stock_id)
-        if selected != bool(self.stock_dimensions) or selected != bool(self.machining_allowance):
-            raise ValueError('Stock selection requires its separate stock dimensions and machining allowance')
+        if selected != bool(self.stock_dimensions) or selected != bool(self.machining_allowance) or selected != bool(self.stock_excess):
+            raise ValueError('Stock selection requires separate stock dimensions, source allowance and actual excess')
         if self.stock_id and not self.material_id:
             raise ValueError('Stock selection requires a source-backed material')
         if self.machining_allowance and any(value < 0 or value > 200 for value in self.machining_allowance):
             raise ValueError('Machining allowance must be between 0 and 200 mm')
-        if self.stock_dimensions and any(stock + 1e-6 < finished+2*allowance for stock,finished,allowance in
-                                         zip(self.stock_dimensions,(self.length,self.width,self.height),self.machining_allowance)):
-            raise ValueError('Selected stock must contain the finished block plus declared machining allowance on both sides')
+        if self.stock_excess and any(value < 0 or value > 2000 for value in self.stock_excess):
+            raise ValueError('Actual stock excess must be between 0 and 2000 mm')
+        if self.stock_dimensions:
+            actual=tuple((stock-finished)/2 for stock,finished in zip(self.stock_dimensions,(self.length,self.width,self.height)))
+            if any(abs(a-b)>1e-6 for a,b in zip(actual,self.stock_excess)):
+                raise ValueError('Actual stock excess must equal half the stock minus finished dimensions')
+            if any(excess+1e-6<required for excess,required in zip(self.stock_excess,self.machining_allowance)):
+                raise ValueError('Actual stock excess is below the source required machining allowance')
         return self
 
 

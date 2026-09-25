@@ -2,7 +2,7 @@
 import math
 
 
-def route_sizing(net, standard_drills=(), *, tools=None, required_depth=0):
+def route_sizing(net, standard_drills=(), *, tools=None, required_depth=0, preferred_unit=''):
     area=net.flow_lpm*1000/60/net.velocity_limit if net.flow_lpm else None
     required=math.sqrt(4*area/math.pi) if area is not None else None
     result=dict(mode=net.diameter_mode,required_area_mm2=area,required_diameter_mm=required,
@@ -12,7 +12,8 @@ def route_sizing(net, standard_drills=(), *, tools=None, required_depth=0):
     candidates=([row for row in tools if row['max_depth_mm']+1e-6>=required_depth] if tools is not None else
                 [dict(id=None,diameter_mm=d,max_depth_mm=None) for d in standard_drills])
     candidates=sorted((row for row in candidates if math.pi*row['diameter_mm']**2/4+1e-9>=area),
-                      key=lambda row:(row['diameter_mm'],row.get('max_depth_mm') or 0,row.get('id') or ''))
+                      key=lambda row:(row['diameter_mm'],0 if preferred_unit and row.get('unit_system')==preferred_unit else 1,
+                                      row.get('max_depth_mm') or 0,row.get('id') or ''))
     if not candidates:
         raise ValueError(f'{net.id}: hydraulic sizing unresolved: requires diameter >= {required:.3f} mm '
                          f'({area:.3f} mm²); no source-backed drill reaches the required depth. '

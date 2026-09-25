@@ -41,8 +41,16 @@ class PortReading(Strict):
     label: str = Field(min_length=1, max_length=120)
     # Equal values denote one connected hydraulic line. No model-generated UUIDs.
     net: Observation
+    disposition: Literal['connected','blocked','terminated','unknown'] = 'unknown'
     specification: Observation = Field(default_factory=Observation)
     parameters: list[Parameter] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode='after')
+    def connection_semantics(self):
+        if self.disposition=='unknown' and self.net.value is not None:self.disposition='connected'
+        if self.disposition=='connected' and self.net.value is None:raise ValueError('Connected port needs a hydraulic net')
+        if self.disposition in ('blocked','terminated') and self.net.value is not None:raise ValueError('Blocked or terminated port cannot belong to a hydraulic net')
+        return self
 
 
 class ComponentReading(Strict):
@@ -113,6 +121,8 @@ INSTRUCTIONS = '''You interpret hydraulic schematics and the engineer's original
 Return ONE JSON object matching the provided CircuitReading schema. Read all supplied pages together.
 Use the same short net name for every terminal on one physically connected schematic line; different
 lines must have different names. Crossing lines are not connected unless the symbol/junction shows it.
+Set disposition=blocked only for an explicit blocked/plugged symbol and terminated only for an explicit
+termination. Unreadable or unconnected-looking terminals remain unknown; never turn unknown into blocked.
 Represent each cartridge/component separately with all its hydraulic ports; do NOT connect different
 ports internally just because they belong to one valve. External ports are manifold boundary terminals,
 not every component terminal. Preserve labels such as P1/P2, port numbers, manufacturers and exact models.
@@ -219,10 +229,10 @@ def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, iden
         ids = [label_claim(key, p.label, p.net.source), claim(key, 'net_assignment', p.net),
                claim(key, 'port_specification', p.specification)]
         ids += [claim(key, x.name, x.reading, x.unit) for x in p.parameters]
-        result['ports'].append(dict(id=key, component_id=owner, claim_ids=ids))
-        if p.net.value is not None:
+        result['ports'].append(dict(id=key, component_id=owner, claim_ids=ids,disposition=p.disposition))
+        if p.disposition=='connected' and p.net.value is not None:
             groups.setdefault(p.net.value, []).append((key, p.net))
-        else:
+        elif p.disposition=='unknown':
             unresolved(f'{p.label}: hydraulic connection is unknown; confirm it before generation.', key)
 
     for i, component in enumerate(reading.components, 1):

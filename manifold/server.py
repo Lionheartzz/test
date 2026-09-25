@@ -223,11 +223,21 @@ def library(include_deleted: bool = False, reusable_only: bool = True):
 def catalog_search(q: str = '', unit: str = '', kind: str = 'cavity', manufacturer: str = '',
                    cavity_type: str = '', thread: str = '', status: str = Query('all',pattern=r'^(all|usable|unavailable)$'),
                    scope: str = Query('all',pattern=r'^(all|master|custom)$'),
-                   offset: int = Query(0,ge=0), limit: int = Query(40,ge=1,le=100),include_deleted: bool = False, family: str = ''):
+                   offset: int = Query(0,ge=0), limit: int = Query(40,ge=1,le=100),include_deleted: bool = False,
+                   family: str = '', standard: str = ''):
     from .engineering_db import search_definitions
     return search_definitions(query=' '.join(x for x in (q,cavity_type) if x),unit=unit,kind=kind,
                               offset=offset,limit=limit,include_inactive=include_deleted,
-                              family=family,manufacturer=manufacturer,thread=thread,status=status,scope=scope)
+                              family=family,manufacturer=manufacturer,thread=thread,status=status,scope=scope,standard=standard)
+
+
+@app.get('/api/catalog/standards')
+def catalog_standards(kind: str=Query('port',pattern=r'^port$')):
+    from .engineering_db import _connect,normalized_port_family
+    with _connect() as connection:
+        rows=[dict(row) for row in connection.execute(
+            'SELECT name,family,thread_spec FROM external_port_definitions WHERE active=1 AND usable=1')]
+    return {'items':sorted({normalized_port_family(row) for row in rows})}
 
 
 class CustomCavityRequest(Strict):
@@ -265,9 +275,10 @@ def catalog_resources():
 
 
 @app.get('/api/threads')
-def threads(q: str='',unit: str='',usable_only: bool=True,limit: int=Query(200,ge=1,le=500)):
+def threads(q: str='',unit: str='',family: str='',usable_only: bool=True,limit: int=Query(200,ge=1,le=500)):
     from .engineering_db import search_threads
-    return {'items':search_threads(q,unit,usable_only=usable_only,limit=limit)}
+    items=search_threads(q,unit,family=family,usable_only=usable_only,limit=limit)
+    return {'items':items,'families':sorted({row['normalized_family'] for row in search_threads('',usable_only=True,limit=500)})}
 
 
 @app.get('/api/materials')

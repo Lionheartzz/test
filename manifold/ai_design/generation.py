@@ -12,7 +12,7 @@ import time
 import uuid
 from .. import store
 from ..schema import Design, Feature, CavityDefinition
-from ..kinematics import FACE_AXES, dimensions, clamp_placement, pose
+from ..kinematics import FACE_AXES, dimensions, clamp_placement, pose,definition_planar_radius
 from ..routing import terminal_points, route_cost
 from ..engineering import calculate_sync,CalculationError
 from . import service, library_resolution as library
@@ -42,6 +42,8 @@ def topology(result, options):
         raise ValueError('Changing hydraulic connections needs an engineer decision')
     by_id = {n['id']: n for n in result['nets']}
     for port_id, target in options.net_overrides.items():
+        if ports[port_id].get('disposition') in ('blocked', 'terminated'):
+            raise ValueError('Blocked or terminated ports cannot be assigned to a hydraulic net')
         if not target.strip() or len(target) > 120:
             raise ValueError('Enter a nonempty net ID or label of at most 120 characters')
         if target not in by_id:
@@ -77,11 +79,13 @@ def prepare(inputs, result, options):
             row.update(status='applied',message='Engineer-resolved SQLite thread IDs and explicit positions are used; no placement was inferred.')
     if len(result['components']) > 4 or len(result['ports']) > 40 or len(result['nets']) > 16:
         blocked.append('First-generation scope is at most 4 cartridges, 40 hydraulic terminals and 16 nets.')
-    if not result['ports'] or not result['nets']:
+    if not result['ports'] or not result['nets'] and any(p.get('disposition')=='connected' for p in result['ports']):
         blocked.append('No usable hydraulic topology was recognized. Review the source and analyze again.')
     port_net = {p: n['id'] for n in result['nets'] for p in n['members']}
     for port in result['ports']:
-        if port['id'] not in port_net:
+        if port.get('disposition','unknown')=='unknown' and port['id'] in port_net:port['disposition']='connected'
+    for port in result['ports']:
+        if port.get('disposition','unknown') in ('connected','unknown') and port['id'] not in port_net:
             blocked.append(str(library.value(result, port['id'], 'label') or port['id']) + ': choose a hydraulic net for the unknown connection.')
     components = []
     known_components = {c['id'] for c in result['components']}
@@ -130,7 +134,7 @@ def prepare(inputs, result, options):
                                automatic=automatic, decision=decision, resolution=resolution))
     external = []
     for port in result['ports']:
-        if port['component_id'] is not None:
+        if port['component_id'] is not None or port.get('disposition') in ('blocked','terminated'):
             continue
         selected = options.port_definitions.get(port['id'])
         specification=library.value(result,port['id'],'port_specification') or ''
@@ -138,13 +142,17 @@ def prepare(inputs, result, options):
         definition = library.load(inputs, selected.definition_key, selected.definition_sha256) if selected else None
         if not definition and specification:
             matches=library.exact_port_candidates(inputs,specification)
-            if len(matches)==1:
-                definition=library.load(inputs,matches[0]['key'],matches[0]['sha256']);automatic=True
+            preferred=[row for row in matches if row['unit']==inputs.project_context]
+            unique=preferred if len(preferred)==1 else matches if len(matches)==1 else []
+            if unique:
+                definition=library.load(inputs,unique[0]['key'],unique[0]['sha256']);automatic=True
         if definition and (definition.kind != 'external-port' or len(definition.zones) != 1):
             raise ValueError('External ports require a source external-port definition with one hydraulic interface')
         if definition and selected and not selected.decision.strip():
             blocked.append(f'{port["id"]}: confirm the external-port definition choice.')
         provisional=port['id'] in options.provisional_ports
+        if provisional and library.port_standard(specification)[0]:
+            blocked.append(f'{port["id"]}: explicit standard {specification} cannot be replaced by a straight bore. Resolve a complete matching port definition.')
         if provisional and not options.provisional_ports[port['id']].strip():
             blocked.append(f'{port["id"]}: explicit one-off straight-bore use requires an engineering decision.')
         if not definition and not provisional:
@@ -154,7 +162,7 @@ def prepare(inputs, result, options):
         external.append(dict(id=port['id'], label=library.value(result,port['id'],'label') or port['id'],
                              specification=library.value(result,port['id'],'port_specification') or '',
                              definition=definition, decision=selected.decision if selected else options.provisional_ports.get(port['id'],' ' if automatic else ''),
-                             automatic=automatic,provisional=provisional))
+                             automatic=automatic,provisional=provisional,standard=library.port_standard(specification)[0]))
     from ..engineering_db import thread_definition
     mounting=[]
     if options.threaded_mounting_holes and not options.mounting_decision.strip():
@@ -191,8 +199,9 @@ def preflight(key, request):
                 'definition': library.summary('',row['definition']) if row['definition'] else None}
     return dict(ready=not plan['blocked'], blocked=plan['blocked'], components=[entry(c) for c in plan['components']],
                 external_ports=[entry(p) for p in plan['external']], dispositions=plan['settings']['dispositions'],
+                mounting_requirements=plan['settings']['mounting_requirements'],mounting_holes=[dict(hole=row['hole'].model_dump(),thread=row['thread']) for row in plan['mounting']],
                 ports=[dict(id=p['id'], component_id=p['component_id'], label=library.value(result,p['id'],'label') or p['id'],
-                            net=plan['port_net'].get(p['id'])) for p in result['ports']],
+                            net=plan['port_net'].get(p['id']),disposition=p.get('disposition','unknown')) for p in result['ports']],
                 nets=[dict(id=n['id'],label=library.value(result,n['id'],'label') or n['id']) for n in result['nets']])
 
 
@@ -212,7 +221,7 @@ def candidate(plan, generation_id, variant):
     defs = list({d.id:d for d in defs}.values())
     by_definition = {d.id:d for d in defs}
     ncomponents = len(plan['components'])
-    radii = [c['definition'].clearance_diameter/2 for c in plan['components']]
+    radii = [definition_planar_radius(c['definition']) for c in plan['components']]
     clearance = max(radii or [10]) * 2 + wall*2 + (6 if settings['priority'] == 'compact' else 16)
     cols = max(1,math.ceil(math.sqrt(ncomponents)))
     rows = max(1,math.ceil(ncomponents/cols))
@@ -260,15 +269,16 @@ def candidate(plan, generation_id, variant):
             f=Feature(id=fid(generation_id,key,'CV'),kind='cavity',face=face,
                       u=sizes[u_axis]*(i%local_cols+1)/(local_cols+1),
                       v=sizes[v_axis]*(i//local_cols+1)/(local_rows+1),cavity_id=definition.id,
-                      interface_nets={zone:net_ids[plan['port_net'][port]] for zone,port in c['mapping'].items()},
+                      interface_nets={zone:net_ids[plan['port_net'][port]] for zone,port in c['mapping'].items() if port in plan['port_net']},
                       cartridge_id=c.get('cartridge_id'),schematic_id=key)
             f.u,f.v=clamp_placement(f,design,f.u,f.v,snap=0,definitions=by_definition)
             design.features.append(f);feature_map[key]=f.id
             for zone,port in c['mapping'].items():terminal_map[port]=f.id+':'+zone
             from ..schema import SchematicComponent
+            port_dispositions={zone:next(p.get('disposition','unknown') for p in result['ports'] if p['id']==port) for zone,port in c['mapping'].items()}
             design.schematic_intent.components.append(SchematicComponent(id=key[:39],label=str(c['label'])[:160],function=str(c['function'])[:200],
                 cartridge_id=c.get('cartridge_id'),cavity_id=definition.id,placement_id=f.id,
-                expected_interfaces=list(f.circuits),interface_nets=f.circuits))
+                expected_interfaces=list(c['mapping']),interface_nets=f.circuits,interface_dispositions=port_dispositions))
             if key in settings['hard_component_faces']:design.constraints.required_feature_faces[f.id]=face
     points=terminal_points(design)
     default_faces=('left','right','front','back')

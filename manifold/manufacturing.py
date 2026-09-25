@@ -12,7 +12,7 @@ def manufacturing_outputs(design, g, folder, definitions=None):
         from .engineering_db import definitions_for_design
         definitions=definitions_for_design(design)
     lib = definitions
-    from .engineering_db import thread_definitions_for_design,closure_definitions_for_design,select_tool
+    from .engineering_db import thread_definitions_for_design,closure_definitions_for_design,select_tool,resolve_machining_tools
     threads=thread_definitions_for_design(design)
     closures=closure_definitions_for_design(design)
     for i,f in enumerate(design.features,1):
@@ -26,6 +26,7 @@ def manufacturing_outputs(design, g, folder, definitions=None):
                      effective_diameter/2/math.tan(math.radians(f.tip_angle/2)))
         drill_depth=(f.depth+point_depth) if effective_diameter else None
         selected_tool=select_tool(effective_diameter,drill_depth,tool_type='drill',unit=design.project_context,exact_diameter=bool(thread)) if effective_diameter else None
+        operation_tools=resolve_machining_tools(definition,design.project_context) if definition else []
         closure=closures.get(f.closure_definition_id)
         profile=dict(feature=f.id,definition=f.definition,source='PMC engineering database' if definition or thread else 'Explicit drilling parameters',
                       cutting_steps=steps,hydraulic_interfaces=[z.model_dump() for z in definition.zones] if definition else [],
@@ -33,7 +34,7 @@ def manufacturing_outputs(design, g, folder, definitions=None):
                                              machining_operations=definition.machining) if definition else None),
                       thread_facts=thread,cylinder_diameter_mm=None if definition else effective_diameter,cylinder_depth_mm=None if definition else f.depth,
                       drill_depth_mm=None if definition else drill_depth,
-                      selected_tool=selected_tool,machining_modifiers=[p.model_dump() for p in f.machining_modifiers],
+                      selected_tool=selected_tool,operation_tools=operation_tools,machining_modifiers=[p.model_dump() for p in f.machining_modifiers],
                      tip_angle_degrees=None if definition else f.tip_angle,
                      closure=(dict(id=closure['id'],display_name=closure['display_name'],model=closure['model'],engagement_mm=closure['engagement_mm'],
                                    machining=closure['machining'],envelope=closure['envelope'],entry_machining_status='resolved') if closure else
@@ -47,7 +48,9 @@ def manufacturing_outputs(design, g, folder, definitions=None):
                          thread=thread['display_name'] if thread else '',thread_depth=f.thread_depth if thread else '',
                          port_spec=(definition.thread_note or definition.label) if definition and f.kind=='port' else '',
                          closure=closure['display_name'] if closure else ('UNRESOLVED' if f.plugged else ''),
-                         tooling=selected_tool['id'] if selected_tool else 'No source-backed tool reaches the required diameter/depth')
+                         tooling=(selected_tool['id'] if selected_tool else
+                                  '; '.join(f"{row['operation_name']}: {row['tool']['id'] if row['tool'] else 'UNRESOLVED'}" for row in operation_tools)
+                                  if operation_tools else 'No source-backed tool reaches the required diameter/depth'))
         if definition:
             for index,s in enumerate(steps,1):
                 rows.append(dict(**common,operation=index,profile=s['kind'],diameter=s['diameter'],depth=s['end'],start=s['start'],
@@ -83,7 +86,8 @@ def manufacturing_outputs(design, g, folder, definitions=None):
                     for d in definitions.values() if any(f.definition==d.id and not f.suppressed for f in design.features)]
     stock=dict(material_id=design.block.material_id,material=design.block.material,stock_id=design.block.stock_id,
                finished_dimensions_mm=[design.block.length,design.block.width,design.block.height],
-               stock_dimensions_mm=design.block.stock_dimensions,machining_allowance_mm=design.block.machining_allowance)
+               stock_dimensions_mm=design.block.stock_dimensions,required_machining_allowance_mm=design.block.machining_allowance,
+               actual_stock_excess_mm=design.block.stock_excess)
     (folder/'manufacturing.json').write_text(json.dumps(dict(status='ENGINEERING_REVIEW_REQUIRED',drill_chart=rows,meet_list=meets,velocity_screen=flows,
                                                            machining_profiles=profiles,native_recipes=native_recipes,stock=stock,
                                                            engravings=[row.model_dump() for row in design.engravings],

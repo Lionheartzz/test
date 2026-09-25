@@ -198,7 +198,9 @@ def test_exact_preview_never_searches_candidates_and_reports_resolution_reason(m
     assert result.status_code==200,result.text[:500]
     assert result.json()['route_selection']=='CURRENT_PROPOSAL_NOT_OPTIMIZED'
     assert any(p['kind']=='hydraulic-net' for p in result.json()['model']['parts'])
-    invalid=automatic();invalid.nets[0].flow_lpm=1000;invalid.nets[0].diameter_mode='automatic';invalid.block.length=2000
+    # This flow/velocity requires a diameter beyond the sourced drill catalog.
+    # Route depth is checked separately against actual candidate drillings.
+    invalid=automatic();invalid.nets[0].flow_lpm=10000;invalid.nets[0].velocity_limit=.5;invalid.nets[0].diameter_mode='automatic'
     for endpoint in ('preview','preview-solid'):
         result=client.post('/api/'+endpoint,json=invalid.model_dump(),headers=headers)
         assert result.status_code==422 and 'hydraulic sizing unresolved' in result.json()['detail'] and 'no source-backed drill' in result.json()['detail']

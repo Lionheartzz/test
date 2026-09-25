@@ -96,6 +96,7 @@ class HydraulicPort(Strict):
     id: Key
     component_id: Key | None = None  # None means an external manifold terminal.
     claim_ids: list[Key] = Field(min_length=1,max_length=40)
+    disposition: Literal['connected','blocked','terminated','unknown'] = 'unknown'
 
 
 class HydraulicNet(Strict):

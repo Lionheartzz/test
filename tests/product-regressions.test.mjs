@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {featureLabel,returnNetToAutomatic,smartAlign} from '../web/kinematics.js';
 import {displayExternalPortName,displayMemberName,displayIdentity} from '../web/presentation.js';
-import {nextExpectedInterface,renameExpectedInterface} from '../web/workflows.js';
+import {nextExpectedInterface,renameExpectedInterface,filterThreadChoices} from '../web/workflows.js';
 import {inspectGeneratedDraft} from '../web/ai-generation.js';
 
 test('generated route labels hide hash ids and keep a deterministic cavity/net alias',()=>{
@@ -82,4 +82,12 @@ test('Smart Align uses the SQLite external-port hydraulic window without duplica
   const target={id:'DRILL',kind:'drilling',face:'top',u:14.5,v:30,diameter:8,depth:20,clearance_diameter:8,plugged:false,suppressed:false};
   const design={block:{length:100,width:80,height:60},library:[definition],features:[target,port]};
   assert.deepEqual(smartAlign(target,design,target.u,target.v,2,[port]).values,[15,30]);
+});
+
+test('thread selector groups by engineering family and defaults to mixed native units',()=>{
+  const rows=[{id:'M10',normalized_family:'Metric',unit_system:'metric',display_name:'M10x1.5-6H',nominal_size:'M10',pitch_tpi:'1.5',thread_class:'6H'},
+    {id:'UNC',normalized_family:'UNC',unit_system:'inch',display_name:'3/8-16 UNC-2B',nominal_size:'3/8',pitch_tpi:'16',thread_class:'2B'}];
+  assert.deepEqual(filterThreadChoices(rows,'UNC').map(row=>row.id),['UNC']);
+  assert.deepEqual(filterThreadChoices(rows,'Metric','').map(row=>row.id),['M10']);
+  assert.deepEqual(filterThreadChoices(rows,'UNC','metric'),[]);
 });

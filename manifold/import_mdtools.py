@@ -10,6 +10,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import tempfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -52,22 +53,27 @@ def mdb_rows(source: Path, filename: str, table: str):
     script=r'''
 $ErrorActionPreference='Stop'
 $connection=New-Object System.Data.OleDb.OleDbConnection("Provider=Microsoft.ACE.OLEDB.12.0;Data Source=$env:PMC_MDB_PATH;Mode=Read;")
+$writer=New-Object System.IO.StreamWriter($env:PMC_MDB_OUT,$false,[System.Text.UTF8Encoding]::new($false))
 try {
   $connection.Open();$command=$connection.CreateCommand();$table=$env:PMC_MDB_TABLE.Replace(']',']]')
-  $command.CommandText="SELECT * FROM [$table]";$reader=$command.ExecuteReader();$rows=@()
-  while($reader.Read()) {$row=[ordered]@{};for($i=0;$i-lt$reader.FieldCount;$i++) {$value=$reader.GetValue($i);if($value-ne[DBNull]::Value){$row[$reader.GetName($i)]=$value}};$rows += [pscustomobject]$row}
-  $reader.Close();ConvertTo-Json -Compress -Depth 5 -InputObject @($rows)
-} finally {$connection.Close()}
+  $command.CommandText="SELECT * FROM [$table]";$reader=$command.ExecuteReader()
+  while($reader.Read()) {$row=[ordered]@{};for($i=0;$i-lt$reader.FieldCount;$i++) {$value=$reader.GetValue($i);if($value-ne[DBNull]::Value){$row[$reader.GetName($i)]=$value}};$writer.WriteLine((([pscustomobject]$row)|ConvertTo-Json -Compress -Depth 5))}
+  $reader.Close();$writer.Close()
+} catch {$writer.Close();Write-Error $_;[Environment]::Exit(1)}
+[Environment]::Exit(0)
 '''
-    environment=os.environ.copy();environment["PMC_MDB_PATH"]=str(path);environment["PMC_MDB_TABLE"]=table
+    descriptor,name=tempfile.mkstemp(prefix='pmc-mdb-',suffix='.jsonl');os.close(descriptor);temporary=Path(name)
+    environment=os.environ.copy();environment["PMC_MDB_PATH"]=str(path);environment["PMC_MDB_TABLE"]=table;environment['PMC_MDB_OUT']=str(temporary)
     try:
         completed=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",script],
-                                 check=True,capture_output=True,text=True,encoding="utf-8",env=environment)
-        result=json.loads(completed.stdout or "[]")
+                                 check=True,capture_output=True,text=True,encoding="utf-8",env=environment,
+                                 stdin=subprocess.DEVNULL)
+        result=[json.loads(line) for line in temporary.read_text(encoding='utf-8').splitlines() if line.strip()]
     except (OSError,subprocess.CalledProcessError,json.JSONDecodeError) as exc:
         detail=getattr(exc,"stderr","") or str(exc)
         raise RuntimeError(f"Cannot read {filename}:{table}: {detail[:500]}") from exc
-    return [result] if isinstance(result,dict) else result
+    finally:temporary.unlink(missing_ok=True)
+    return result
 
 
 def thread_record(row, scale):
@@ -87,7 +93,20 @@ def thread_record(row, scale):
     if klass and klass.upper() not in display.upper():display=f"{display}-{klass}"
     declared_key=re.sub(r'[^A-Z0-9]','',display.upper())
     tool_key=re.sub(r'[^A-Z0-9]','',tap_text.upper())
-    identity_conflict=bool(tool_key and declared_key and tool_key!=declared_key)
+    # Source TAP operands commonly omit the fit class (for example the row is
+    # 3/8-16 UNC-2B while MachineDia is 3/8-16). That is the same declared
+    # identity, not a conflict. Reject only genuinely different designations.
+    def same_declared_identity(left,right):
+        left=re.sub(r'\s+','',left.upper());right=re.sub(r'\s+','',right.upper())
+        def metric(value):
+            match=re.match(r'^M(\d+(?:\.\d+)?)X(\d+(?:\.\d+)?)',value)
+            return (float(match.group(1)),float(match.group(2))) if match else None
+        if metric(left) and metric(left)==metric(right):return True
+        if left==right:return True
+        shorter,longer=(left,right) if len(left)<len(right) else (right,left)
+        return (longer.startswith(shorter) and len(longer)>len(shorter)
+                and (longer[len(shorter)].isalpha() or longer[len(shorter)]=='-'))
+    identity_conflict=bool(tool_key and declared_key and not same_declared_identity(tap_text,display))
     upper=(pitch+" "+display).upper().replace(' ','')
     if upper.startswith('M'):family='Metric'
     elif upper.startswith('G'):family='BSPP'
@@ -150,12 +169,14 @@ def import_support_masters(connection,source,thread_rows):
             table=raw.get(key)
             if not table:continue
             scale=25.4 if unit=='inch' else 1.0
+            default_allowance=number(raw.get('DefaultAllowanceMM' if unit=='metric' else 'DefaultAllowanceINCH'))
             for stock in mdb_rows(source,'VESTMDToolsMaterialLibrary.mdb',str(table)):
                 a,b=number(stock.get('MaterialSize1')),number(stock.get('MaterialSize2'))
                 if not a or not b:continue
                 connection.execute("INSERT OR IGNORE INTO material_stock VALUES (?,?,?,?,?,?,?,1)",
                     (f"stock_{int(raw['ID'])}_{unit}_{int(stock['ID'])}",material_id,unit,a*scale,b*scale,
-                     (number(stock.get('MachiningAllowance1')) or 0)*scale,(number(stock.get('MachiningAllowance2')) or 0)*scale))
+                     (number(stock.get('MachiningAllowance1')) if number(stock.get('MachiningAllowance1')) is not None else default_allowance or 0)*scale,
+                     (number(stock.get('MachiningAllowance2')) if number(stock.get('MachiningAllowance2')) is not None else default_allowance or 0)*scale))
     counts['materials']=connection.execute("SELECT count(*) FROM materials").fetchone()[0]
     counts['stock']=connection.execute("SELECT count(*) FROM material_stock").fetchone()[0]
     for filename,unit in (('InchVESTMDToolsLibrary.mdb','inch'),('MMVESTMDToolsLibrary.mdb','metric')):
@@ -298,7 +319,7 @@ def linked_special_cuts(source):
     script = r'''
 $ErrorActionPreference='Stop'
 $connection=New-Object System.Data.OleDb.OleDbConnection("Provider=Microsoft.ACE.OLEDB.12.0;Data Source=$env:PMC_MDB_PATH;Mode=Read;")
-$rows=@()
+$lines=[System.Text.StringBuilder]::new()
 try {
   $connection.Open()
   $catalog=$connection.GetSchema('Tables')
@@ -307,11 +328,12 @@ try {
     if(-not ($catalog | Where-Object {$_.TABLE_NAME -eq $table})) { continue }
     $command=$connection.CreateCommand();$command.CommandText="SELECT LibraryCode,CavityIndex FROM [$table]"
     $reader=$command.ExecuteReader()
-    while($reader.Read()) {$rows += [pscustomobject]@{kind=$kind;library_code=[int]$reader['LibraryCode'];cavity_index=[int]$reader['CavityIndex']}}
+    while($reader.Read()) {[void]$lines.Append($kind).Append("`t").Append([int]$reader['LibraryCode']).Append("`t").Append([int]$reader['CavityIndex']).AppendLine()}
     $reader.Close()
   }
-} finally {$connection.Close()}
-ConvertTo-Json -Compress -InputObject @($rows)
+} catch {Write-Error $_;[Environment]::Exit(1)}
+[Console]::Out.Write($lines.ToString());[Console]::Out.Flush()
+[Environment]::Exit(0)
 '''
     result = set()
     for unit, filename in (("inch", "InchVESTMDToolsLibrary.mdb"), ("metric", "MMVESTMDToolsLibrary.mdb")):
@@ -325,14 +347,13 @@ ConvertTo-Json -Compress -InputObject @($rows)
                 completed = subprocess.run(
                     ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
                     check=True, capture_output=True, text=True, encoding="utf-8", env=environment,
+                    stdin=subprocess.DEVNULL,
                 )
-                rows = json.loads(completed.stdout or "[]")
-            except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+                rows = [line.split("\t") for line in completed.stdout.splitlines() if line.strip()]
+            except (OSError, subprocess.CalledProcessError) as exc:
                 detail = getattr(exc, "stderr", "") or str(exc)
                 raise RuntimeError(f"Cannot inspect mandatory special-cut relationships in {path.name}: {detail[:500]}") from exc
-            if isinstance(rows, dict):
-                rows = [rows]
-            result.update((unit, release, int(row["library_code"]), int(row["cavity_index"])) for row in rows)
+            result.update((unit, release, int(row[1]), int(row[2])) for row in rows)
     return result
 
 
@@ -418,13 +439,26 @@ def interfaces(row, primitives, scale, *, offset_u=0.0, offset_v=0.0, prefix="")
     return result
 
 
-def machining(row):
-    return [
-        {"operation": row.get(f"MachineOperation{i}"), "tool": row.get(f"MachineTool{i}"),
-         "diameter": row.get(f"MachineDia{i}"), "depth": row.get(f"MachineDepth{i}")}
-        for i in range(1, 8)
-        if any(row.get(f"Machine{x}{i}") not in (None, "") for x in ("Operation", "Tool", "Dia", "Depth"))
-    ]
+def machining(row,scale=1.0):
+    def operand(value,kind):
+        match=re.fullmatch(r'\$STEP(\d+)',str(value or '').strip(),re.I)
+        if match:
+            index=int(match.group(1));value=row.get(f'Circle{index}{"Dia" if kind=="diameter" else "Depth"}')
+            result=number(value)
+            if result is not None and kind=='depth' and 1<=index<=11:result+=(number(row.get('Circle0Depth')) or 0)
+            return result*scale if result is not None else None
+        result=number(value);return result*scale if result is not None else None
+    result=[]
+    for i in range(1,8):
+        if not any(row.get(f"Machine{x}{i}") not in (None, "") for x in ("Operation", "Tool", "Dia", "Depth")):continue
+        operation=str(row.get(f'MachineOperation{i}') or '').strip();upper=operation.upper().replace(' ','')
+        tool_type=('spotface' if 'SPOT' in upper else 'flat-bottom-drill' if 'C\'BORE' in upper or 'COUNTERBORE' in upper or 'FLATBOTTOM' in upper
+                   else 'drill' if 'DRILL' in upper or upper=='DRLL' else None)
+        result.append({"operation":operation,"tool":row.get(f"MachineTool{i}"),
+                       "diameter":row.get(f"MachineDia{i}"),"depth":row.get(f"MachineDepth{i}"),
+                       "tool_type":tool_type,"diameter_mm":operand(row.get(f"MachineDia{i}"),'diameter'),
+                       "depth_mm":operand(row.get(f"MachineDepth{i}"),'depth')})
+    return result
 
 
 def active_revision(identity):
@@ -551,7 +585,7 @@ def import_database(source: Path, destination: Path, *, preserve_custom_from: Pa
                           identity["unit"], explicit_manufacturer(identity, revision, row), thread,
                           json.dumps(stages, separators=(",", ":")), json.dumps(primitives, separators=(",", ":")),
                           json.dumps(boundaries, separators=(",", ":")),
-                          json.dumps(machining(row), separators=(",", ":")), clearance, height,
+                          json.dumps(machining(row,scale), separators=(",", ":")), clearance, height,
                           int(usable), reason, 1)
                 if cavity_type in {"P", "PORT"}:
                     connection.execute(

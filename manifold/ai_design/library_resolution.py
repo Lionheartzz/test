@@ -15,7 +15,8 @@ def summary(key,definition):
 
 def search(inputs,query='',role='cavity'):
     kind='port_definition' if role in ('external-port','port_definition') else 'cavity'
-    rows=search_definitions(query=query,unit=inputs.project_context,kind=kind,limit=20)['items']
+    rows=search_definitions(query=query,kind=kind,limit=20)['items']
+    rows.sort(key=lambda row:(row['unit_system']!=inputs.project_context,row['name'],row['id']))
     return [summary('db:'+row['id'],get_definition(row['id'])) for row in rows]
 
 
@@ -31,19 +32,18 @@ def port_standard(value):
 def exact_port_candidates(inputs,specification):
     standard,size=port_standard(specification)
     if not standard or not size:return []
-    rows=search_definitions(query=size.replace('-',' '),unit=inputs.project_context,kind='port_definition',status='usable',limit=200)['items']
+    rows=search_definitions(query=size.replace('-',' '),kind='port_definition',status='usable',limit=500)['items']
     result=[]
     for row in rows:
         row_standard,row_size=port_standard(' '.join((row['name'],row['family'],row['thread_spec'])))
         if (row_standard,row_size)==(standard,size):
             result.append(summary('db:'+row['id'],get_definition(row['id'])))
-    return result
+    return sorted(result,key=lambda row:(row['unit']!=inputs.project_context,row['label'],row['key']))
 
 
 def load(inputs,key,sha=None):
     if not key.startswith('db:'):raise ValueError('AI generation accepts SQLite engineering IDs only')
     definition=get_definition(key[3:])
-    if definition.unit_system!=inputs.project_context:raise ValueError('Definition is outside this project unit context')
     if sha and digest(definition.model_dump())!=sha:raise ValueError('Selected definition changed. Search and confirm it again.')
     return definition
 
@@ -69,8 +69,7 @@ def candidates(inputs,result,component):
     for cartridge in matches:
         for cavity_id in compatible_cavity_ids(cartridge['id']):
             definition=get_definition(cavity_id)
-            if definition.unit_system==inputs.project_context:
-                found.append(dict(**summary('db:'+cavity_id,definition),cartridge_id=cartridge['id'],reason='Explicit SQLite cartridge-cavity relationship'))
+            found.append(dict(**summary('db:'+cavity_id,definition),cartridge_id=cartridge['id'],reason='Explicit SQLite cartridge-cavity relationship'))
     return found
 
 

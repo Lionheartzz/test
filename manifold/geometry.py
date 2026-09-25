@@ -117,6 +117,8 @@ def build_geometry(design: Design, definitions=None, thread_definitions=None, mo
             cuts[f.id] = pieces[0].fuse(*pieces[1:]).clean() if len(pieces) > 1 else pieces[0]
             for z in d.zones:
                 key = f.id if f.kind=='port' else f'{f.id}:{z.id}'
+                if f.kind=='cavity' and z.id not in f.circuits:
+                    continue
                 nodes[key] = cylinder(offset_origin(z.offset_u,z.offset_v), direction, z.diameter, z.start, z.end)
                 if z.clip_to_cut:
                     nodes[key] = nodes[key].intersect(cuts[f.id]).clean()

@@ -107,3 +107,16 @@ def test_source_interface_is_not_enlarged_to_make_flow_pass(tmp_path,monkeypatch
     assert get_definition('QA_PORT').model_dump()==source
     result=report(r)
     assert any(c['rule']=='hydraulic_passage_area' and c['items']==['P1'] and c['status']=='FAIL' for c in result['checks'])
+
+
+def test_auto_sizing_uses_candidate_depth_instead_of_whole_block(monkeypatch):
+    monkeypatch.setattr('manifold.engineering_db.tool_definitions',lambda *args,**kwargs:[
+        dict(id='TOOL_8_5',diameter_mm=8.5,max_depth_mm=120,unit_system='metric'),
+        dict(id='TOOL_10',diameter_mm=10,max_depth_mm=300,unit_system='inch')])
+    d=Design(name='Actual route depth',block=dict(length=200,width=70,height=70,material='QA'),
+        features=[dict(id='P1',kind='port',face='front',u=80,v=35,circuit='P',diameter=12,depth=12,tip_angle=180),
+                  dict(id='P2',kind='port',face='front',u=100,v=35,circuit='P',diameter=12,depth=12,tip_angle=180)],
+        nets=[dict(id='P',members=['P1','P2'],routing='automatic',flow_lpm=20,velocity_limit=6)])
+    resolved,meta=resolve_design(d,exact=False)
+    assert meta[0]['sizing']['selected_tool_id']=='TOOL_8_5'
+    assert max(f.depth for f in resolved.features if f.route_net)<120

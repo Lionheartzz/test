@@ -11,11 +11,16 @@ import {displayMemberName,displayNetName,displayInterfaceName} from './presentat
 function flowSizing(net,tools,requiredDepth,unit){
   if(!net.flow_lpm)return {required:null,selected:null};
   const area=net.flow_lpm*1000/60/(net.velocity_limit||6),required=Math.sqrt(4*area/Math.PI);
-  const selected=[...(tools||[])].filter(row=>(!unit||row.unit_system===unit)&&row.max_depth_mm>=requiredDepth&&Math.PI*row.diameter_mm*row.diameter_mm/4+1e-9>=area).sort((a,b)=>a.diameter_mm-b.diameter_mm||a.max_depth_mm-b.max_depth_mm)[0];
+  const selected=[...(tools||[])].filter(row=>row.max_depth_mm>=requiredDepth&&Math.PI*row.diameter_mm*row.diameter_mm/4+1e-9>=area).sort((a,b)=>a.diameter_mm-b.diameter_mm||(a.unit_system===unit?-1:1)-(b.unit_system===unit?-1:1)||a.max_depth_mm-b.max_depth_mm||a.id.localeCompare(b.id))[0];
   return {required,selected:selected?.diameter_mm||null,tool:selected||null};
 }
 
 const schematicInterfacePattern=/^[A-Za-z][A-Za-z0-9_-]{0,39}$/;
+
+export function filterThreadChoices(threads,family,native='',search=''){
+  const tokens=String(search).toLowerCase().split(/\s+/).filter(Boolean);
+  return threads.filter(row=>row.normalized_family===family&&(!native||row.unit_system===native)&&tokens.every(token=>(row.display_name+' '+row.nominal_size+' '+row.pitch_tpi+' '+row.thread_class).toLowerCase().includes(token)));
+}
 
 export function renameExpectedInterface(component,previous,next){
   const value=String(next||'').trim();
@@ -67,10 +72,10 @@ export function workflows(ctx){
   $('library-open').onclick=guard(library);
 
   $('add-mounting').onclick=guard(async()=>{
-    const threads=(await api('/api/threads?unit='+encodeURIComponent(get().project_context)+'&usable_only=true&limit=500')).items;
-    let mode='plain',face='top',diameter=12,depth=20,threadDepth=16,threadId=threads[0]?.id||'',through=false;
+    const response=await api('/api/threads?usable_only=true&limit=500'),threads=response.items;
+    let mode='plain',face='top',diameter=12,depth=20,threadDepth=16,threadId='',threadFamily=response.families[0]||'',nativeUnit='',threadSearch='',through=false;
     const render=()=>{open('Add mounting hole');field(content,'Hole type',mode,v=>{mode=v;render();},{plain:'Plain Hole',threaded:'Threaded Hole'});field(content,'Face',face,v=>face=v,{top:'Top',bottom:'Bottom',front:'Front',back:'Back',left:'Left',right:'Right'});
-    if(mode==='plain')field(content,'Diameter / mm',diameter,v=>diameter=v,null,true);else{field(content,'Thread specification',threadId,v=>threadId=v,Object.fromEntries(threads.map(row=>[row.id,`${row.display_name} · tap Ø${Number(row.tap_diameter_mm).toFixed(3)} mm`])));field(content,'Thread depth / mm',threadDepth,v=>threadDepth=v,null,true);}
+    if(mode==='plain')field(content,'Diameter / mm',diameter,v=>diameter=v,null,true);else{field(content,'Thread standard / family',threadFamily,v=>{threadFamily=v;threadId='';render();},Object.fromEntries(response.families.map(value=>[value,value])));field(content,'Native standard',nativeUnit,v=>{nativeUnit=v;threadId='';render();},{'':'All',metric:'Metric-native',inch:'Inch-native'});field(content,'Search thread size / specification',threadSearch,v=>{threadSearch=v;threadId='';render();});const visible=filterThreadChoices(threads,threadFamily,nativeUnit,threadSearch);if(!visible.some(row=>row.id===threadId))threadId=visible[0]?.id||'';field(content,'Thread size / specification',threadId,v=>threadId=v,Object.fromEntries(visible.map(row=>[row.id,`${row.display_name} · tap Ø${Number(row.tap_diameter_mm).toFixed(3)} mm · ${row.unit_system} native`])));field(content,'Thread depth / mm',threadDepth,v=>threadDepth=v,null,true);}
     field(content,'Blind drill depth / mm',depth,v=>depth=v,null,true);field(content,'Hole termination',String(through),v=>through=v==='true',{false:'Blind',true:'Through block'});
     content.append(element('p',mode==='plain'?'Creates an explicit non-hydraulic plain bore.':'Thread identity and tap diameter come from SQLite. Exact CAD uses the manufacturing bore envelope, without helical thread faces.'));
     action(content,'Add mounting hole',guard(async()=>{const baseline=JSON.stringify(get()),d=structuredClone(get()),dims=[d.block.length,d.block.width,d.block.height],axes={top:[0,1,2],bottom:[0,1,2],front:[0,2,1],back:[0,2,1],left:[1,2,0],right:[1,2,0]}[face],id='MNT_'+crypto.randomUUID().replaceAll('-','');
@@ -121,7 +126,7 @@ export function workflows(ctx){
       edit('Net label · '+n.id,n.label||n.id,v=>n.label=v);
       const colorWrap=element('label','Display color · '+n.id,'field'),color=element('input');color.type='color';color.setAttribute('aria-label','Display color · '+n.id);color.value=n.color||'#b08bea';color.onchange=()=>{if(change(()=>n.color=color.value))nets();};colorWrap.append(color);card.append(colorWrap);
       edit('Diameter sizing · '+n.id,n.diameter_mode||'automatic',v=>{n.diameter_mode=v;n.routing_variant=null;},{automatic:'Automatic from flow',manual:'Engineer override'});
-      const sizing=flowSizing(n,routingTools,Math.max(get().block.length,get().block.width,get().block.height),get().project_context);
+      const sizing=flowSizing(n,routingTools,0,get().project_context);
       if(n.diameter_mode==='automatic'){
         card.append(element('p',sizing.required==null?'Enter flow to calculate the required passage diameter.':`Calculated minimum: ${sizing.required.toFixed(2)} mm · ${sizing.selected?`Selected standard drill: Ø${sizing.selected.toFixed(2)} mm`:'No available standard drill is large enough.'}`,'property-note'));
         const effective=field(card,'Effective drill diameter · '+n.id,sizing.selected==null?'Unresolved':sizing.selected.toFixed(2),()=>{});effective.disabled=true;
