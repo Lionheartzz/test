@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {featureLabel,returnNetToAutomatic,smartAlign} from '../web/kinematics.js';
 import {displayExternalPortName,displayMemberName,displayIdentity} from '../web/presentation.js';
 import {nextExpectedInterface,renameExpectedInterface,filterThreadChoices} from '../web/workflows.js';
-import {inspectGeneratedDraft} from '../web/ai-generation.js';
+import {aiGeneration,inspectGeneratedDraft} from '../web/ai-generation.js';
+import {hydrateDesign} from '../web/domain.js';
 
 test('generated route labels hide hash ids and keep a deterministic cavity/net alias',()=>{
   const design={features:[
@@ -68,12 +69,49 @@ test('manual schematic intent uses bound cavity interface IDs and keeps mappings
 });
 
 test('AI draft handoff resolves SQLite definitions before entering the Viewer',async()=>{
-  const packet={design:{features:[{kind:'cavity',cavity_id:'CAV_A'}]}},calls=[];
-  const post=async(url,design)=>{calls.push(['inspect',url,design]);return {design,engineering:{definitions:{CAV_A:{id:'CAV_A',cutting_primitives:[{}]}}}};};
+  const packet={design:{features:[{kind:'cavity',cavity_id:'CAV_A'},{id:'MH1',kind:'mounting',thread_definition_id:'THREAD_M10'}]}},calls=[];
+  const post=async(url,design)=>{calls.push(['inspect',url,design]);return {design,engineering:{definitions:{CAV_A:{id:'CAV_A',cutting_primitives:[{}]}},threads:{THREAD_M10:{id:'THREAD_M10',display_name:'M10x1.5-6H',tap_diameter_mm:8}}}};};
   const handoff=await inspectGeneratedDraft(packet,post);calls.push(['open',handoff]);
   assert.equal(calls[0][1],'/api/import-project');
   assert.equal(handoff.definitions.CAV_A.id,'CAV_A');
+  const opened=hydrateDesign(handoff.design,handoff.definitions,handoff.threads);
+  assert.equal(opened.threads.find(row=>row.id===opened.features[1].thread_definition_id).display_name,'M10x1.5-6H');
+  assert.equal(opened.threads[0].tap_diameter_mm,8);
   assert.deepEqual(calls.map(row=>row[0]),['inspect','open']);
+});
+
+test('AI generation renders a fresh plan with provisional and threaded mounting state',async()=>{
+  const actions=[],fields=[];
+  const element=(tag,text='',className='')=>({tag,textContent:text,className,children:[],open:false,
+    classList:{add(){}},append(...children){this.children.push(...children);},setAttribute(){},querySelectorAll(){return [];}});
+  const content=element('div'),dialog={open:true},title={textContent:''},error={textContent:''};
+  const $=id=>({'workflow-content':content,'workflow-dialog':dialog,'workflow-title':title,'workflow-error':error})[id];
+  const field=(parent,label,value,onChange)=>{fields.push({label,value,onChange});const input=element('input');parent.append(input);return input;};
+  const action=(parent,label,callback)=>{actions.push({label,callback});const button=element('button',label);parent.append(button);return button;};
+  let submitted;
+  const post=async(_url,body)=>{submitted=structuredClone(body.options);return {ready:false,blocked:['Choose port geometry'],components:[],
+    external_ports:[{id:'EXT_P',label:'P',specification:'',definition:null,standard:null,provisional:Object.hasOwn(body.options.provisional_ports,'EXT_P')}],
+    mounting_requirements:['M10x1.5 at engineer-entered positions'],mounting_holes:[],ports:[],nets:[],dispositions:[]};};
+  const api=async()=>({families:['BSPP','Metric','UNC'],items:[{id:'THREAD_M10',normalized_family:'Metric',unit_system:'metric',display_name:'M10x1.5-6H'}]});
+  const task={id:'TASK',revision:'REV',inputs:{project_context:'metric'}},run={id:'RUN',status:'completed',provider:{id:'mock',model:'fixture',is_mock:true}};
+  const generator=aiGeneration({$,element,field,action,api,post},{open:label=>{title.textContent=label;content.children=[];},back(){},
+    session:()=>({task,run,dirty:false}),refreshTask(){},watchJob(){}});
+  await generator.prepare();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(submitted.provisional_ports,{});
+  assert.deepEqual(submitted.threaded_mounting_holes,[]);
+  assert.equal(submitted.mounting_decision,'');
+  assert.equal(fields.find(row=>row.label==='Thread standard / family')?.value,'Metric');
+  assert.equal(fields.find(row=>row.label==='Native standard')?.value,'');
+  assert.ok(actions.some(row=>row.label==='Choose One-off Custom Straight Bore · P'));
+  actions.find(row=>row.label==='Choose One-off Custom Straight Bore · P').callback();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(Object.hasOwn(submitted.provisional_ports,'EXT_P'));
+  assert.ok(fields.some(row=>row.label==='Provisional straight-bore decision · P'));
+  task.inputs.project_context='inch';run.id='RUN_INCH';
+  await generator.prepare();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(fields.filter(row=>row.label==='Thread standard / family').at(-1)?.value,'UNC');
 });
 
 test('Smart Align uses the SQLite external-port hydraulic window without duplicated depth',()=>{

@@ -263,6 +263,27 @@ def test_ai_mounting_and_provisional_ports_keep_explicit_engineering_standards(c
     assert any('cannot be replaced by a straight bore' in row for row in plan['blocked'])
 
 
+def test_imported_ai_threaded_draft_has_thread_facts_before_first_preview(client):
+    from manifold.schema import Design
+    thread=next(row for row in search_threads('',usable_only=True,limit=500)
+                if row['display_name']=='M10x1.5-6H' and row['tap_diameter_mm']==pytest.approx(8.0))
+    design=Design(name='AI threaded draft',project_context='metric',
+                  block=dict(length=80,width=80,height=80,material='QA'),features=[
+                      dict(id='MH1',kind='mounting',face='top',u=25,v=25,mounting_mode='threaded',
+                           thread_definition_id=thread['id'],thread_depth=16,depth=20)])
+    imported=client.post('/api/import-project',json=design.model_dump(),headers=HEADERS)
+    assert imported.status_code==200,imported.text
+    hydrated=imported.json()['engineering']['threads'][thread['id']]
+    assert hydrated['display_name']=='M10x1.5-6H' and hydrated['tap_diameter_mm']==pytest.approx(8.0)
+    preview=client.post('/api/preview-solid',json=imported.json()['design'],headers=HEADERS)
+    assert preview.status_code==200,preview.text[:500]
+    project=projects.save(design)
+    reopened=client.get('/api/projects/'+project['project_id'])
+    assert reopened.status_code==200,reopened.text
+    assert reopened.json()['design']['features'][0]['thread_definition_id']==thread['id']
+    assert reopened.json()['engineering']['threads'][thread['id']]['display_name']==hydrated['display_name']
+
+
 def test_jobs_finish_and_restart_status_does_not_claim_success(client,monkeypatch):
     task,run=analyzed(client)
     monkeypatch.setattr(service,'analyze',lambda *args:dict(task=task,run=run))
