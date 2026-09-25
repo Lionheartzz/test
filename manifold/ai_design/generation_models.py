@@ -12,6 +12,7 @@ class Binding(Strict):
 
 
 class ThreadedMountingHole(Strict):
+    requirement_id: Key | None = None
     thread_definition_id: str = Field(pattern=r'^[A-Za-z][A-Za-z0-9_-]{0,39}$')
     face: Face = 'top'
     u: float = Field(ge=0,le=2000)

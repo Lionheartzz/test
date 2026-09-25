@@ -91,7 +91,7 @@ test('AI generation renders a fresh plan with provisional and threaded mounting 
   let submitted;
   const post=async(_url,body)=>{submitted=structuredClone(body.options);return {ready:false,blocked:['Choose port geometry'],components:[],
     external_ports:[{id:'EXT_P',label:'P',specification:'',definition:null,standard:null,provisional:Object.hasOwn(body.options.provisional_ports,'EXT_P')}],
-    mounting_requirements:['M10x1.5 at engineer-entered positions'],mounting_holes:[],ports:[],nets:[],dispositions:[]};};
+    mounting_requirements:[{intent_id:'I1',mounting:{thread_designation:'M10x1.5-6H'}},{intent_id:'I2',mounting:{thread_designation:'3/8-16 UNC'}}],mounting_holes:[],ports:[],nets:[],dispositions:[]};};
   const api=async()=>({families:['BSPP','Metric','UNC'],items:[{id:'THREAD_M10',normalized_family:'Metric',unit_system:'metric',display_name:'M10x1.5-6H'}]});
   const task={id:'TASK',revision:'REV',inputs:{project_context:'metric'}},run={id:'RUN',status:'completed',provider:{id:'mock',model:'fixture',is_mock:true}};
   const generator=aiGeneration({$,element,field,action,api,post},{open:label=>{title.textContent=label;content.children=[];},back(){},
@@ -112,6 +112,13 @@ test('AI generation renders a fresh plan with provisional and threaded mounting 
   await generator.prepare();
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(fields.filter(row=>row.label==='Thread standard / family').at(-1)?.value,'UNC');
+  actions.find(row=>row.label==='Add resolved mounting hole').callback();
+  await new Promise(resolve=>setImmediate(resolve));
+  const assignment=fields.find(row=>row.label==='Hole 1 requirement');
+  assert.ok(assignment);
+  assignment.onChange('I1');
+  await generator.prepare();
+  assert.equal(submitted.threaded_mounting_holes[0].requirement_id,'I1');
 });
 
 test('Smart Align uses the SQLite external-port hydraulic window without duplicated depth',()=>{

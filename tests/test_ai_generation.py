@@ -261,6 +261,45 @@ def test_ai_mounting_and_provisional_ports_keep_explicit_engineering_standards(c
     plan=generation.prepare(inputs_model,result,options)
     assert plan['mounting'][0]['thread']['unit_system']=='inch'
     assert any('cannot be replaced by a straight bore' in row for row in plan['blocked'])
+    bsp=exact_port_candidates(inputs_model,'G1/4 BSPP')[0]
+    wrong=generation.prepare(inputs_model,result,GenerationOptions(
+        port_definitions={'EXT_P':dict(definition_key=bsp['key'],definition_sha256=bsp['sha256'],
+                                       decision='Selected a different standard')},
+        provisional_ports={'EXT_T':'One-off bore explicitly approved.'}))
+    assert any('conflicts with explicit source standard' in row for row in wrong['blocked'])
+
+
+def test_ai_mounting_requirement_is_applied_only_after_all_four_exact_holes(client):
+    task,run=analyzed(client)
+    inputs_model=TaskInput.model_validate(task['inputs'])
+    result=copy.deepcopy(run['result'])
+    result['design_intent'].append(dict(id='MOUNT_1',category='mounting',property='threaded_hole',
+        operator='equal',strength='requirement',target_labels=[],value='4 x M10x1.5-6H',
+        mounting=dict(count=4,thread_designation='M10x1.5-6H',thread_family='Metric')))
+    m10=next(row for row in search_threads('M10x1.5',usable_only=True,limit=200)
+             if row['display_name']=='M10x1.5-6H')
+    m12=next(row for row in search_threads('M12x1.75',usable_only=True,limit=200)
+             if row['display_name']=='M12x1.75-6H')
+    def plan(thread,positions):
+        return generation.prepare(inputs_model,result,GenerationOptions(
+            threaded_mounting_holes=[dict(thread_definition_id=thread['id'],face='top',u=x,v=20,
+                                           depth=20,thread_depth=16,requirement_id='MOUNT_1') for x in positions],
+            mounting_decision='Explicit source thread and engineer-entered positions.'))
+    assert plan(m10,[20,40,60,80])['settings']['mounting_requirements'][0]['status']=='applied'
+    assert plan(m10,[20,40,60])['settings']['mounting_requirements'][0]['status']=='partially_applied'
+    assert plan(m12,[20])['settings']['mounting_requirements'][0]['status']=='conflict'
+    assert plan(m10,[])['settings']['mounting_requirements'][0]['status']=='review_required'
+
+
+def test_ai_initial_drill_diameter_comes_from_sqlite_tool_master(client):
+    from manifold.engineering_db import select_tool
+    task,run=analyzed(client)
+    request=selection_request(task,run,drilling_diameter=8.37)
+    plan=generation.prepare(TaskInput.model_validate(task['inputs']),run['result'],request.options)
+    design,_,_=generation.candidate(plan,'a'*32,0)
+    expected=select_tool(8.37,0,unit='metric')['diameter_mm']
+    assert expected!=8.37
+    assert all(net.diameter==expected for net in design.nets)
 
 
 def test_imported_ai_threaded_draft_has_thread_facts_before_first_preview(client):

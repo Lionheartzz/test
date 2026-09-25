@@ -332,6 +332,18 @@ def normalized_thread_family(value) -> str:
     return "Other"
 
 
+def thread_semantics(value):
+    """Correct display/manufacturing semantics without changing stable thread IDs."""
+    name=str(value.get("display_name") or value.get("pitch_tpi") or "").upper().strip()
+    family=normalized_thread_family(value)
+    if re.match(r"^RP\s*\d",name):return {"tapered":0,"thread_form":"parallel_internal_iso7"}
+    if re.match(r"^RC\s*\d",name):return {"tapered":1,"thread_form":"tapered_internal_iso7"}
+    if re.match(r"^R\s*\d",name):return {"tapered":1,"thread_form":"tapered_external_iso7"}
+    if family=="BSPP":return {"tapered":0,"thread_form":"parallel_iso228"}
+    if family in ("NPT","NPTF"):return {"tapered":1,"thread_form":"tapered_pipe"}
+    return {"tapered":0,"thread_form":"parallel"}
+
+
 def normalized_port_family(value) -> str:
     text=" ".join(str(value.get(key) or "") for key in ("name","family","thread_spec")).upper()
     if "NPTF" in text:return "NPTF"
@@ -566,7 +578,7 @@ def search_threads(query="", unit="", *, family="", include_inactive=False, usab
     rows=[dict(row) for row in connection.execute(
         f"SELECT * FROM thread_definitions WHERE {' AND '.join(where)} ORDER BY family,display_name,tap_diameter_mm,id",
         values).fetchall()]
-    rows=[row | {"normalized_family":normalized_thread_family(row)} for row in rows]
+    rows=[row | {"normalized_family":normalized_thread_family(row)} | thread_semantics(row) for row in rows]
     return [row for row in rows if not family or row["normalized_family"]==family][:limit]
 
 
@@ -576,7 +588,8 @@ def thread_definition(identifier: str, *, include_inactive=True, connection: sql
     row=connection.execute("SELECT * FROM thread_definitions WHERE id=?",(identifier,)).fetchone()
     if row is None or not include_inactive and not row["active"]:
         raise ValueError(f"Thread definition not found: {identifier}")
-    return dict(row)
+    value=dict(row)
+    return value | {"normalized_family":normalized_thread_family(value)} | thread_semantics(value)
 
 
 def thread_definitions_for_design(design, *, connection: sqlite3.Connection | None = None):

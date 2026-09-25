@@ -51,19 +51,36 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None):
         definitions=definitions_for_design(design)
     points = terminal_points(design,definitions)
     pairs = spanning_pairs(sorted(set(points[m] for m in net.members if m in points)))
+    ports_at = {points[f.id]:f for f in design.features if f.kind=='port' and not f.suppressed
+                and f.id in net.members and f.id in points and f.circuit==net.id}
+    def port_stem(feature, point):
+        origin,direction=pose(feature,design.block)
+        definition=definitions[feature.definition] if feature.definition else None
+        window_end=definition.zones[0].end if definition else feature.depth
+        cut_radius=(max(max(stage.diameter,getattr(stage,'end_diameter',0)) for stage in
+                        (definition.cutting_primitives or definition.stages))/2 if definition else feature.diameter/2)
+        current=sum((point[i]-origin[i])*direction[i] for i in range(3))
+        # Turn away from the port only after clearing its protected machining
+        # body. The coaxial terminal drilling itself remains open.
+        depth=max(window_end,current)+cut_radius+net.diameter/2+design.rules.minimum_wall
+        return tuple(point[i]+direction[i]*(depth-current) for i in range(3))
     lines = {}
     for a,b in pairs:
-        waypoints = [a,b]
+        if b in ports_at and a not in ports_at:a,b=b,a
+        start=port_stem(ports_at[a],a) if a in ports_at else a
+        end=port_stem(ports_at[b],b) if b in ports_at else b
+        waypoints = [a,start,end,b] if a in ports_at and b in ports_at else [a,start,end] if a in ports_at else [start,end,b] if b in ports_at else [a,b]
         if detour != 'direct':
             _,name,side = detour.split('_')
             axis = 'xyz'.index(name)
             offset = (net.diameter + design.rules.minimum_wall) * (1 if side[0] == 'p' else -1) * (2 if side.endswith('2') else 1)
-            coordinate = (a[axis] + b[axis])/2 + offset
+            coordinate = (start[axis] + end[axis])/2 + offset
             margin = max(12, net.diameter/2 + design.rules.minimum_wall)
             coordinate = max(margin,min(dimensions(design.block)[axis]-margin,coordinate))
-            aa,bb = list(a),list(b)
+            aa,bb = list(start),list(end)
             aa[axis] = bb[axis] = coordinate
-            waypoints = [a,tuple(aa),tuple(bb),b]
+            insert=waypoints.index(start)+1
+            waypoints[insert:insert]=[tuple(aa),tuple(bb)]
         for start,end in zip(waypoints,waypoints[1:]):
             p = list(start)
             for axis in order:
@@ -72,12 +89,19 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None):
                 fixed = tuple(round(p[i], 6) for i in range(3) if i != axis)
                 key = (axis, fixed)
                 lo,hi = sorted((p[axis], end[axis]))
-                old = lines.get(key, (lo,hi))
-                lines[key] = (min(lo,old[0]), max(hi,old[1])); p[axis] = end[axis]
+                lines.setdefault(key,[]).append((lo,hi)); p[axis] = end[axis]
     sizes = dimensions(design.block)
     features = []
     digest = hashlib.sha256(net.id.encode()).hexdigest()[:8]
-    for (axis, fixed), (lo,hi) in sorted(lines.items()):
+    segments=[]
+    for key,intervals in lines.items():
+        merged=[]
+        for lo,hi in sorted(intervals):
+            if merged and lo<=merged[-1][1]+1e-7:
+                merged[-1]=(merged[-1][0],max(hi,merged[-1][1]))
+            else:merged.append((lo,hi))
+        segments.extend((key,interval) for interval in merged)
+    for (axis, fixed), (lo,hi) in sorted(segments):
         neg,pos = [('left','right'),('front','back'),('bottom','top')][axis]
         p = list(fixed); p.insert(axis,0)
         options = []
@@ -91,8 +115,8 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None):
             depth = hi + net.diameter/2 if sign > 0 else sizes[axis]-lo+net.diameter/2
             preference_value = entry or net.entry_preference
             preference = 0 if preference_value == 'nearest' or (preference_value == 'negative') == (sign > 0) else 10000
-            options.append((preference + depth + (0 if coaxial else 200), face, depth, coaxial))
-        _,face,depth,coaxial = min(options)
+            options.append((not coaxial, preference + depth, face, depth, coaxial))
+        _,_,face,depth,coaxial = min(options)
         u,v,_,_ = FACE_AXES[face]
         features.append(Feature(id=f'R-{digest}-{len(features)+1}', kind='drilling', face=face, u=p[u], v=p[v],
                                 circuit=net.id, diameter=net.diameter, depth=max(depth,9), plugged=not coaxial,
@@ -398,6 +422,7 @@ def _resolve_proposals(design):
             option['tool_sizing']=actual
             option['hard_failures']=len(route_obstructions(context,net,option['route'],thread_definitions))
             option['risk']=proximity_risk(context,net,option['route'],definitions,thread_definitions)
+            option['cost']=route_cost(context,option['route'])
             return actual
         # Pinned candidates are materialized directly; enumerating their entire
         # neighbourhood again would multiply the cost of each exact attempt.

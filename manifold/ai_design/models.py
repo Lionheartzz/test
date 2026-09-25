@@ -1,7 +1,7 @@
 """Versioned circuit/intent contract, independent of physical manifold placement."""
 from typing import Annotated, Literal
 from pydantic import Field, model_validator
-from ..schema import Strict, SchematicAsset
+from ..schema import Strict, SchematicAsset, Face
 
 Key=Annotated[str,Field(pattern=r'^[A-Za-z][A-Za-z0-9_-]{0,63}$')]
 Digest=Annotated[str,Field(pattern=r'^[0-9a-f]{64}$')]
@@ -105,6 +105,17 @@ class HydraulicNet(Strict):
     claim_ids: list[Key] = Field(min_length=1,max_length=40)
 
 
+class MountingRequirement(Strict):
+    count: int | None = Field(default=None,ge=1,le=40)
+    thread_family: str | None = Field(default=None,max_length=80)
+    thread_designation: str | None = Field(default=None,max_length=120)
+    face: Face | None = None
+    positions: list[tuple[float,float]] | None = Field(default=None,max_length=40)
+    through: bool | None = None
+    drill_depth: float | None = Field(default=None,gt=0,le=2000)
+    thread_depth: float | None = Field(default=None,gt=0,le=2000)
+
+
 class DesignIntent(Strict):
     id: Key
     category: Literal['component_selection','port_face','envelope','material','mounting','pressure','flow','routing','separation','priority','serviceability','source_instruction','other']
@@ -115,6 +126,7 @@ class DesignIntent(Strict):
     claim_id: Key
     # Labels are not silently bound to an internal port/component ID.
     bound_entity_ids: list[Key] = Field(default_factory=list,max_length=30)
+    mounting: MountingRequirement | None = None
 
 
 class Unresolved(Strict):

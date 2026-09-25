@@ -1,6 +1,6 @@
 """AI engineering-library binding through the same runtime SQLite master."""
 import re
-from ..engineering_db import compatible_cavity_ids,get_definition,search_cartridges,search_definitions
+from ..engineering_db import compatible_cavity_ids,get_definition,normalized_port_family,search_cartridges,search_definitions
 from .service import digest
 
 
@@ -22,21 +22,51 @@ def search(inputs,query='',role='cavity'):
 
 def port_standard(value):
     text=str(value or '').upper().replace('"','').strip()
-    standard=('NPTF' if 'NPTF' in text else 'NPT' if 'NPT' in text else
-              'BSPT' if any(token in text for token in ('BSPT',' RC',' R ',' RP')) else
-              'BSPP' if 'BSPP' in text or re.search(r'(^|\s)G\s*\d',text) else None)
-    match=re.search(r'(?<!\d)(\d+(?:[ -]\d+/\d+|/\d+))(?!\d)',text)
-    return (standard,re.sub(r'\s+','-',match.group(1)) if match else None)
+    standard=('SAE_J518' if 'J518' in text or re.search(r'\bSAE\s+FLANGE\b',text) else
+              'ISO_6149' if '6149' in text else
+              'SAE_ORB' if 'J1926' in text or 'SAE ORB' in text or re.search(r'#\s*\d+\s+SAE\b',text) else
+              'NPTF' if 'NPTF' in text else 'NPT' if 'NPT' in text else
+              'BSPT' if 'BSPT' in text or re.search(r'(?<![A-Z])(?:RC|RP|R)\s*\d',text) else
+              'BSPP' if 'BSPP' in text or re.search(r'(?<![A-Z])G\s*\d',text) else None)
+    if standard=='SAE_ORB':
+        match=re.search(r'#\s*(\d+)\b',text)
+        return standard, '#'+match.group(1) if match else None
+    if standard=='ISO_6149':
+        match=re.search(r'\bM\s*(\d+(?:\.\d+)?)\s*[X×]\s*(\d+(?:\.\d+)?)',text)
+        return standard, 'M'+match.group(1)+'X'+match.group(2) if match else None
+    if standard=='SAE_J518':
+        code=re.search(r'\b(?:CODE\s*)?(61|62)\b',text)
+        size=re.search(r'(?<!\d)(\d+(?:[- ]\d+\/\d+|\/\d+))(?!\d)',text)
+        return standard, (code.group(1)+':'+re.sub(r'\s+','-',size.group(1))) if code and size else None
+    if standard=='BSPT':
+        match=re.search(r'(?<![A-Z])(RC|RP|R)\s*(\d+(?:[- ]\d+\/\d+|\/\d+)?)',text)
+        return standard,match.group(1)+re.sub(r'\s+','-',match.group(2)) if match else None
+    if standard=='BSPP':
+        match=re.search(r'(?<![A-Z])G\s*(\d+(?:[- ]\d+\/\d+|\/\d+)?)',text)
+        if not match:
+            match=re.search(r'(?<!\d)(\d+(?:[- ]\d+\/\d+|\/\d+)?)\s*BSPP\b',text)
+        if match:return standard,re.sub(r'\s+','-',match.group(1))
+    match=re.search(r'(?<!\d)(\d+(?:[- ]\d+\/\d+|\/\d+)?)(?:-\d+(?:\.\d+)?)?\s*NPTF?\b',text)
+    if not match and standard in ('NPT','NPTF'):
+        match=re.search(r'\bNPTF?\s*(\d+(?:[- ]\d+\/\d+|\/\d+)?)',text)
+    return standard,re.sub(r'\s+','-',match.group(1)) if match else None
+
+
+def _explicit_pitch(value):
+    match=re.search(r'(?<!\d)\d+(?:[- ]\d+/\d+|/\d+)?-(\d+(?:\.\d+)?)\s*NPTF?\b',str(value or '').upper())
+    return match.group(1) if match else None
 
 
 def exact_port_candidates(inputs,specification):
     standard,size=port_standard(specification)
     if not standard or not size:return []
-    rows=search_definitions(query=size.replace('-',' '),kind='port_definition',status='usable',limit=500)['items']
+    rows=search_definitions(kind='port_definition',status='usable',limit=1000)['items']
     result=[]
     for row in rows:
+        if normalized_port_family(row)!=standard:continue
         row_standard,row_size=port_standard(' '.join((row['name'],row['family'],row['thread_spec'])))
-        if (row_standard,row_size)==(standard,size):
+        if ((row_standard,row_size)==(standard,size) and
+                (not _explicit_pitch(specification) or _explicit_pitch(row['thread_spec'])==_explicit_pitch(specification))):
             result.append(summary('db:'+row['id'],get_definition(row['id'])))
     return sorted(result,key=lambda row:(row['unit']!=inputs.project_context,row['label'],row['key']))
 

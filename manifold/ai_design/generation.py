@@ -72,11 +72,6 @@ def prepare(inputs, result, options):
     material_matches=[row for row in materials() if library.norm(row['display_name'])==library.norm(settings['material'])]
     settings['material_id']=material_matches[0]['id'] if len(material_matches)==1 else None
     blocked = list(settings['conflicts'])
-    if settings['mounting_requirements'] and not options.threaded_mounting_holes:
-        blocked.append('Threaded mounting-hole intent is present, but exact thread IDs and positions are unresolved. No coordinates were invented.')
-    elif settings['mounting_requirements'] and options.threaded_mounting_holes:
-        for row in settings['mounting_requirements']:
-            row.update(status='applied',message='Engineer-resolved SQLite thread IDs and explicit positions are used; no placement was inferred.')
     if len(result['components']) > 4 or len(result['ports']) > 40 or len(result['nets']) > 16:
         blocked.append('First-generation scope is at most 4 cartridges, 40 hydraulic terminals and 16 nets.')
     if not result['ports'] or not result['nets'] and any(p.get('disposition')=='connected' for p in result['ports']):
@@ -150,6 +145,11 @@ def prepare(inputs, result, options):
             raise ValueError('External ports require a source external-port definition with one hydraulic interface')
         if definition and selected and not selected.decision.strip():
             blocked.append(f'{port["id"]}: confirm the external-port definition choice.')
+        requested_standard,requested_size=library.port_standard(specification)
+        if definition and requested_standard:
+            if not requested_size or definition.id not in {
+                    row['key'][3:] for row in library.exact_port_candidates(inputs,specification)}:
+                blocked.append(f'{port["id"]}: selected port conflicts with explicit source standard “{specification}”. Correct the source requirement before selecting a different standard.')
         provisional=port['id'] in options.provisional_ports
         if provisional and library.port_standard(specification)[0]:
             blocked.append(f'{port["id"]}: explicit standard {specification} cannot be replaced by a straight bore. Resolve a complete matching port definition.')
@@ -174,6 +174,8 @@ def prepare(inputs, result, options):
         if hole.thread_depth>hole.depth:
             blocked.append(f'Mounting hole {index}: thread depth exceeds tap-drill depth.')
         mounting.append(dict(hole=hole,thread=thread))
+    from .intent import reconcile_mounting
+    blocked.extend(reconcile_mounting(settings['mounting_requirements'],mounting))
     for row in settings['dispositions']:
         if row['category'] == 'separation' and row['status'] == 'pending':
             sets = []
@@ -334,7 +336,11 @@ def candidate(plan, generation_id, variant):
         flow=parameter_for(result,settings['flows'],net)
         pressure=parameter_for(result,settings['pressures'],net)
         required=math.sqrt(4*(flow/60000)/6/math.pi)*1000 if flow else 0
-        diameter=next((d for d in [4,5,6,8,10,12,16,20,25,32] if d>=max(options.drilling_diameter,required)),32)
+        from ..engineering_db import select_tool
+        tool=select_tool(max(options.drilling_diameter,required),0,unit=inputs.project_context)
+        if not tool:
+            raise ValueError(f'{net["id"]}: no source-backed drill meets the requested/hydraulic minimum diameter')
+        diameter=tool['diameter_mm']
         design.nets.append(HydraulicNet(id=net_ids[net['id']],label=str(library.value(result,net['id'],'label') or net['id'])[:120],
             members=[terminal_map[p] for p in net['members']],routing='automatic',diameter=diameter,
             flow_lpm=flow,pressure_bar=pressure))

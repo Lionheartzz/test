@@ -127,7 +127,9 @@ def thread_record(row, scale):
         value=number(row.get(f"Circle{int(match.group(1))}Dia")) if match else number(raw)
         if value and value>0:tap=value*scale;break
     semantic_unit='metric' if family=='Metric' else 'inch'
-    tapered=family in ('NPT','NPTF','BSPT')
+    # Rp is the parallel internal ISO 7 mate of tapered R/Rc threads. Keep
+    # the existing family in the stable ID signature to preserve references.
+    tapered=family in ('NPT','NPTF') or family=='BSPT' and not upper.startswith('RP')
     nominal_match=re.match(r'^M\s*(\d+(?:[.,]\d+)?)\s*[Xx]',display)
     impossible_metric_bore=bool(tap is not None and nominal_match and tap>=float(nominal_match.group(1).replace(',','.')))
     signature=(re.sub(r"\s+","",display).upper(),family,semantic_unit,round(tap,6) if tap else None,tool_key)
