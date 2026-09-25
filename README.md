@@ -30,13 +30,15 @@ Windows CAD 依赖已固定版本；`manifold/cad.py` 会先加载 CasADi 再加
 
 ## 日常设计（新版默认英文界面）
 
+Studio 采用全窗口工作区：Feature Tree 与 Inspector 可拖动宽度或收起，窄窗口改用侧栏抽屉；底部 Validation Results 可展开并调整高度。顶栏的 Project、Engineering 菜单和左侧 **+ Add Feature** 调用原有工作流，Viewport 的 Display 菜单保留图层及逐网可见性。Reset layout 只清除本机界面布局偏好，不修改工程项目。
+
 1. **New Manifold** 五步完成阀块、Metric/Inch 上下文、网络与油口、cavity 选择、放置与接口分配、复核。每个网络独立配置 0–8 个外部油口，每个油口可选择面、规格及 SQLite external-port definition，也可使用 Custom straight bore。Cartridge first 只显示数据库中的明确兼容关系；Cavity first 允许 Cartridge 保持为空。项目只保存稳定 ID 和项目状态，不复制工程主库记录。工程坐标始终为 mm，界面保留完整编辑入口。**Import Project / Export Project** 是 AI 和人工设计的共同入口。项目 JSON 上限 8 MB，图纸二进制仍单独存放在本地 assets。
 2. **Schematic** 上传 PDF、PNG 或 JPEG。AI 提供者与模型信息属于可携带的项目来源字段；AI Design 可调用用户配置的服务生成草稿。可选 Codex handoff 收在展开项中，通用 AI 交付格式见 [AI_PROJECT_CONTRACT.md](docs/AI_PROJECT_CONTRACT.md)。
 3. **Engineering Review** 管理实际存在的假设、尺寸、选型和连接疑问。Cavity placement 本身不创建 review；工程主库定义在运行时只读。
-4. **Cavity Library** 通过后端查询 SQLite 工程主库。Cavity、External port definition 与 Cartridge 是独立概念；项目只保存稳定 ID。影响 CAD 的主数据修改使用新的稳定定义 ID。
+4. **Engineering Library** 通过后端查询 SQLite 工程主库。Cavity、External port definition 与 Cartridge 是独立概念；项目只保存稳定 ID。影响 CAD 的主数据修改使用新的稳定定义 ID。
 5. 元件支持 Duplicate、Replace、Suppress、Delete、换面、位置与网络编辑。六面孔口中心及附近均可开始拖动，悬停高亮、grab / grabbing 光标显示状态；完整安装包络限制边界，默认 1 mm 吸附、Alt 暂停。Undo / Redo 可撤销草稿操作。
-6. 三维中直接点击生成的钻孔可检查其网络、尺寸和位置；**Refine in 3D** 固定该回路当前分段，可从可见钻孔整段悬停、选中和拖动。拖动结束后尽可能延长相连正交支路以保留交点，并运行精确草稿检查。**Hydraulic Nets** 区分连接意图和派生钻孔；显式 Optimize 可比较正交轴顺序、入口和偏移路径，最多六个精确候选。Save & Validate 只对报告明确指出可由 reroute 修复的自动 net 产生候选；Cartridge、schematic、review、主库引用和固定几何失败不会触发路线搜索。冻结和手动钻孔保持不变。参数拖动预览仍明确标为未验证；最小壁厚硬规则不变。
-7. **Save & Validate** 保存精确 OCCT 实体、验证结果和不可变构建。**Hydraulic nets** 显示按网络分别布尔并集后的液压体；**Machined void** 显示完整加工空腔；**Solid** 显示实体阀块；**Feature layers** 分别检查 cavity、port、液压窗口和闭合区。跨网络接触显示精确碰撞体。编辑先显示明确标识的近似预览，精确结果就绪后更新模型和路线树。预览使用最新快照、合并连续编辑，只显示未验证/未优化的当前候选。失败显示具体原因并保留上一份可用视图。当前 PASS 才开放 STEP；`manufacturing_ready` 独立于几何结果。
+6. 三维中直接点击生成的钻孔可检查其网络、尺寸和位置；**Refine in 3D** 固定该回路当前分段，可从可见钻孔整段悬停、选中和拖动。拖动结束后尽可能延长相连正交支路以保留交点，并运行精确草稿检查。**Hydraulic Nets** 区分连接意图和派生钻孔；显式 Optimize 可比较正交轴顺序、入口和偏移路径，最多六个精确候选。Validate 只对报告明确指出可由 reroute 修复的自动 net 产生候选；Cartridge、schematic、review、主库引用和固定几何失败不会触发路线搜索。冻结和手动钻孔保持不变。参数拖动预览仍明确标为未验证；最小壁厚硬规则不变。
+7. **Validate** 保存精确 OCCT 实体、验证结果和不可变构建。**Hydraulic nets** 显示按网络分别布尔并集后的液压体；**Machined void** 显示完整加工空腔；**Solid** 显示实体阀块；**Feature layers** 分别检查 cavity、port、液压窗口和闭合区。跨网络接触显示精确碰撞体。编辑先显示明确标识的近似预览，精确结果就绪后更新模型和路线树。预览使用最新快照、合并连续编辑，只显示未验证/未优化的当前候选。失败显示具体原因并保留上一份可用视图。当前 PASS 才开放 STEP；`manufacturing_ready` 独立于几何结果。
 
 运行时工程主库是 `data/pmc_engineering.db`（可用 `PMC_ENGINEERING_DB` 配置）。数据库由开发者/操作员显式从 `PMC_MDTools_Master_Library_2026R2_Merged` 一次性初始化；应用启动不会扫描、导入、重建或修复工程库。缺失或无效数据库会明确失败。初始化与项目转换命令见 [SQLite engineering library](docs/SQLITE_ENGINEERING_LIBRARY.md)。
 
@@ -54,13 +56,13 @@ Windows CAD 依赖已固定版本；`manifold/cad.py` 会先加载 CasADi 再加
 
 ## Drawing Workspace · V2.3
 
-在已保存的 Project 内完成 **Save & Validate → Drawings → Create Drawing**，选择客户图或制造图。两类图纸使用同一个视觉编辑器：精确实体投影、关联尺寸、说明与引出线、视图与基本剖面、表格、PMC 标题栏、模板、撤销重做和矢量 PDF。图纸独立保存于 Project，可重开、检测源变化、预览更新、创建修订和发行不可变 PDF。制造图复用已有 Library / Manifold 数据；新增的普通安装孔是实际非液压切削特征，仍经过实体校验。
+在已保存的 Project 内完成 **Validate → Drawing → Create Drawing**，选择客户图或制造图。两类图纸使用同一个视觉编辑器：精确实体投影、关联尺寸、说明与引出线、视图与基本剖面、表格、PMC 标题栏、模板、撤销重做和矢量 PDF。图纸独立保存于 Project，可重开、检测源变化、预览更新、创建修订和发行不可变 PDF。制造图复用已有 Library / Manifold 数据；新增的普通安装孔是实际非液压切削特征，仍经过实体校验。
 
 操作说明见 [Drawing Workspace](docs/DRAWING_WORKSPACE.md)，实际交付范围、验收证据与参考文件缺口见 [V2.3 验收记录](docs/V23_ACCEPTANCE.md)。图纸状态不会修改工程校验或制造就绪结果。Drawing 及其历史保存在本机，现有 `.pmc.json` 导出仍以 Manifold 数据为范围。
 
 ## 和 Codex 协作
 
-当前打开项目的权威记录为 **`projects/saved/<id>.json`**，包含项目状态、工程主库 ID、更新时间、归档标记与构建指针。**Save Project** 保存未通过校验的工作进度；**Save & Validate** 保存并构建。Projects 可搜索、重命名、复制、归档和恢复项目。Delete permanently 要求输入完整项目名，删除该项目记录及修订历史；工程主库、assets 与不可变构建保留。每次启动先展示项目库，不自动打开 demo。项目不嵌入完整 cavity 或 Cartridge 主数据；自动钻孔保存在构建的 resolved_design.json。可以直接告诉 Codex：
+当前打开项目的权威记录为 **`projects/saved/<id>.json`**，包含项目状态、工程主库 ID、更新时间、归档标记与构建指针。**Save Project** 保存未通过校验的工作进度；**Validate** 保存并构建。Projects 可搜索、重命名、复制、归档和恢复项目。Delete permanently 要求输入完整项目名，删除该项目记录及修订历史；工程主库、assets 与不可变构建保留。每次启动先展示项目库，不自动打开 demo。项目不嵌入完整 cavity 或 Cartridge 主数据；自动钻孔保存在构建的 resolved_design.json。可以直接告诉 Codex：
 
 - “把 CV2 沿 X 移动 15 mm，重建并检查连接。”
 - “把 RV1 改到前面，并调整相关钻孔，保留 7 mm 最小壁厚。”
@@ -152,7 +154,7 @@ PASS 仅代表当前规则范围通过，**不是制造放行或承压认证**�
 - Cartridge compatibility 只来自 SQLite 的显式多对多关系，不通过自由文本或型号相似度推断。
 - 运行时所需的主孔、全部 active footprint 子孔、液压窗口、offset、边界和加工数据在一次性导入时组合进可执行定义。没有 footprint 的 cavity 依据自身工程数据判断是否可用。
 - Smart Align、即时预览、精确 OCCT/BRep、路由冻结/细化、STEP 往返、制造输出和 Drawing Workspace 继续从后端按 ID 解析本次所需定义。
-- Save & Validate 只为路由可修复的失败生成自动路线候选；显式 Optimize 仍可按用户操作比较自动网络的成本。
+- Validate 只为路由可修复的失败生成自动路线候选；显式 Optimize 仍可按用户操作比较自动网络的成本。
 
 初始化、项目转换和启动失败语义见 [SQLite engineering library](docs/SQLITE_ENGINEERING_LIBRARY.md)。
 

@@ -1,7 +1,6 @@
 export function projectLibrary(ctx){
   const {$,element,action,api,post,openProject,isDirty,hasProject,onDeleted}=ctx;
-  const home=element('section',null,'project-home');home.id='project-home';
-  document.querySelector('.projectbar').before(home);
+  const home=$('project-home');
   let query='',archived=false;
   async function show(){
     document.body.classList.add('home');

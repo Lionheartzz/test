@@ -24,7 +24,7 @@ PDF/PNG/JPEG admission, bounded page rendering, cancellation, timeout handling a
 3. Stop with a clear unresolved item when identity, compatibility or interface mapping is ambiguous.
 4. Generate a schema-2 project containing project state and engineering IDs.
 5. Run bounded placement/routing candidates through the existing exact CAD and validation pipeline.
-6. Open the chosen result as an ordinary editable draft. Save and Save & Validate use the normal project workflow.
+6. Open the chosen result as an ordinary editable draft. **Save Project** and **Validate** use the normal project workflow.
 
 The result may still contain engineering failures or warnings and remains a Draft until the usual exact validation passes. Unsupported requirements remain visible; the generator does not infer vendor geometry, pressure certification or hydraulic-window numbering.
 

@@ -1,6 +1,6 @@
 # Drawing Workspace · V2.3
 
-Start from a saved Project manifold. Use **Save & Validate** to create a build for the saved revision, then **Drawings → Create Drawing**. Choose **PMC Customer Drawing** or **PMC Manufacturing Drawing**. Both use the same paper editor. Drawing generation runs locally; it never calls an AI provider or reroutes the manifold.
+Start from a saved Project manifold. Use **Validate** to create a build for the saved revision, then open **Drawing → Create Drawing**. The Studio **Drawing** entry saves a new or dirty draft first and remains in Studio if saving fails. Choose **PMC Customer Drawing** or **PMC Manufacturing Drawing**. Both use the same paper editor. Drawing generation runs locally; it never calls an AI provider or reroutes the manifold.
 
 ## Engineering source and drawing data
 

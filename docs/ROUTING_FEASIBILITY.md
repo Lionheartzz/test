@@ -15,7 +15,7 @@ small candidate budget could be spent on unrelated cheap variants.
   are traversed in stable ID order and a single repair sweep can reconsider a net
   selected earlier. Only exact OCCT validation grants PASS; source profile,
   connectivity, opening, closure and other checks retain their existing authority.
-- Save & Validate and Optimize Routes share a conflict-directed neighbourhood.
+- **Validate** and Optimize Routes share a conflict-directed neighbourhood.
   Exact failed-check items identify affected networks. Alternatives may move
   either network, with a bounded set of paired moves to escape a one-net local
   minimum. Cheap and low-obstruction alternatives both enter the pool.

@@ -9,7 +9,7 @@ The current startup is a local project library, not an automatically opened demo
 1. Named hydraulic nets, schematic components, constraints and pinned cavity revisions above physical drillings.
 2. Local schematic assets with content hashes; an explicit Codex request package. The web app cannot call the tools of the currently running Codex task. A copied request references local assets and a revision-pinned project snapshot; Codex reads it and writes a proposal through the same project model.
 3. Searchable shared cavity catalog and guided definitions; insert, replace, copy, remove, suppress and face change using normal UI. Parent offsets and rotation are inspectable.
-4. Face-constrained dragging with envelope-aware limits, snapping, live position and dependent route preview. Release retains a local draft; Save & Validate performs the exact build and validation. Old PASS is historical immediately after an edit.
+4. Face-constrained dragging with envelope-aware limits, snapping, live position and dependent route preview. Release retains a local draft; **Validate** performs the exact build and validation. Old PASS is historical immediately after an edit.
 5. Relationship-derived orthogonal candidate routing with real construction drillings/plugs; manual overrides remain explicit. Candidate estimates are not validation results.
 6. Exact schematic/net conformance, flow velocity screens, machining identifiers and derived machining/plug/meet lists.
 

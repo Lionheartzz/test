@@ -4,7 +4,7 @@ Verified 2026-09-12. This supersedes the earlier preview scheduling and stock-co
 
 ## Behavior
 
-- Transient exact preview and draft refinement resolve the current route proposal without the bounded candidate search. Exact preview still builds OCCT cuts, machining voids, same-net unions and separate cross-net collision geometry. Its status explicitly says **current proposal, not validated / not optimized**. Save & Validate and explicit optimization retain their search behavior.
+- Transient exact preview and draft refinement resolve the current route proposal without the bounded candidate search. Exact preview still builds OCCT cuts, machining voids, same-net unions and separate cross-net collision geometry. Its status explicitly says **current proposal, not validated / not optimized**. **Validate** and explicit optimization retain their search behavior.
 - One queue owns fast and exact requests. It captures an immutable draft snapshot, debounces edits for 350 ms, and waits another 450 ms after fast resolution before starting exact geometry. New edits replace queued work. In-flight responses cannot update a newer draft or project. Drag gestures defer preview requests until release. Repeated inspection of an unchanged draft reuses its exact result.
 - The queue does not abort a fetch and immediately start more CAD work: disconnecting a request would not cancel the server's OCCT computation. The next request waits for the current request to finish.
 - Current failures display their actual field-validation or resolution reason, clear the loading overlay and restore the last usable view. Obsolete failures are ignored. Successful editing resumes the pipeline.

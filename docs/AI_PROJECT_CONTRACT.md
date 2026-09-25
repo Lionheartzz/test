@@ -9,7 +9,7 @@ The deliverable is a schema-version-2 `.pmc.json` project that opens in PMC Mani
 5. Every external port and cavity interface belongs to one named hydraulic net. Physical cutting geometry remains distinct from installed hydraulic interfaces and schematic intent.
 6. Record `origin.method`, provider, model, author and notes truthfully when they are useful operational metadata. Do not persist a claim/evidence/provenance graph in the project.
 7. Represent truly unresolved project decisions as `review_items`. A cavity-only placement is not itself an unresolved decision.
-8. Save Project persists in-progress work without requiring PASS. Save & Validate creates an immutable exact build. Retain failures and never weaken an engineering rule to obtain PASS.
+8. **Save Project** persists in-progress work without requiring PASS. **Validate** creates an immutable exact build. Retain failures and never weaken an engineering rule to obtain PASS.
 9. Geometry PASS is not pressure, vendor or manufacturing certification.
 
 AI Design uses this same contract. It queries the backend SQLite library and creates schematic components only when its input contains actual schematic intent.

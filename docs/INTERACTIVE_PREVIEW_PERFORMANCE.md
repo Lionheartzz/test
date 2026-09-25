@@ -18,7 +18,7 @@ Local parametric feedback remains immediate. Coalescing, immutable snapshots, ca
 
 ## Display and engineering status
 
-The viewport distinguishes approximate live feedback, exact computation in progress, an exact unvalidated proposal, exact preview unavailable, and an authoritative Save & Validate result. A recovered preview clears the old timeout notice. Camera, selection, net mode and stock opacity remain intact through updates.
+The viewport distinguishes approximate live feedback, exact computation in progress, an exact unvalidated proposal, exact preview unavailable, and an authoritative **Validate** result. A recovered preview clears the old timeout notice. Camera, selection, net mode and stock opacity remain intact through updates.
 
 Some current automatic proposals in this reproduction have invalid BRep topology before this change. Exact preview is allowed to show the current proposal, but now explicitly exposes that topology condition. It is not reported as engineering PASS and no tolerance, source cavity or hydraulic opening is changed to hide it. Exact feasibility and STEP checks remain authoritative.
 
