@@ -7,13 +7,18 @@ async (page) => {
   await page.addScriptTag({path:'__PROJECT_ROOT__/output/viewer-regression/viewer-regression.iife.js'});
   const points=await page.evaluate(()=>window.setupViewerLifecycle());
   await page.waitForTimeout(250);
-  await page.mouse.move(points.start.x,points.start.y);await page.mouse.down();
-  let released=false;try {
-    for(const point of points.moves){await page.mouse.move(point.x,point.y);await page.waitForTimeout(30);}
-    await page.mouse.up();released=true;await page.waitForTimeout(50);
-    const result=await page.evaluate(()=>window.assertViewerLifecycle());
-    if(errors.length)throw Error(errors.join('\n'));
-    await page.screenshot({path:'__PROJECT_ROOT__/output/playwright/v8-continuous-drag-final.png'});
-    return result;
-  } finally {if(!released)await page.mouse.up();}
+  const drag=async points=>{
+    await page.mouse.move(points.start.x,points.start.y);await page.mouse.down();
+    let released=false;try {
+      for(const point of points.moves){await page.mouse.move(point.x,point.y);await page.waitForTimeout(30);}
+      await page.mouse.up();released=true;await page.waitForTimeout(50);
+    }finally{if(!released)await page.mouse.up();}
+  };
+  await drag(points);
+  const orthographic=await page.evaluate(()=>window.prepareOrthographicLifecycle());
+  await drag(orthographic);
+  const result=await page.evaluate(()=>window.assertViewerLifecycle());
+  if(errors.length)throw Error(errors.join('\n'));
+  await page.screenshot({path:'__PROJECT_ROOT__/output/playwright/v8-continuous-drag-final.png'});
+  return result;
 }

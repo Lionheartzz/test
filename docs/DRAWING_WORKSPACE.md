@@ -2,6 +2,8 @@
 
 Start from a saved Project manifold. Use **Validate** to create a build for the saved revision, then open **Drawing → Create Drawing**. The Studio **Drawing** entry saves a new or dirty draft first and remains in Studio if saving fails. Choose **PMC Customer Drawing** or **PMC Manufacturing Drawing**. Both use the same paper editor. Drawing generation runs locally; it never calls an AI provider or reroutes the manifold.
 
+The workspace fills the browser window. **Save**, **Export PDF**, and an active job's **Cancel** stay in the header. Existing commands are grouped under **Edit**, **Add annotation**, **Insert**, and **Document**. At narrow widths, **Sheets** and **Properties** open overlay panels; only one is open at a time. **Drawing checks** can be collapsed and opens when an error is present. **Fit sheet** fits the current paper to the available board area, including an expanded checks panel. The blank interior of a view can be used to select and drag it; this adds an editor-only SVG hit area and does not alter the source geometry or exported PDF. Layout changes do not save the drawing or regenerate its engineering source.
+
 ## Engineering source and drawing data
 
 `projects/drawings/<project-id>/<drawing-id>/current.json` stores a drawing document independently of the Project's engineering revision. It contains the build facts needed to render the drawing, generated projection geometry, and a separate editable presentation. Drawing saves use their own optimistic revision, so two windows cannot silently overwrite each other.

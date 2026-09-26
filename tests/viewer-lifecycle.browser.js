@@ -1,6 +1,5 @@
 // Browser integration fixture, bundled by scripts/check-viewer-lifecycle.mjs.
 // Exercises the actual viewer's pointer -> callback -> preview -> load lifecycle.
-import * as THREE from 'three';
 import {createViewer} from '../web/viewer.js';
 import {hydrateDesign} from '../web/domain.js';
 
@@ -19,15 +18,17 @@ window.setupViewerLifecycle=()=>{
   });
   viewer.setReferences([edited,automatic]);
   viewer.preview({...draft,features:[edited,automatic]});viewer.setDesign(draft);viewer.fit('left');
-  // Project the known face points using the documented fit geometry, without
-  // replacing the real renderer, raycaster, pointer handlers or load method.
-  const rect=container.getBoundingClientRect(),camera=new THREE.PerspectiveCamera(38,rect.width/rect.height,.1,10000);
-  camera.up.set(0,0,1);
-  const center=new THREE.Vector3(80,60,60),distance=Math.hypot(160,120,120)/2/Math.sin(THREE.MathUtils.degToRad(19))*1.12;
-  camera.position.copy(center).addScaledVector(new THREE.Vector3(-1,0,.001),distance);camera.lookAt(center);camera.updateMatrixWorld();
-  const point=(u,v)=>{const p=new THREE.Vector3(0,u,v).project(camera);return {x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2};};
+  // Use the Viewer's actual active camera; the test must not copy Fit maths.
+  const point=(u,v)=>viewer.project([0,u,v]);
   window.viewerLifecycle={frames,point,edited,viewer,container,draft};
   return {start:point(40,66),moves:[point(43.2,65.5),point(43.1,65.6),point(43.3,65.4),point(43.2,65.5)]};
+};
+
+window.prepareOrthographicLifecycle=()=>{
+  const {viewer,point}=window.viewerLifecycle;
+  if(!viewer.projection('orthographic'))throw Error('Orthographic projection switch failed');
+  viewer.fit('left');
+  return {start:point(42,67),moves:[point(43.2,65.5),point(43.1,65.6),point(43.3,65.4),point(43.2,65.5)]};
 };
 
 window.assertViewerLifecycle=async()=>{
@@ -38,6 +39,7 @@ window.assertViewerLifecycle=async()=>{
     if(frame.u!==42||frame.v!==67||!frame.alignment.includes('AUTO_OTHER'))throw Error('Generated reference lost during continuous preview/load: '+JSON.stringify(frame));
   }
   const state=viewer.inspection(),dragTimings=state.diagnostics.filter(r=>r.kind==='drag-update');
+  if(state.projection!=='orthographic')throw Error('Orthographic drag did not use the active camera');
   if(dragTimings.length<moves.length||state.diagnostics.filter(r=>r.kind==='exact-load').length!==1)throw Error('Pointermove rebuilt the full scene: '+JSON.stringify(state.diagnostics));
   if(!state.parts.some(p=>p.owner==='AUTO_OTHER')||!state.parts.some(p=>p.owner==='REFINED'&&p.dragPreview))throw Error('Incremental drag lost moved or unrelated geometry');
   if(state.parts.some(p=>p.owner==='REFINED'&&!p.dragPreview&&p.visible))throw Error('Old moved-feature geometry remained visible during drag');
@@ -54,11 +56,23 @@ window.assertViewerLifecycle=async()=>{
   const labels={block:{length:100,width:80,height:60},library:[],nets:[{id:'NET_P',label:'P'}],features:[cavity,route],schematic_intent:null};
   const text=()=>[...container.querySelectorAll('.model-label')].map(node=>node.textContent);
   const hasRouteLabel=()=>text().some(value=>value.startsWith('CV1-P1'));
-  viewer.preview(labels);await new Promise(requestAnimationFrame);if(!hasRouteLabel())throw Error('Approximate labels lost Hydraulic Net display context: '+text());
+  viewer.preview(labels);viewer.select('CV1');await new Promise(requestAnimationFrame);if(!hasRouteLabel())throw Error('Approximate labels lost Hydraulic Net display context: '+text());
+  const gizmo=viewer.inspection().localGizmo;
+  if(gizmo.id!=='CV1'||!gizmo.visible||gizmo.origin.join(',')!=='30,30,60'||container.querySelectorAll('.local-gizmo-label').length!==3)throw Error('Selected feature local axes did not follow displayed placement: '+JSON.stringify({gizmo,labels:container.querySelectorAll('.local-gizmo-label').length}));
   viewer.load({block:labels.block,parts:[],placements:{CV1:{origin:[30,30,0],direction:[0,0,-1]},ROUTE_INTERNAL:{origin:[0,30,30],direction:[1,0,0]}},geometry_kind:'exact-brep'},labels);
   await new Promise(requestAnimationFrame);if(!hasRouteLabel())throw Error('Exact labels lost Hydraulic Net display context: '+text());
+  if(!viewer.focus('ROUTE_INTERNAL').ok)throw Error('Focus required an owner mesh or lazy layer');
+  if(!viewer.frame(['CV1','ROUTE_INTERNAL']).ok||!viewer.frame('NET_P').ok)throw Error('Multi-object or network framing did not use displayed parameter bounds');
+  if(!viewer.frame({min:[0,0,0],max:[100,80,60]}).ok)throw Error('Explicit bounds framing failed');
   route.u=31;viewer.updateFeature(labels,route.id);await new Promise(requestAnimationFrame);if(!hasRouteLabel())throw Error('Incremental labels lost Hydraulic Net display context: '+text());
   labels.schematic_intent={assets:[],components:[{id:'COMP1',label:'Valve 1',placement_id:'CV1'}]};viewer.preview(labels);await new Promise(requestAnimationFrame);
   if(!text().includes('Valve 1'))throw Error('Schematic component label was unavailable to Viewer: '+text());
-  return {passed:true,moves,dragTimings,hydratedSqliteDrag:true,fullDisplayContext:true,adoptedAutomatic:false};
+  if(!viewer.isolate(route.id).ok)throw Error('Parameter-preview route isolation failed');
+  viewer.setClipping({enabled:true,axis:'y',position:40,keep:'gte'});
+  viewer.setSecondary(['CV1']);viewer.setIssueMarkers([{id:'ROUTE_INTERNAL',FAIL:1,WARNING:0}]);viewer.hover(route.id);
+  if(viewer.focus(route.id).ok)throw Error('Focus moved to a fully clipped target');
+  viewer.resetTransient();
+  const reset=viewer.inspection();
+  if(reset.isolation||reset.clipping.enabled||reset.projection!=='orthographic'||reset.localGizmo.id||container.querySelector('.issue-marker')||container.dataset.hoveredFeature)throw Error('Transient reset leaked state or lost projection');
+  return {passed:true,moves,dragTimings,hydratedSqliteDrag:true,fullDisplayContext:true,localFrame:true,localGizmo:true,transientReset:true,adoptedAutomatic:false};
 };

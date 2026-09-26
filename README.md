@@ -32,6 +32,10 @@ Windows CAD 依赖已固定版本；`manifold/cad.py` 会先加载 CasADi 再加
 
 Studio 采用全窗口工作区：Feature Tree 与 Inspector 可拖动宽度或收起，窄窗口改用侧栏抽屉；底部 Validation Results 可展开并调整高度。顶栏的 Project、Engineering 菜单和左侧 **+ Add Feature** 调用原有工作流，Viewport 的 Display 菜单保留图层及逐网可见性。Reset layout 只清除本机界面布局偏好，不修改工程项目。
 
+视口新增 **Perspective / Orthographic**、ViewCube（六面、原有 ISO 和八个角）、**Focus**、**Isolate** 与 Display 内的 **Section / Clipping**。标准视图切换只改变方向；**Fit** 沿当前方向框选整体；选中对象后按 `F` 可立即框选当前显示几何，不请求精确图层。选中可定位特征时显示局部 U/V/IN 坐标标识，随当前显示位置和拖动预览更新；它仅供定位，不提供工程测量。Isolate 在精确模型缺少单对象加工体时才按需加载 Feature layers。剖切可选 X/Y/Z、保留平面任一侧，并以滑块或毫米输入调整；它只影响显示与拾取，不生成工程截面。没有原生弹窗时，`Esc` 依次关闭菜单/侧栏、当前交互、隔离和剖切。切换项目会清除这些临时叠加状态；投影模式在本次页面会话内保留。
+
+Validation Results 的可定位行会选中主对象、标出相关对象并框选其联合范围。标记是 **Affected feature reference**，表示受影响对象，不代表精确失效点；脏草稿或旧构建的结果保留来源提示，不会被当作当前空间证据。精确最小壁厚和间隙尺寸线仍需同源后端测量端点，本轮没有提供。本地验收与未覆盖项见 [Phase 4 验收记录](docs/PHASE4_ACCEPTANCE.md)及 [Phase 5/6 验收记录](docs/PHASE5_6_ACCEPTANCE.md)。
+
 1. **New Manifold** 五步完成阀块、Metric/Inch 上下文、网络与油口、cavity 选择、放置与接口分配、复核。每个网络独立配置 0–8 个外部油口，每个油口可选择面、规格及 SQLite external-port definition，也可使用 Custom straight bore。Cartridge first 只显示数据库中的明确兼容关系；Cavity first 允许 Cartridge 保持为空。项目只保存稳定 ID 和项目状态，不复制工程主库记录。工程坐标始终为 mm，界面保留完整编辑入口。**Import Project / Export Project** 是 AI 和人工设计的共同入口。项目 JSON 上限 8 MB，图纸二进制仍单独存放在本地 assets。
 2. **Schematic** 上传 PDF、PNG 或 JPEG。AI 提供者与模型信息属于可携带的项目来源字段；AI Design 可调用用户配置的服务生成草稿。可选 Codex handoff 收在展开项中，通用 AI 交付格式见 [AI_PROJECT_CONTRACT.md](docs/AI_PROJECT_CONTRACT.md)。
 3. **Engineering Review** 管理实际存在的假设、尺寸、选型和连接疑问。Cavity placement 本身不创建 review；工程主库定义在运行时只读。
@@ -59,6 +63,8 @@ Studio 采用全窗口工作区：Feature Tree 与 Inspector 可拖动宽度或�
 在已保存的 Project 内完成 **Validate → Drawing → Create Drawing**，选择客户图或制造图。两类图纸使用同一个视觉编辑器：精确实体投影、关联尺寸、说明与引出线、视图与基本剖面、表格、PMC 标题栏、模板、撤销重做和矢量 PDF。图纸独立保存于 Project，可重开、检测源变化、预览更新、创建修订和发行不可变 PDF。制造图复用已有 Library / Manifold 数据；新增的普通安装孔是实际非液压切削特征，仍经过实体校验。
 
 操作说明见 [Drawing Workspace](docs/DRAWING_WORKSPACE.md)，实际交付范围、验收证据与参考文件缺口见 [V2.3 验收记录](docs/V23_ACCEPTANCE.md)。图纸状态不会修改工程校验或制造就绪结果。Drawing 及其历史保存在本机，现有 `.pmc.json` 导出仍以 Manifold 数据为范围。
+
+Drawing 的命令区现按 Edit、Add annotation、Insert、Document 分组，Back、Save、Export PDF 与活动任务的 Cancel 保持直接可达。纸面占据剩余窗口高度，窄窗口通过 Sheets / Properties 打开覆盖侧栏；Drawing checks 可折叠，错误出现时展开。视图内部的空白区域也可用于选中和拖动该视图。纸张缩放、工程坐标、源更新、保存和发行语义保持原样。
 
 ## 和 Codex 协作
 

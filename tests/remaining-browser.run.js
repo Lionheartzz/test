@@ -1,0 +1,131 @@
+async page=>{
+  const base='__BASE_URL__',projectId='__PROJECT_ID__',output='__OUTPUT_DIR__';
+  const errors=[],wrongOrigin=[],stages=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  await page.route('**/api/**',route=>{
+    if(!route.request().url().startsWith(base+'/api/')){wrongOrigin.push(route.request().url());return route.abort();}
+    return route.continue();
+  });
+  let stage='Drawing PASS creation';
+  const menu=label=>page.locator('.drawing-menu-host').filter({hasText:label}).locator('.drawing-menu-trigger');
+  const waitModal=async title=>{await page.locator('#modal').waitFor({state:'visible',timeout:120000});if(!await page.locator('#modal').getByText(title,{exact:true}).count())throw Error('Expected modal '+title);};
+  try{
+    await page.setViewportSize({width:1366,height:768});
+    await page.goto(`${base}/drawing.html?project=${projectId}`);
+    await page.locator('#create').click();await waitModal('Create Drawing');
+    await page.getByRole('button',{name:'Create engineering drawing'}).click();
+    await page.locator('#paper-container svg').waitFor({state:'visible',timeout:120000});
+    const drawingUrl=page.url();
+    if(!drawingUrl.includes('drawing='))throw Error('Clean-source Drawing did not open');
+    await page.screenshot({path:`${output}/drawing-pass-1366x768.png`});
+    await page.setViewportSize({width:1920,height:1080});await page.locator('#fit').click();
+    await page.screenshot({path:`${output}/drawing-pass-1920x1080.png`});
+    await page.setViewportSize({width:1100,height:800});await page.locator('#fit').click();
+    await page.screenshot({path:`${output}/drawing-pass-1100x800.png`});
+    await page.setViewportSize({width:900,height:800});await page.locator('#fit').click();
+    await page.screenshot({path:`${output}/drawing-pass-900x800.png`});
+    stages.push(stage);
+
+    stage='Release and immutable PDF';
+    await menu('Document').click();await page.locator('#release').click();await waitModal('Release drawing revision');
+    if(await page.locator('#modal').getByText('BLOCKED:',{exact:false}).count())throw Error('PASS-source Drawing still has release-blocking errors');
+    await page.locator('#modal').getByLabel('Released by').fill('Isolated browser acceptance');
+    for(const textarea of await page.locator('#modal textarea').all())await textarea.fill('Reviewed in isolated acceptance fixture.');
+    await page.getByRole('button',{name:'Release immutable PDF'}).click();
+    await page.waitForFunction(()=>document.querySelector('#document-state')?.textContent?.includes('Released'),null,{timeout:120000});
+    await menu('Edit').click();
+    if(!await page.locator('#text').isDisabled())throw Error('Released Drawing still allows note editing');
+    await page.keyboard.press('Escape');
+    await page.locator('#drawing-tree-toggle').click();await page.locator('#history').click();await waitModal('Drawing revision and save history');
+    const [issued]=await Promise.all([page.waitForEvent('download',{timeout:120000}),page.getByRole('button',{name:'Download immutable PDF'}).click()]);
+    await issued.saveAs(`${output}/drawing-issued.pdf`);
+    if(issued.suggestedFilename()!=='released-revision.pdf')throw Error('Issued PDF download name changed');
+    await page.keyboard.press('Escape');
+    if(await page.locator('body').getAttribute('data-drawing-left-open')==='true')await page.locator('#drawing-tree-toggle').click();
+    stages.push(stage);
+
+    stage='New revision, annotations and picker cancel';
+    await menu('Document').click();await page.locator('#revision').click();await waitModal('Create next revision');
+    await page.locator('#modal').getByLabel('New revision label').fill('B');
+    await page.locator('#modal').getByLabel('Revision description').fill('Isolated UI acceptance');
+    await page.getByRole('button',{name:'Create draft revision'}).click();
+    await page.waitForFunction(()=>document.querySelector('#document-state')?.textContent?.includes('Rev B · Draft'));
+    const topView=page.locator('#paper-container g[data-item="top"]').first();
+    const box=await topView.boundingBox();if(!box)throw Error('Top drawing view cannot be dragged');
+    const center={x:box.x+box.width/2,y:box.y+box.height/2};
+    await page.mouse.move(center.x,center.y);await page.mouse.down();await page.mouse.move(center.x+24,center.y+12,{steps:5});await page.mouse.up();
+    if(!/Unsaved/.test(await page.locator('#document-state').innerText()))throw Error('Paper view drag did not edit the Drawing');
+    await menu('Edit').click();await page.locator('#undo').click();
+    await page.locator('#save').click();await page.waitForFunction(()=>!document.querySelector('#document-state')?.textContent?.includes('Unsaved'));
+    await menu('Add annotation').click();await page.locator('#dimension').click();await waitModal('Add engineering dimension');
+    await page.getByRole('button',{name:'Pick anchors on paper'}).click();
+    await page.keyboard.press('Escape');
+    if(/Unsaved/.test(await page.locator('#document-state').innerText()))throw Error('Canceling anchor picking dirtied Drawing');
+    await menu('Add annotation').click();await page.locator('#dimension').click();await waitModal('Add engineering dimension');
+    await page.locator('#modal').getByRole('button',{name:'Add',exact:true}).click();
+    if(!/Unsaved/.test(await page.locator('#document-state').innerText()))throw Error('Dimension addition did not mark Drawing dirty');
+    await page.locator('#save').click();
+    await page.waitForFunction(()=>!document.querySelector('#document-state')?.textContent?.includes('Unsaved'));
+    stages.push(stage);
+
+    stage='Insert commands and saved history';
+    await menu('Insert').click();await page.locator('#schematic').click();await waitModal('Add project schematic');
+    if(!await page.locator('#modal').getByText('No schematic belongs to this source.',{exact:false}).count())throw Error('Missing schematic did not explain its source requirement');
+    await page.keyboard.press('Escape');
+    await menu('Insert').click();await page.locator('#view').click();await waitModal('Add view or section');
+    await page.getByRole('button',{name:'Add view'}).click();
+    if(!/Unsaved/.test(await page.locator('#document-state').innerText()))throw Error('View insertion did not enter edit history');
+    await menu('Edit').click();await page.locator('#undo').click();
+    await menu('Insert').click();await page.locator('#table').click();await waitModal('Add engineering table');
+    await page.getByRole('button',{name:'Add table'}).click();
+    if(!/Unsaved/.test(await page.locator('#document-state').innerText()))throw Error('Table insertion did not enter edit history');
+    await menu('Edit').click();await page.locator('#undo').click();
+    await page.locator('#save').click();await page.waitForFunction(()=>!document.querySelector('#document-state')?.textContent?.includes('Unsaved'));
+    await page.locator('#drawing-tree-toggle').click();await page.locator('#history').click();await waitModal('Drawing revision and save history');
+    const [savedHistory]=await Promise.all([page.waitForEvent('download',{timeout:120000}),page.getByRole('button',{name:'Review saved PDF'}).first().click()]);
+    await savedHistory.saveAs(`${output}/drawing-saved-history.pdf`);
+    await page.keyboard.press('Escape');
+    stages.push(stage);
+
+    stage='Source update cancel and apply';
+    await page.goto(`${base}/?project=${projectId}`);
+    await page.locator('#build').waitFor({state:'visible'});
+    await page.locator('#build').click();
+    await page.waitForFunction(()=>document.body.classList.contains('busy'));
+    await page.waitForFunction(()=>!document.body.classList.contains('busy'),null,{timeout:120000});
+    await page.goto(drawingUrl);
+    await page.waitForFunction(()=>document.querySelector('#document-state')?.textContent?.includes('SOURCE CHANGED'));
+    await menu('Document').click();await page.locator('#update').click();await waitModal('Review source update');
+    await page.getByRole('button',{name:'Keep existing drawing'}).click();
+    if(!/SOURCE CHANGED/.test(await page.locator('#document-state').innerText()))throw Error('Canceling update changed source');
+    await menu('Document').click();await page.locator('#update').click();await waitModal('Review source update');
+    await page.getByRole('button',{name:'Apply update'}).click();
+    await page.waitForFunction(()=>!document.querySelector('#document-state')?.textContent?.includes('SOURCE CHANGED'));
+    await page.waitForFunction(()=>!document.querySelector('#issues')?.textContent?.includes('Source manifold/build changed'),null,{timeout:30000});
+    await page.screenshot({path:`${output}/drawing-updated-900x800.png`});
+    await page.locator('#drawing-tree-toggle').click();await page.locator('#duplicate').click();
+    await page.waitForFunction(original=>location.href.includes('drawing=')&&location.href!==original,drawingUrl);
+    await page.goto(drawingUrl);
+    await page.locator('#paper-container svg').waitFor({state:'visible',timeout:120000});
+    stages.push(stage);
+
+    stage='Optimistic Drawing revision conflict';
+    await menu('Add annotation').click();await page.locator('#text').click();
+    const rival=await page.context().newPage();
+    await rival.goto(drawingUrl);await rival.locator('#paper-container svg').waitFor({state:'visible',timeout:120000});
+    await rival.locator('.drawing-menu-host').filter({hasText:'Add annotation'}).locator('.drawing-menu-trigger').click();
+    await rival.locator('#text').click();await rival.locator('#save').click();
+    await rival.waitForFunction(()=>!document.querySelector('#document-state')?.textContent?.includes('Unsaved'));
+    await rival.close();
+    await page.locator('#save').click();
+    await page.waitForFunction(()=>/another window|409|conflict/i.test(document.querySelector('#message')?.textContent||''),null,{timeout:15000});
+    if(!/Unsaved/.test(await page.locator('#document-state').innerText()))throw Error('Revision conflict discarded unsaved Drawing edits');
+    stages.push(stage);
+
+    if(errors.length||wrongOrigin.length)throw Error('Browser errors or off-origin API request: '+JSON.stringify({errors,wrongOrigin}));
+    return {passed:true,stage,stages,projectId,drawingUrl,errors,wrongOrigin};
+  }catch(error){
+    await page.screenshot({path:`${output}/failure.png`}).catch(()=>{});
+    return {passed:false,stage,stages,error:String(error),errors,wrongOrigin};
+  }
+}

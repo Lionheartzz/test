@@ -42,7 +42,14 @@ export function displayFeatureName(feature,design){
   if(!feature)return 'Unknown feature';
   const route=displayRouteName(feature,design);if(route)return route+(feature.plugged?' · PLUG':'');
   if(feature.kind==='port')return displayExternalPortName(feature,design);
-  return design?.schematic_intent?.components?.find(component=>component.placement_id===feature.id)?.label||feature.id;
+  const component=design?.schematic_intent?.components?.find(item=>item.placement_id===feature.id)?.label;
+  if(component)return component;
+  if(feature.kind==='mounting'&&/^MNT(?:_[0-9a-f]{12,}|\d+)$/i.test(String(feature.id||''))){
+    const peers=(design?.features||[]).filter(item=>item.kind==='mounting').sort(stableFeatureOrder);
+    const index=peers.findIndex(item=>item.id===feature.id);
+    return `Mounting Hole ${index<0?1:index+1}`;
+  }
+  return feature.id;
 }
 
 export function displayMemberName(design,member){
