@@ -2,41 +2,83 @@
 import copy
 import math
 import re
+from fractions import Fraction
 from .library_resolution import value
 from ..engineering_db import normalized_thread_family
 
 FACES = {'left', 'right', 'top', 'bottom', 'front', 'back'}
+_MOUNTING_MEASUREMENT = re.compile(
+    r'(?<![\w./-])(?P<number>(?:\d+\s*[- ]\s*)?\d+\s*/\s*\d+|\d+(?:\.\d*)?|\.\d+)'
+    r'\s*(?P<unit>mm|inches|inch|in|["″])(?=$|[^\w])', re.I)
+_MOUNTING_THREAD = re.compile(r'(?<!\w)\d+\s*/\s*\d+\s*(?:in(?:ch(?:es)?)?|["″])?\s*-\s*\d+\s*(?:UNC|UNF)\b',re.I)
+_MOUNTING_LABEL = re.compile(r'\b(thread\s+depth|drill(?:ing)?\s+depth|tap\s+depth|depth|positions?|coordinates?|[uv])\b', re.I)
 
 
-def mounting_from_intent(result, intent):
-    """Keep explicit structured fields; recover only literal count/thread from older runs."""
+def _mounting_measurements(quote):
+    """Read only explicitly unit-bearing source numbers, never thread fractions."""
+    measurements=[]
+    thread_spans=[match.span() for match in _MOUNTING_THREAD.finditer(quote)]
+    for match in _MOUNTING_MEASUREMENT.finditer(quote):
+        if any(start<=match.start()<end for start,end in thread_spans):
+            continue
+        raw=re.sub(r'\s*/\s*','/',match['number'].strip())
+        mixed=re.fullmatch(r'(\d+)\s*[- ]\s*(\d+/\d+)',raw)
+        try:
+            number=float(Fraction(mixed[1])+Fraction(mixed[2]) if mixed else Fraction(raw))
+        except (ValueError,ZeroDivisionError,OverflowError):
+            continue
+        if not math.isfinite(number):
+            continue
+        labels=list(_MOUNTING_LABEL.finditer(quote[:match.start()]))
+        label=labels[-1].group().lower() if labels else ''
+        role='thread_depth' if label.startswith(('thread','tap')) else 'drill_depth' if 'depth' in label else 'position' if label else None
+        unit='mm' if match['unit'].lower()=='mm' else 'in'
+        measurements.append((number,unit,role))
+    return measurements
+
+
+def _source_mounting(result, intent):
+    """Return source-backed mounting values and fields needing engineer review."""
     fields=dict(intent.get('mounting') or {})
     claim=next((c for c in result.get('claims',[]) if c['id']==intent.get('claim_id')),None)
     evidence={e['id']:e for e in result.get('evidence',[])}
     quote=' '.join(evidence[e]['quote'] for e in claim.get('evidence_ids',[]) if e in evidence and evidence[e].get('quote')) if claim else ''
     count=re.search(r'\b(\d{1,2})\s*[x×]\s*(?=M\s*\d|\d+\s*/\s*\d+)',quote,re.I)
     thread=re.search(r'\bM\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?(?:-\d+[A-Z])?|\b\d+\s*/\s*\d+\s*-\s*\d+\s*(?:UNC|UNF)(?:-\d+[AB])?',quote,re.I)
+    unverified=[]
     if quote:
-        # The model's structured reading is not authority for words absent from
-        # the exact source quote. Keep unresolved fields unresolved.
         fields['count']=int(count.group(1)) if count else None
         fields['thread_designation']=re.sub(r'\s+',' ',thread.group().strip()).upper() if thread else None
         if fields.get('face') and not re.search(r'\b'+re.escape(fields['face'])+r'\b',quote,re.I):fields.pop('face')
-        if fields.get('positions') and any(not all(re.search(r'(?<!\d)'+re.escape(f'{coord:g}')+r'(?!\d)',quote) for coord in pair)
-                                           for pair in fields['positions']):fields.pop('positions')
         if fields.get('through') is not None and not re.search(r'\b(through|blind)\b',quote,re.I):fields.pop('through')
-        for key in ('drill_depth','thread_depth'):
-            if fields.get(key) is not None and not re.search(r'(?<!\d)'+re.escape(f'{fields[key]:g}')+r'(?!\d)',quote):fields.pop(key)
-        # A thread designation is a standard identity, not a source for U/V or depth units.
-        units={('in' if unit.lower() in ('in','inch') else 'mm') for unit in re.findall(r'(?<![\w/])(?:\d+(?:\.\d+)?|\.\d+)\s*(mm|in|inch)\b',quote,re.I)}
+        measurements=_mounting_measurements(quote)
+        units={unit for _,unit,role in measurements if role}
         if len(units)==1:fields['numeric_unit']=units.pop()
         elif len(units)>1:fields['numeric_unit']='mixed'
         else:fields.pop('numeric_unit',None)
+        matches=lambda value,role:any(kind==role and math.isclose(float(value),number,rel_tol=0,abs_tol=1e-6)
+                                      for number,_,kind in measurements)
+        if fields.get('positions') is not None:
+            available=[number for number,_,role in measurements if role=='position']
+            for value in (coordinate for pair in fields['positions'] for coordinate in pair):
+                index=next((i for i,number in enumerate(available)
+                            if math.isclose(float(value),number,rel_tol=0,abs_tol=1e-6)),None)
+                if index is None:
+                    unverified.append('positions')
+                    break
+                available.pop(index)
+        for key in ('drill_depth','thread_depth'):
+            if fields.get(key) is not None and not matches(fields[key],key):unverified.append(key)
     else:
         fields.pop('numeric_unit',None)
     if fields.get('thread_designation'):
         fields['thread_family']=normalized_thread_family({'display_name':fields['thread_designation']})
-    return fields
+    return fields,unverified
+
+
+def mounting_from_intent(result, intent):
+    """Keep explicit structured fields; recover only literal count/thread from older runs."""
+    return _source_mounting(result,intent)[0]
 
 
 def reconcile_mounting(requirements, mounting):
@@ -49,6 +91,11 @@ def reconcile_mounting(requirements, mounting):
             blocked.append('Every resolved mounting hole must be assigned to an existing mounting requirement.')
     for row in requirements:
         req=row['mounting']
+        unverified=row.pop('_source_unverified',())
+        if unverified:
+            row.update(status='review_required',message='Mounting '+', '.join(unverified)+' cannot be verified against explicit source measurements.')
+            blocked.append(f"{row['intent_id']}: {row['message']}")
+            continue
         if req.get('numeric_unit')=='mixed':
             row.update(status='review_required',message='Mixed mounting position/depth units need an explicit per-value engineering resolution.')
             blocked.append(f"{row['intent_id']}: {row['message']}")
@@ -137,7 +184,7 @@ def interpret(result, options):
                    message='This requirement is retained for engineer review; this generator cannot execute it.')
         settings['dispositions'].append(row)
         if category == 'mounting':
-            row['mounting']=mounting_from_intent(result,intent)
+            row['mounting'],row['_source_unverified']=_source_mounting(result,intent)
             settings['mounting_requirements'].append(row)
             row.update(status='review_required',message='Thread identity and every hole position must be resolved explicitly before generation; no coordinates are inferred.')
             continue
