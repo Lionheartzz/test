@@ -7,14 +7,18 @@ export function guided(ctx,open){
   const {$,element,field,action,post,api,notice,newProject}=ctx;
   const content=$('workflow-content'),dialog=$('workflow-dialog');
   $('project-new').onclick=()=>{
-    let context='metric',name='New manifold',material='Aluminium · engineer to specify grade',length=160,width=100,height=100,ids='P, T, A, B',portConfig=Object.create(null);
+    let context='metric',name='New manifold',material='Aluminium · engineer to specify grade',materialSelection=null,length=160,width=100,height=100,ids='P, T, A, B',portConfig=Object.create(null);
     let selected=[],names=[],search='',mode='cavity',generation=0;
     const guard=fn=>async()=>{try{await fn();}catch(e){$('workflow-error').textContent=e.message;for(const status of content.querySelectorAll('.loading-state'))status.textContent='Unable to finish: '+e.message;for(const area of content.querySelectorAll('[aria-busy]'))area.removeAttribute('aria-busy');for(const button of content.querySelectorAll('button:disabled'))button.disabled=false;}};
     const block=()=>{
       open('New Manifold · 1 / 5 · Block');
       field(content,'Project name',name,v=>name=v);
       field(content,'Project context',context,v=>{const scale=v==='inch'?1/25.4:25.4;length*=scale;width*=scale;height*=scale;context=v;block();},{metric:'Metric',inch:'Inch'});
-      field(content,'Block material / grade',material,v=>material=v);
+      const materialInput=field(content,'Block material / grade',material,v=>{
+        material=v;
+        if(materialInput.dataset.materialId&&v===materialInput.dataset.materialName)materialSelection={id:materialInput.dataset.materialId,name:v};
+        else if(v!==materialSelection?.name)materialSelection=null;
+      });
       for(const [label,value,assign]of [['Length',length,v=>length=v],['Width',width,v=>width=v],['Height',height,v=>height=v]])field(content,label+' / '+(context==='inch'?'in':'mm'),value,assign,null,true);
       action(content,'Next · Nets and ports',()=>{if(!name.trim()||[length,width,height].some(x=>!Number.isFinite(x)||x<=0||x*(context==='inch'?25.4:1)>2000)){$('workflow-error').textContent='Enter a name and block dimensions between 0 and 2000 mm.';return;}connections();});
     };
@@ -72,7 +76,7 @@ export function guided(ctx,open){
       for(const n of names)content.append(element('p',n+': '+(portConfig[n].map(p=>`${p.face.toUpperCase()} · ${p.definition?.label||p.size+' · custom Ø'+p.diameter+' × '+p.depth}`).join('; ')||'No external ports')));
       action(content,'Back · Placement',placement);
       action(content,'Create editable draft',guard(async()=>{
-        const scale=context==='inch'?25.4:1,configured=names.flatMap(n=>portConfig[n].map((p,i,rows)=>({p,net:n,label:rows.length===1?n:n.slice(0,37)+(i+1)}))),d=hydrateDesign({schema_version:2,name,units:'mm',project_context:context,block:{length:length*scale,width:width*scale,height:height*scale,material},features:[],schematic_intent:null,nets:names.map((id,i)=>({id,label:id,routing:'automatic',diameter:8,color:['#ef5959','#459cff','#41ca8b','#f2d454','#f79b42','#b08bea'][i%6]})),origin:{method:'manual',notes:'Guided setup'},review_items:[],rules:{minimum_wall:7,minimum_overlap_volume:.1,max_depth_diameter_ratio:20,minimum_access_gap:2},constraints:{preferred_wall_margin:4,preferred_component_faces:['top'],preferred_port_faces:{},priority:'fewer_plugs',standard_drills:[4,5,6,8,10,12,16,20],forbidden_drilling_faces:[],required_feature_faces:{},notes:''}},Object.fromEntries([...selected.map(s=>[s.def.id,s.def]),...configured.filter(x=>x.p.definition).map(x=>[x.p.definition.id,x.p.definition])]));
+        const scale=context==='inch'?25.4:1,configured=names.flatMap(n=>portConfig[n].map((p,i,rows)=>({p,net:n,label:rows.length===1?n:n.slice(0,37)+(i+1)}))),d=hydrateDesign({schema_version:2,name,units:'mm',project_context:context,block:{length:length*scale,width:width*scale,height:height*scale,material,...(materialSelection?.name===material?{material_id:materialSelection.id}:{})},features:[],schematic_intent:null,nets:names.map((id,i)=>({id,label:id,routing:'automatic',diameter:8,color:['#ef5959','#459cff','#41ca8b','#f2d454','#f79b42','#b08bea'][i%6]})),origin:{method:'manual',notes:'Guided setup'},review_items:[],rules:{minimum_wall:7,minimum_overlap_volume:.1,max_depth_diameter_ratio:20,minimum_access_gap:2},constraints:{preferred_wall_margin:4,preferred_component_faces:['top'],preferred_port_faces:{},priority:'fewer_plugs',standard_drills:[4,5,6,8,10,12,16,20],forbidden_drilling_faces:[],required_feature_faces:{},notes:''}},Object.fromEntries([...selected.map(s=>[s.def.id,s.def]),...configured.filter(x=>x.p.definition).map(x=>[x.p.definition.id,x.p.definition])]));
         const dims=sizes(d.block);
         for(const {p,net,label}of configured){const sameFace=configured.filter(x=>x.p.face===p.face),index=sameFace.findIndex(x=>x.p===p),[u,v]=axes[p.face];
           const id='PORT_'+crypto.randomUUID().replaceAll('-','');

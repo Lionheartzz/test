@@ -1,5 +1,17 @@
 import {renderHome,renderLibrarySearch,homeIcon} from './home-view.js';
 
+export function prefillGuidedBlock($,values){
+  const input=label=>[...$('workflow-content').querySelectorAll('input,select')].find(node=>node.getAttribute('aria-label')===label);
+  const set=(label,value)=>{const node=input(label);if(!node)throw Error('Engineering setup field is unavailable: '+label);node.value=value;node.dispatchEvent(new Event('change',{bubbles:true}));};
+  set('Project context',values.unit);set('Project name',values.name);
+  if(values.material){
+    const node=input('Block material / grade');if(!node)throw Error('Engineering setup field is unavailable: Block material / grade');
+    node.dataset.materialId=values.material.id;node.dataset.materialName=values.material.name;
+    set('Block material / grade',values.material.name);
+  }
+  const suffix=values.unit==='inch'?'in':'mm';['Length','Width','Height'].forEach((label,index)=>set(label+' / '+suffix,values.dimensions[index]));
+}
+
 export function projectLibrary(ctx){
   const {$,element,action,api,post,openProject,isDirty,hasProject,onDeleted}=ctx;
   const home=$('project-home');let query='',archived=false,page=0,generation=0;
@@ -15,13 +27,7 @@ export function projectLibrary(ctx){
     if(!launch('project-new',trigger))return;
     // Prefill existing, labelled step-one controls through their normal change
     // handlers. The existing five-step workflow remains the only draft creator.
-    const input=label=>[...$('workflow-content').querySelectorAll('input,select')].find(node=>node.getAttribute('aria-label')===label);
-    const set=(label,value)=>{const node=input(label);if(!node)throw Error('Engineering setup field is unavailable: '+label);node.value=value;node.dispatchEvent(new Event('change',{bubbles:true}));};
-    try{
-      set('Project context',values.unit);set('Project name',values.name);
-      if(values.material)set('Block material / grade',values.material);
-      const suffix=values.unit==='inch'?'in':'mm';['Length','Width','Height'].forEach((label,index)=>set(label+' / '+suffix,values.dimensions[index]));
-    }catch(error){$('workflow-error').textContent=error.message+' Please complete step 1 directly.';}
+    try{prefillGuidedBlock($,values);}catch(error){$('workflow-error').textContent=error.message+' Please complete step 1 directly.';}
   }
   async function open(row){
     if(isDirty()&&!confirm('Discard the current unsaved draft and open this project?'))return;

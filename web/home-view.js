@@ -62,7 +62,7 @@ export function renderHome({element,action,api,launch,hasProject,returnToDraft,s
   const units=element('select');units.setAttribute('aria-label','Unit context');for(const [value,text]of [['metric','Metric · mm'],['inch','Inch · in']]){const option=element('option',text);option.value=value;units.append(option);}quickHead.append(units);quick.append(quickHead);cards.append(quick);
   const form=element('form',null,'home-setup-form');quick.append(form);const first=element('div',null,'home-setup-first');form.append(first);
   function field(parent,label,control){const wrap=element('label',null,'home-field');wrap.append(element('span',label),control);parent.append(wrap);return control;}
-  const name=field(first,'Project name',element('input'));name.value='New manifold';name.required=true;name.maxLength=160;
+  const name=field(first,'Project name',element('input'));name.value='New manifold';name.required=true;name.maxLength=120;
   const material=field(first,'Material',element('select'));material.setAttribute('aria-label','Material');const placeholder=element('option','Choose in engineering setup');placeholder.value='';material.append(placeholder);material.disabled=true;
   const dimensions=element('div',null,'home-envelope');form.append(dimensions);const mm=[160,100,100],inputs=[],labels=[];
   for(const [index,label]of ['Length','Width','Height'].entries()){
@@ -73,7 +73,7 @@ export function renderHome({element,action,api,launch,hasProject,returnToDraft,s
   units.onchange=()=>inputs.forEach((input,index)=>{input.value=mm[index]/(units.value==='inch'?25.4:1);input.max=2000/(units.value==='inch'?25.4:1);labels[index].textContent=['Length','Width','Height'][index]+' / '+(units.value==='inch'?'in':'mm');});
   const setupFooter=element('div',null,'home-setup-footer'),setupNote=element('span','Next: nets, ports, cavities & review.');setupFooter.append(setupNote);
   const continueButton=element('button','Continue Engineering Setup','primary');continueButton.type='submit';continueButton.append(homeIcon('arrow'));setupFooter.append(continueButton);form.append(setupFooter);
-  form.onsubmit=event=>{event.preventDefault();if(!name.value.trim()){name.setCustomValidity('Enter a project name.');name.reportValidity();return;}startSetup({name:name.value.trim(),unit:units.value,dimensions:inputs.map(input=>input.valueAsNumber),material:material.selectedOptions[0]?.dataset.name||''},continueButton);};name.oninput=()=>name.setCustomValidity('');
+  form.onsubmit=event=>{event.preventDefault();if(!name.value.trim()){name.setCustomValidity('Enter a project name.');name.reportValidity();return;}const selected=material.selectedOptions[0];startSetup({name:name.value.trim(),unit:units.value,dimensions:inputs.map(input=>input.valueAsNumber),material:selected?.value?{id:selected.value,name:selected.dataset.name}:null},continueButton);};name.oninput=()=>name.setCustomValidity('');
   api('/api/materials').then(result=>{
     if(!material.isConnected)return;
     for(const row of result.items||[]){if(!row.active)continue;const option=element('option',row.display_name);option.value=row.id;option.dataset.name=row.display_name;material.append(option);}
