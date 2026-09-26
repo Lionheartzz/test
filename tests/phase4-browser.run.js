@@ -24,9 +24,10 @@ async page=>{
   try{
     await page.goto(base);
     await page.setViewportSize({width:1366,height:768});
-    const project=page.getByRole('article').filter({hasText:fixtureName});
+    await page.getByRole('searchbox',{name:'Search saved projects'}).fill(fixtureName);
+    const project=page.locator('[data-project-id]').filter({hasText:fixtureName});
     await project.waitFor({state:'visible'});
-    await project.getByRole('button',{name:'Open',exact:true}).click();
+    await project.getByRole('button',{name:'Open CAD',exact:true}).click();
     await page.locator('#viewport canvas').waitFor({state:'visible'});
     for(const [name,w,h] of [['studio-1366x768',1366,768],['studio-1920x1080',1920,1080],['studio-2560x1440',2560,1440],['studio-1100x800',1100,800],['studio-900x800',900,800]])await capture(name,w,h);
     const previousLayout=await page.evaluate(()=>{
@@ -35,12 +36,14 @@ async page=>{
       return previous;
     });
     await page.reload();
-    await page.getByRole('article').filter({hasText:fixtureName}).getByRole('button',{name:'Open',exact:true}).click();
+    await page.getByRole('searchbox',{name:'Search saved projects'}).fill(fixtureName);
+    await page.locator('[data-project-id]').filter({hasText:fixtureName}).getByRole('button',{name:'Open CAD',exact:true}).click();
     const restored=await page.locator('.workspace').evaluate(node=>({left:node.style.getPropertyValue('--left-width'),right:node.style.getPropertyValue('--right-width')}));
     if(restored.left!=='308px'||restored.right!=='412px')throw Error('Studio v1 layout was not restored: '+JSON.stringify(restored));
     await page.evaluate(previous=>{const key='pmc:studio-layout:v1';if(previous===null)localStorage.removeItem(key);else localStorage.setItem(key,previous);},previousLayout);
     await page.reload();
-    await page.getByRole('article').filter({hasText:fixtureName}).getByRole('button',{name:'Open',exact:true}).click();
+    await page.getByRole('searchbox',{name:'Search saved projects'}).fill(fixtureName);
+    await page.locator('[data-project-id]').filter({hasText:fixtureName}).getByRole('button',{name:'Open CAD',exact:true}).click();
     await page.locator('#viewport canvas').waitFor({state:'visible'});
     await page.setViewportSize({width:1366,height:768});
     const leftBefore=Number(await page.locator('#left-split').getAttribute('aria-valuenow'));

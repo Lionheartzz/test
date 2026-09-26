@@ -30,6 +30,8 @@ Windows CAD 依赖已固定版本；`manifold/cad.py` 会先加载 CasADi 再加
 
 ## 日常设计（新版默认英文界面）
 
+默认启动进入 **Home** 工程首页：**Quick block setup** 设置名称、单位、毛坯尺寸和 SQLite 中的材料，随后预填原五步新建向导，继续完成网络、油口、腔体与 Review；**Open AI Design** 打开现有原理图分析流程。**Recent projects** 每页显示 5 个项目，包含保存的毫米尺寸、特征总数、真实工程状态及更新时间，支持搜索、归档切换、**Open CAD / Drawing / More**（重命名、复制、归档／恢复、准确名称确认删除）。工程库快速搜索显示最多 6 条 cavity / cartridge / thread 记录；**Open Engineering Library** 可在未创建草稿时浏览定义，放置特征需先打开或创建项目。顶部服务与数据库状态读取真实 API。侧栏仅用于 Home，进入 Model、Drawing 或现有弹窗后隐藏；**Return to current draft** 保留并返回当前草稿。验收与文件清单见 [Home redesign acceptance](docs/HOME_REDESIGN_ACCEPTANCE.md)。
+
 Studio 采用全窗口工作区：Feature Tree 与 Inspector 可拖动宽度或收起，窄窗口改用侧栏抽屉；底部 Validation Results 可展开并调整高度。顶栏的 Project、Engineering 菜单和左侧 **+ Add Feature** 调用原有工作流，Viewport 的 Display 菜单保留图层及逐网可见性。Reset layout 只清除本机界面布局偏好，不修改工程项目。
 
 视口新增 **Perspective / Orthographic**、ViewCube（六面、原有 ISO 和八个角）、**Focus**、**Isolate** 与 Display 内的 **Section / Clipping**。标准视图切换只改变方向；**Fit** 沿当前方向框选整体；选中对象后按 `F` 可立即框选当前显示几何，不请求精确图层。选中可定位特征时显示局部 U/V/IN 坐标标识，随当前显示位置和拖动预览更新；它仅供定位，不提供工程测量。Isolate 在精确模型缺少单对象加工体时才按需加载 Feature layers。剖切可选 X/Y/Z、保留平面任一侧，并以滑块或毫米输入调整；它只影响显示与拾取，不生成工程截面。没有原生弹窗时，`Esc` 依次关闭菜单/侧栏、当前交互、隔离和剖切。切换项目会清除这些临时叠加状态；投影模式在本次页面会话内保留。
@@ -68,7 +70,7 @@ Drawing 的命令区现按 Edit、Add annotation、Insert、Document 分组，Ba
 
 ## 和 Codex 协作
 
-当前打开项目的权威记录为 **`projects/saved/<id>.json`**，包含项目状态、工程主库 ID、更新时间、归档标记与构建指针。**Save Project** 保存未通过校验的工作进度；**Validate** 保存并构建。Projects 可搜索、重命名、复制、归档和恢复项目。Delete permanently 要求输入完整项目名，删除该项目记录及修订历史；工程主库、assets 与不可变构建保留。每次启动先展示项目库，不自动打开 demo。项目不嵌入完整 cavity 或 Cartridge 主数据；自动钻孔保存在构建的 resolved_design.json。可以直接告诉 Codex：
+当前打开项目的权威记录为 **`projects/saved/<id>.json`**，包含项目状态、工程主库 ID、更新时间、归档标记与构建指针。**Save Project** 保存未通过校验的工作进度；**Validate** 保存并构建。Projects 可搜索、重命名、复制、归档和恢复项目。Delete permanently 要求输入完整项目名，删除该项目记录及修订历史；工程主库、assets 与不可变构建保留。每次启动先展示 Home 工程首页，Studio 的 Projects 返回该首页，不自动打开 demo。项目不嵌入完整 cavity 或 Cartridge 主数据；自动钻孔保存在构建的 resolved_design.json。可以直接告诉 Codex：
 
 - “把 CV2 沿 X 移动 15 mm，重建并检查连接。”
 - “把 RV1 改到前面，并调整相关钻孔，保留 7 mm 最小壁厚。”

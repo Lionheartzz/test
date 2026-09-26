@@ -12,7 +12,8 @@ async page=>{
   });
   page.on('request',r=>{if(r.url().endsWith('/api/preview-solid'))calls.push({type:'exact',length:r.postDataJSON().block.length});});
   await page.goto('http://127.0.0.1:8765');await page.setViewportSize({width:1440,height:1000});
-  await page.getByRole('article').filter({hasText:design.name}).getByRole('button',{name:'Open',exact:true}).click();
+  await page.getByRole('searchbox',{name:'Search saved projects'}).fill(design.name);
+  await page.locator('[data-project-id]').filter({hasText:design.name}).getByRole('button',{name:'Open CAD',exact:true}).click();
   const ready=()=>page.waitForFunction(()=>document.querySelector('#model-info').textContent.includes('NOT OPTIMIZED')&&document.querySelector('.viewport-loading').hidden);
   await ready();calls.length=0;
   const edit=async value=>{await page.getByRole('spinbutton',{name:'Length X / mm',exact:true}).fill(String(value));await page.getByRole('spinbutton',{name:'Length X / mm',exact:true}).press('Tab');};

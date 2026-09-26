@@ -5,7 +5,8 @@ async page=>{
   if(!created.ok())throw Error(await created.text());
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto('http://127.0.0.1:8765');await page.setViewportSize({width:1440,height:1000});
-  await page.getByRole('article').filter({hasText:design.name}).getByRole('button',{name:'Open',exact:true}).click();
+  await page.getByRole('searchbox',{name:'Search saved projects'}).fill(design.name);
+  await page.locator('[data-project-id]').filter({hasText:design.name}).getByRole('button',{name:'Open CAD',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#model-info').textContent.includes('NOT OPTIMIZED'));
   await page.locator('#nets-open').click();
   if(!await page.getByText('Flow sized: requires', {exact:false}).isVisible())throw Error('Sizing status missing');

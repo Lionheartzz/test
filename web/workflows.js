@@ -50,7 +50,7 @@ export function workflows(ctx){
   let routingTools=[];api('/api/tools?type=drill').then(result=>routingTools=result.items||[]).catch(()=>{});
   const definitions=()=>Object.fromEntries((get().library||[]).map(d=>[d.id,d]));
   const threadDefinitions=()=>Object.fromEntries((get().threads||[]).map(row=>[row.id,row]));
-  function remember(def){if(!get().library.some(row=>row.id===def.id))get().library.push(structuredClone(def));}
+  function remember(def){if(get()&&!get().library.some(row=>row.id===def.id))get().library.push(structuredClone(def));}
 
   function insertNow(def,face='top',mapping=null,index=0){
     if(!isCavity(def)||!def.usable)throw Error(def.unusable_reason||'Select a usable cavity definition.');
@@ -58,6 +58,7 @@ export function workflows(ctx){
     if(ok)dialog.close();else $('workflow-error').textContent=$('notice').textContent;
   }
   function insert(def){
+    if(!get())throw Error('Open or create a manifold before placing a cavity.');
     let face='top',quantity=1;const mapping=Object.fromEntries(def.zones.map((z,i)=>[z.id,get().nets[i%get().nets.length]?.id||'P']));
     open('Place '+def.label);content.append(element('p','This places the selected cavity ID. Cartridge assignment and schematic intent remain empty unless you add them explicitly.'));
     field(content,'Quantity',quantity,v=>quantity=v,null,true);field(content,'Mounting face',face,v=>face=v,Object.fromEntries(['top','bottom','front','back','left','right'].map(x=>[x,x])));

@@ -16,7 +16,8 @@ async page=>{
   try{
     await page.setViewportSize({width:1366,height:768});
     await page.goto(base);
-    await page.getByRole('article').filter({hasText:'Two cavity interactive regression'}).getByRole('button',{name:'Open',exact:true}).click();
+    await page.getByRole('searchbox',{name:'Search saved projects'}).fill('Two cavity interactive regression');
+    await page.locator('[data-project-id]').filter({hasText:'Two cavity interactive regression'}).getByRole('button',{name:'Open CAD',exact:true}).click();
     await page.locator('#viewport canvas').waitFor({state:'visible'});
     const firstFeature=page.locator('#feature-tree [data-feature]').first();
     await firstFeature.click();
@@ -37,7 +38,8 @@ async page=>{
     await page.locator('#clip-enabled').check();
     if(await page.locator('#viewport').getAttribute('data-clipping')==='off')throw Error('Section did not activate');
     await page.locator('#projects-open').click();
-    await page.getByRole('article').filter({hasText:'Phase 5-6 isolated switch target'}).getByRole('button',{name:'Open',exact:true}).click();
+    await page.getByRole('searchbox',{name:'Search saved projects'}).fill('Phase 5-6 isolated switch target');
+    await page.locator('[data-project-id]').filter({hasText:'Phase 5-6 isolated switch target'}).getByRole('button',{name:'Open CAD',exact:true}).click();
     await page.waitForFunction(()=>document.querySelector('#project-name')?.textContent==='Phase 5-6 isolated switch target');
     if(await page.locator('#viewport').getAttribute('data-isolation')!=='none'||await page.locator('#viewport').getAttribute('data-clipping')!=='off')throw Error('Project switch leaked transient Viewer state');
     if(await page.locator('#projection-toggle').innerText()!=='Orthographic')throw Error('Project switch lost session projection');
@@ -45,7 +47,8 @@ async page=>{
 
     stage='Displayed proposal freshness and stale layer';
     await page.locator('#projects-open').click();
-    await page.getByRole('article').filter({hasText:'Two cavity interactive regression'}).getByRole('button',{name:'Open',exact:true}).click();
+    await page.getByRole('searchbox',{name:'Search saved projects'}).fill('Two cavity interactive regression');
+    await page.locator('[data-project-id]').filter({hasText:'Two cavity interactive regression'}).getByRole('button',{name:'Open CAD',exact:true}).click();
     await page.waitForFunction(()=>document.querySelector('.generated-group [data-feature]'));
     await page.locator('#feature-tree [data-feature]').first().click();
     let releaseExact,signalExact;
@@ -76,7 +79,8 @@ async page=>{
     await Promise.race([layerHeld,page.waitForTimeout(30000).then(()=>{throw Error('Feature layer request did not start');})]);
     await page.evaluate(()=>{window.confirm=()=>true;});
     await page.locator('#projects-open').click();
-    await page.getByRole('article').filter({hasText:'Phase 5-6 isolated switch target'}).getByRole('button',{name:'Open',exact:true}).click();
+    await page.getByRole('searchbox',{name:'Search saved projects'}).fill('Phase 5-6 isolated switch target');
+    await page.locator('[data-project-id]').filter({hasText:'Phase 5-6 isolated switch target'}).getByRole('button',{name:'Open CAD',exact:true}).click();
     await page.waitForFunction(()=>document.querySelector('#project-name')?.textContent==='Phase 5-6 isolated switch target');
     releaseLayer();await page.unroute('**/api/preview-layer');
     await page.waitForTimeout(250);

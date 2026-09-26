@@ -10,7 +10,8 @@ async page=>{
   const saved=await created.json();
   try{
     await page.goto(base);await page.setViewportSize({width:1440,height:1000});
-    await page.getByRole('article').filter({hasText:design.name}).getByRole('button',{name:'Open',exact:true}).click();
+    await page.getByRole('searchbox',{name:'Search saved projects'}).fill(design.name);
+    await page.locator('[data-project-id]').filter({hasText:design.name}).getByRole('button',{name:'Open CAD',exact:true}).click();
     const ready=()=>page.waitForFunction(()=>document.querySelector('#viewport').dataset.previewState==='exact-proposal',{},{timeout:16000});
     await ready();
     if(lazyRequests.length)throw Error('Default Review eagerly requested inspection geometry');

@@ -14,6 +14,7 @@ import {createStudioShell} from './studio-shell.js';
 import {createViewCube} from './viewcube.js';
 import {reportSource,resolveCheckTargets,issueReferences} from './validation-view.js';
 import './studio.css';
+import './home.css';
 const $=id=>document.getElementById(id),colors={P:'#ef5959',T:'#459cff',A:'#41ca8b',B:'#f2d454'},faces=Object.fromEntries(['top','bottom','front','back','left','right'].map(f=>[f,f]));
 let draftCheckedSignature=null,reportWasDraft=false,projectEpoch=0,savePending=null,statusPollPending=false;
 let viewMode='review',lastUsablePreview=null,displayedDraftSignature=null,displayedSource='none';

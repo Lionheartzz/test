@@ -14,7 +14,7 @@ async page => {
   });
   await page.setViewportSize({width:1366,height:768});
   await page.goto('http://127.0.0.1:8765/');
-  await page.getByRole('heading',{name:'Manifold projects'}).waitFor();
+  await page.getByRole('heading',{name:'Start a manifold'}).waitFor();
   await page.waitForFunction(()=>!document.querySelector('#project-home')?.textContent.includes('Loading saved projects'));
   assert(!await page.locator('.validation-panel').isVisible(),'Home shows the validation drawer');
   await shot('studio-home-1366');
@@ -36,7 +36,7 @@ async page => {
   assert(start.scrollHeight<=769,'Studio scrolls the whole page at 1366×768');
   await page.locator('#projects-open').click();
   await page.getByRole('button',{name:'Return to current draft'}).waitFor();
-  await page.getByRole('textbox',{name:'Search saved projects'}).fill('No such saved UI QA project');
+  await page.getByRole('searchbox',{name:'Search saved projects'}).fill('No such saved UI QA project');
   await page.getByRole('button',{name:'Show archived projects'}).click();
   await page.getByRole('button',{name:'Show active projects'}).click();
   await page.getByRole('button',{name:'Return to current draft'}).click();
