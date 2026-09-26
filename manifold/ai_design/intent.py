@@ -10,7 +10,8 @@ FACES = {'left', 'right', 'top', 'bottom', 'front', 'back'}
 _MOUNTING_MEASUREMENT = re.compile(
     r'(?<![\w./-])(?P<number>(?:\d+\s*[- ]\s*)?\d+\s*/\s*\d+|\d+(?:\.\d*)?|\.\d+)'
     r'\s*(?P<unit>mm|inches|inch|in|["″])(?=$|[^\w])', re.I)
-_MOUNTING_THREAD = re.compile(r'(?<!\w)\d+\s*/\s*\d+\s*(?:in(?:ch(?:es)?)?|["″])?\s*-\s*\d+\s*(?:UNC|UNF)\b',re.I)
+_MOUNTING_THREAD = re.compile(r'(?<!\w)(?P<major>\d+)\s*/\s*(?P<minor>\d+)\s*(?:in(?:ch(?:es)?)?|["″])?\s*-\s*(?P<tpi>\d+)\s*(?P<family>UNC|UNF)(?P<thread_class>-\d+[AB])?\b',re.I)
+_MOUNTING_DESIGNATION = re.compile(r'\bM\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?(?:-\d+[A-Z])?|' + _MOUNTING_THREAD.pattern,re.I)
 _MOUNTING_LABEL = re.compile(r'\b(thread\s+depth|drill(?:ing)?\s+depth|tap\s+depth|depth|positions?|coordinates?|[uv])\b', re.I)
 
 
@@ -44,11 +45,12 @@ def _source_mounting(result, intent):
     evidence={e['id']:e for e in result.get('evidence',[])}
     quote=' '.join(evidence[e]['quote'] for e in claim.get('evidence_ids',[]) if e in evidence and evidence[e].get('quote')) if claim else ''
     count=re.search(r'\b(\d{1,2})\s*[x×]\s*(?=M\s*\d|\d+\s*/\s*\d+)',quote,re.I)
-    thread=re.search(r'\bM\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?(?:-\d+[A-Z])?|\b\d+\s*/\s*\d+\s*-\s*\d+\s*(?:UNC|UNF)(?:-\d+[AB])?',quote,re.I)
+    thread=_MOUNTING_DESIGNATION.search(quote)
     unverified=[]
     if quote:
         fields['count']=int(count.group(1)) if count else None
-        fields['thread_designation']=re.sub(r'\s+',' ',thread.group().strip()).upper() if thread else None
+        fields['thread_designation']=(f"{thread['major']}/{thread['minor']}-{thread['tpi']} {thread['family'].upper()}{thread['thread_class'] or ''}"
+                                      if thread and thread['major'] else re.sub(r'\s+',' ',thread.group().strip()).upper() if thread else None)
         if fields.get('face') and not re.search(r'\b'+re.escape(fields['face'])+r'\b',quote,re.I):fields.pop('face')
         if fields.get('through') is not None and not re.search(r'\b(through|blind)\b',quote,re.I):fields.pop('through')
         measurements=_mounting_measurements(quote)

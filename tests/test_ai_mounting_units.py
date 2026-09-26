@@ -148,9 +148,13 @@ def test_thread_fraction_is_not_a_measurement_or_an_inferred_numeric_unit():
     assert '_source_unverified' not in row
 
 
-def test_quoted_thread_size_does_not_supply_mounting_numeric_unit():
-    result,intent=sourced('1 × 3/8"-16 UNC',count=1,thread_designation='3/8-16 UNC')
-    assert 'numeric_unit' not in mounting_from_intent(result,intent)
+@pytest.mark.parametrize('literal',['3/8-16 UNC','3/8"-16 UNC','3/8″-16 UNC','3/8 in-16 UNC'])
+def test_quoted_thread_size_does_not_supply_mounting_numeric_unit(literal):
+    result,intent=sourced(f'1 × {literal}',count=1,thread_designation='3/8-16 UNC')
+    parsed=mounting_from_intent(result,intent)
+    assert parsed['thread_designation']=='3/8-16 UNC'
+    assert parsed['thread_family']=='UNC'
+    assert 'numeric_unit' not in parsed
 
 
 def test_one_source_position_number_cannot_justify_two_coordinates():
