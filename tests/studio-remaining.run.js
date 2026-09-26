@@ -19,7 +19,7 @@ async page=>{
     const exports=[['step-download','production.step'],['engineering-step-download','engineering.step'],['data-download','design.json'],['report-download','validation.md'],['chart-download','drill-chart.csv'],['manufacturing-download','manufacturing.json']];
     for(const [id,name] of exports){
       const link=page.locator('#'+id);
-      if(await link.getAttribute('aria-disabled')!=='false'||!await link.getAttribute('href'))throw Error(`${name} is unavailable for a current PASS build`);
+      if(await link.getAttribute('aria-disabled')!=='false'||!await link.getAttribute('href')||await link.getAttribute('download')!==name)throw Error(`${name} is unavailable for a current PASS build`);
       const [download]=await Promise.all([page.waitForEvent('download',{timeout:120000}),link.click()]);
       await download.saveAs(`${output}/${name}`);
     }
@@ -31,7 +31,7 @@ async page=>{
     await page.locator('#inspector').getByLabel('Project name').fill('Unsaved UI acceptance draft');
     await page.locator('#inspector').getByLabel('Project name').press('Tab');
     await page.waitForFunction(()=>document.querySelector('#status')?.textContent==='DRAFT');
-    for(const [id]of exports)if(await page.locator('#'+id).getAttribute('aria-disabled')!=='true'||await page.locator('#'+id).getAttribute('href'))throw Error(`${id} bypassed dirty export gate`);
+    for(const [id]of exports)if(await page.locator('#'+id).getAttribute('aria-disabled')!=='true'||await page.locator('#'+id).getAttribute('href')!==null||await page.locator('#'+id).getAttribute('download')!==null)throw Error(`${id} retained a dirty export URL or filename`);
     await page.evaluate(()=>{window.confirm=message=>{window.__isolatedConfirm=message;return true;};});
     await page.locator('#project-menu-trigger').click();await page.locator('#reload').click();
     await page.waitForFunction(()=>document.querySelector('#status')?.textContent==='PASS');
@@ -75,9 +75,24 @@ async page=>{
     await page.waitForFunction(()=>document.querySelector('#status')?.textContent==='PASS');
     stages.push(stage);
 
+    stage='Stale export gate and Validate recovery';
+    await page.locator('#select-block').click();
+    await page.locator('#inspector').getByLabel('Engineering notes').fill(`Isolated stale export acceptance ${Date.now()}`);
+    await page.locator('#inspector').getByLabel('Engineering notes').press('Tab');
+    await page.locator('#save-project').click();
+    await page.waitForFunction(()=>document.querySelector('#status')?.textContent==='STALE',null,{timeout:15000});
+    for(const [id]of exports)if(await page.locator('#'+id).getAttribute('href')!==null||await page.locator('#'+id).getAttribute('download')!==null)throw Error(`${id} retained a stale-build download`);
+    await page.locator('#build').click();
+    await page.waitForFunction(()=>document.body.classList.contains('busy'));
+    await page.waitForFunction(()=>!document.body.classList.contains('busy'),null,{timeout:120000});
+    if(await page.locator('#status').innerText()!=='PASS')throw Error('Isolated export fixture did not return to PASS after Validate');
+    for(const [id,name]of exports)if(!await page.locator('#'+id).getAttribute('href')||await page.locator('#'+id).getAttribute('download')!==name)throw Error(`${id} was not restored after Validate`);
+    stages.push(stage);
+
     stage='Clean external reload and dirty revision conflict';
     await page.goto(`${base}/?project=${conflictId}`);
     await page.waitForFunction(()=>document.querySelector('#project-name')?.textContent==='Phase 6 optimistic conflict fixture');
+    for(const [id]of exports)if(await page.locator('#'+id).getAttribute('href')!==null||await page.locator('#'+id).getAttribute('download')!==null)throw Error(`${id} retained an artifact for a project without a build`);
     await page.locator('#select-block').click();
     await page.locator('#inspector').getByLabel('Project name').fill('Local unsaved conflict draft');
     await page.locator('#inspector').getByLabel('Project name').press('Tab');
@@ -96,6 +111,7 @@ async page=>{
     await clean.close();
     await page.bringToFront();
     await page.waitForFunction(()=>document.querySelector('#notice')?.textContent?.includes('Project changed on disk'),null,{timeout:15000});
+    for(const [id]of exports)if(await page.locator('#'+id).getAttribute('href')!==null||await page.locator('#'+id).getAttribute('download')!==null)throw Error(`${id} retained an artifact after an external change`);
     if(await page.locator('#inspector').getByLabel('Project name').inputValue()!=='Local unsaved conflict draft')throw Error('External update overwrote dirty draft');
     await page.locator('#save-project').click();
     await page.waitForFunction(()=>document.querySelector('#notice')?.textContent?.includes('Saved project changed'),null,{timeout:15000});

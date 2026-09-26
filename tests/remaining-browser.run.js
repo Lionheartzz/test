@@ -87,7 +87,7 @@ async page=>{
     await page.keyboard.press('Escape');
     stages.push(stage);
 
-    stage='Source update cancel and apply';
+    stage='Source update edit race, cancel and apply';
     await page.goto(`${base}/?project=${projectId}`);
     await page.locator('#build').waitFor({state:'visible'});
     await page.locator('#build').click();
@@ -95,6 +95,30 @@ async page=>{
     await page.waitForFunction(()=>!document.body.classList.contains('busy'),null,{timeout:120000});
     await page.goto(drawingUrl);
     await page.waitForFunction(()=>document.querySelector('#document-state')?.textContent?.includes('SOURCE CHANGED'));
+    let releasePreview,signalHeld;
+    const held=new Promise(resolve=>signalHeld=resolve);
+    await page.route('**/preview-update',async route=>{
+      const response=await route.fetch();
+      await new Promise(resolve=>{releasePreview=resolve;signalHeld();});
+      await route.fulfill({response});
+    });
+    await menu('Document').click();await page.locator('#update').click();
+    await Promise.race([held,page.waitForTimeout(120000).then(()=>{throw Error('Source update preview did not start');})]);
+    for(const id of ['save','text','update'])if(!await page.locator('#'+id).isDisabled())throw Error(`${id} unlocked while the update preview was pending`);
+    if(!await page.locator('#properties').getByLabel('Drawing title').isDisabled())throw Error('Drawing properties unlocked before update review');
+    const stateBefore=await page.locator('#document-state').innerText();
+    await page.keyboard.press('Control+z');
+    if(await page.locator('#document-state').innerText()!==stateBefore)throw Error('Undo edited the Drawing during source update');
+    releasePreview();await page.unroute('**/preview-update');
+    await waitModal('Review source update');
+    await page.evaluate(()=>{const input=document.querySelector('#properties input[aria-label="Drawing title"]');input.value='Race-preserved local title';input.dispatchEvent(new Event('change',{bubbles:true}));});
+    if(!/Unsaved/.test(await page.locator('#document-state').innerText()))throw Error('Injected local edit did not reach the Drawing edit state');
+    await page.getByRole('button',{name:'Apply update'}).click();
+    await page.waitForFunction(()=>document.querySelector('#modal-error')?.textContent?.includes('Drawing changed since this update was prepared'));
+    if(!await page.locator('#modal').isVisible()||!await page.locator('#properties').getByLabel('Drawing title').inputValue().then(value=>value==='Race-preserved local title'))throw Error('Rejected update discarded the local edit');
+    await page.getByRole('button',{name:'Keep existing drawing'}).click();
+    await page.locator('#save').click();
+    await page.waitForFunction(()=>!document.querySelector('#document-state')?.textContent?.includes('Unsaved'));
     await menu('Document').click();await page.locator('#update').click();await waitModal('Review source update');
     await page.getByRole('button',{name:'Keep existing drawing'}).click();
     if(!/SOURCE CHANGED/.test(await page.locator('#document-state').innerText()))throw Error('Canceling update changed source');

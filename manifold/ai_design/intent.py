@@ -20,13 +20,20 @@ def mounting_from_intent(result, intent):
         # The model's structured reading is not authority for words absent from
         # the exact source quote. Keep unresolved fields unresolved.
         fields['count']=int(count.group(1)) if count else None
-        fields['thread_designation']=re.sub(r'\s+','',thread.group()).upper() if thread else None
+        fields['thread_designation']=re.sub(r'\s+',' ',thread.group().strip()).upper() if thread else None
         if fields.get('face') and not re.search(r'\b'+re.escape(fields['face'])+r'\b',quote,re.I):fields.pop('face')
         if fields.get('positions') and any(not all(re.search(r'(?<!\d)'+re.escape(f'{coord:g}')+r'(?!\d)',quote) for coord in pair)
                                            for pair in fields['positions']):fields.pop('positions')
         if fields.get('through') is not None and not re.search(r'\b(through|blind)\b',quote,re.I):fields.pop('through')
         for key in ('drill_depth','thread_depth'):
             if fields.get(key) is not None and not re.search(r'(?<!\d)'+re.escape(f'{fields[key]:g}')+r'(?!\d)',quote):fields.pop(key)
+        # A thread designation is a standard identity, not a source for U/V or depth units.
+        units={('in' if unit.lower() in ('in','inch') else 'mm') for unit in re.findall(r'(?<![\w/])(?:\d+(?:\.\d+)?|\.\d+)\s*(mm|in|inch)\b',quote,re.I)}
+        if len(units)==1:fields['numeric_unit']=units.pop()
+        elif len(units)>1:fields['numeric_unit']='mixed'
+        else:fields.pop('numeric_unit',None)
+    else:
+        fields.pop('numeric_unit',None)
     if fields.get('thread_designation'):
         fields['thread_family']=normalized_thread_family({'display_name':fields['thread_designation']})
     return fields
@@ -42,6 +49,11 @@ def reconcile_mounting(requirements, mounting):
             blocked.append('Every resolved mounting hole must be assigned to an existing mounting requirement.')
     for row in requirements:
         req=row['mounting']
+        if req.get('numeric_unit')=='mixed':
+            row.update(status='review_required',message='Mixed mounting position/depth units need an explicit per-value engineering resolution.')
+            blocked.append(f"{row['intent_id']}: {row['message']}")
+            continue
+        scale=25.4 if req.get('numeric_unit') in ('in','inch') else 1.0
         holes=[entry for entry in mounting if (entry['hole'].requirement_id or sole)==row['intent_id']]
         expected=req.get('count')
         if not req.get('thread_designation') or expected is None:
@@ -58,10 +70,10 @@ def reconcile_mounting(requirements, mounting):
                 if req.get('thread_family') and normalized_thread_family(thread)!=req['thread_family']:wrong.append('family')
                 if req.get('face') and hole.face!=req['face']:wrong.append('face')
                 if req.get('through') is not None and hole.through!=req['through']:wrong.append('through/blind')
-                if req.get('drill_depth') is not None and abs(hole.depth-req['drill_depth'])>1e-6:wrong.append('drill depth')
-                if req.get('thread_depth') is not None and abs(hole.thread_depth-req['thread_depth'])>1e-6:wrong.append('thread depth')
+                if req.get('drill_depth') is not None and abs(hole.depth-req['drill_depth']*scale)>1e-6:wrong.append('drill depth')
+                if req.get('thread_depth') is not None and abs(hole.thread_depth-req['thread_depth']*scale)>1e-6:wrong.append('thread depth')
             positions=req.get('positions')
-            if positions is not None and sorted((round(h['hole'].u,6),round(h['hole'].v,6)) for h in holes)!=sorted((round(u,6),round(v,6)) for u,v in positions):wrong.append('positions')
+            if positions is not None and sorted((round(h['hole'].u,6),round(h['hole'].v,6)) for h in holes)!=sorted((round(u*scale,6),round(v*scale,6)) for u,v in positions):wrong.append('positions')
             if wrong or len(holes)>expected:
                 row.update(status='conflict',message='Mounting requirement conflicts with resolved '+', '.join(sorted(set(wrong or ['count'])))+'.')
             elif len(holes)<expected:

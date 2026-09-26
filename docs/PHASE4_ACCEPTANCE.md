@@ -1,6 +1,6 @@
 # Phase 4 导航、工程可视化与 Drawing 视觉对齐验收
 
-日期：2026-09-26。实施起点为 `codex/sqlite-domain-reset` 的 `6b7d8f97079a4b32a81bd3fe6a8f96af5de4ad4a`；本记录对应尚未提交的本地工作区。没有修改后端 API、项目 schema、几何、路由、校验规则、Drawing 源或 PDF 生成。
+日期：2026-09-26。实施起点为 `codex/sqlite-domain-reset` 的 `6b7d8f97079a4b32a81bd3fe6a8f96af5de4ad4a`。以下是 Phase 4 当时的验收记录；后续提交和闭环复验见 [Phase 5/6 验收记录](PHASE5_6_ACCEPTANCE.md)。Phase 4 未修改后端 API、项目 schema、几何、路由、校验规则、Drawing 源或 PDF 生成。
 
 ## 实施范围
 
@@ -24,7 +24,7 @@
 | `node scripts/check-phase4-browser.mjs` | 通过；11 张实际浏览器截图，0 个项目写入请求、0 page error。验证 v1 布局恢复/Reset、侧栏调整与恢复、Home 返回、15 个导航入口、三轴剖切、Isolate、原生 dialog Escape 焦点、Validation 入口和 Drawing 纸面 Fit。 |
 | `git diff --check` | 通过；仅有 Git 的 LF/CRLF 转换提示。 |
 
-浏览器验收在 `127.0.0.1:8766` 的隔离服务上仅允许 GET 与 Drawing 的只读 `POST /render`；后端实现读取文档、计算 SVG 和检查，不保存。其余 POST 均被浏览器路由阻断。截图中的 Drawing 源变更警告来自隔离服务内已保存的测试图纸，不代表真实用户图纸状态。Python 使用既有隔离 fixture。未运行 `python -m manifold prove`，因为没有变更 CAD 几何、路由或权威校验实现。
+浏览器验收在 `127.0.0.1:8766` 的隔离服务上仅允许 GET 与 Drawing 的只读 `POST /render`；后端实现读取文档、计算 SVG 和检查，不保存。其余 POST 均被浏览器路由阻断。截图中的 Drawing 源变更警告来自隔离服务内已保存的测试图纸，不代表真实用户图纸状态。Python 使用既有隔离 fixture。Phase 4 当时未运行 `python -m manifold prove`，因为没有变更 CAD 几何、路由或权威校验实现；闭环阶段的证明结果见 [后续记录](PHASE5_6_ACCEPTANCE.md)。
 
 ## 截图与原始记录
 

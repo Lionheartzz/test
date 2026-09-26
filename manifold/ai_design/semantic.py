@@ -160,7 +160,8 @@ priority/design_priority (compact|simple_machining|fewer_plugs|short_drills), se
 such as G1/4 BSPP or 1/4-18 NPT in each external port specification. For tapped mounting-hole requirements,
 preserve count, thread identity, face/positions, through/blind and depth only when stated; missing positions remain
 unresolved and must never be invented. Put these literal values in RequirementReading.mounting:
-count, thread_family, thread_designation, face, positions (U/V pairs), through, drill_depth, thread_depth.
+count, thread_family, thread_designation, face, positions (U/V pairs), numeric_unit (mm or in for numeric positions/depths), through, drill_depth, thread_depth.
+Set numeric_unit only when the quoted requirement explicitly states the numeric unit. A UNC/UNF thread name alone does not establish position or depth units.
 Omit every field absent from the quoted requirement. Preserve other requirements explicitly as other/serviceability.
 Faces are top,bottom,left,right,front,back; X=length,Y=width,Z=height. Do not invent numeric geometry.
 Do not generate IDs, claim lists, hashes, offsets, database keys, CAD commands or tool calls.

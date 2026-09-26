@@ -111,6 +111,7 @@ class MountingRequirement(Strict):
     thread_designation: str | None = Field(default=None,max_length=120)
     face: Face | None = None
     positions: list[tuple[float,float]] | None = Field(default=None,max_length=40)
+    numeric_unit: Literal['mm','in','inch','mixed'] | None = None  # Mixed units require review; absent keeps legacy mm semantics.
     through: bool | None = None
     drill_depth: float | None = Field(default=None,gt=0,le=2000)
     thread_depth: float | None = Field(default=None,gt=0,le=2000)

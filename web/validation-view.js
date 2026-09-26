@@ -1,11 +1,11 @@
 // Spatial references are allowed only for results bound to the displayed design.
 // Check values remain authoritative in their report even when spatial references are stale.
-export function reportSource({report,build,dirty,stale,externalChange,draftCheckedSignature,draftSignature,reportWasDraft=false}){
+export function reportSource({report,build,dirty,stale,externalChange,draftCheckedSignature,draftSignature,displayedDraftSignature,displayedSource,reportWasDraft=false}){
   if(!report)return {kind:'none',spatial:false,label:'Not validated'};
-  if(draftCheckedSignature&&draftCheckedSignature===draftSignature)
+  if(draftCheckedSignature&&draftCheckedSignature===draftSignature&&displayedDraftSignature===draftSignature&&displayedSource!=='retained')
     return {kind:'draft',spatial:true,label:'Current draft exact checks · not saved'};
   const matched=!!build&&report.design_revision===build.design_revision&&report.engine_revision===build.engine_revision;
-  if(matched&&!dirty&&!stale&&!externalChange)
+  if(matched&&!dirty&&!stale&&!externalChange&&displayedSource==='authoritative')
     return {kind:'authoritative',spatial:true,label:'Current authoritative build'};
   return {kind:'previous',spatial:false,label:reportWasDraft?'Previous draft exact checks · no current spatial mapping':'Previous build results · current objects are references only'};
 }

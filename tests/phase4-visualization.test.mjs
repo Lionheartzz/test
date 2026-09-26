@@ -41,6 +41,10 @@ const displayed={features:[
 test('validation targets use stable IDs and explicit net membership only',()=>{
   assert.deepEqual(resolveCheckTargets({items:['CV1:P','PT1','CV2']},{displayed}).ids,['CV1','PT1']);
   assert.deepEqual(resolveCheckTargets({items:['P']},{displayed}).ids,['CV1','PT1','R1']);
+  const editedDisplay={...displayed,features:displayed.features.filter(feature=>feature.id!=='R1')};
+  assert.deepEqual(resolveCheckTargets({items:['R1','P']},{displayed:editedDisplay}).ids,['CV1','PT1']);
+  const newProposal={...editedDisplay,features:[...editedDisplay.features,{id:'R2',kind:'drilling',route_net:'P'}]};
+  assert.deepEqual(resolveCheckTargets({items:['R2','P']},{displayed:newProposal}).ids,['R2','CV1','PT1']);
   assert.deepEqual(resolveCheckTargets({items:['red','CV one']},{displayed}).ids,[]);
   const refs=issueReferences({checks:[{status:'WARNING',items:['CV1']},{status:'FAIL',items:['CV1','PT1']},{status:'PASS',items:['CV1']}]},{displayed});
   assert.deepEqual(refs.find(row=>row.id==='CV1'),{id:'CV1',FAIL:1,WARNING:1});
@@ -49,12 +53,15 @@ test('validation targets use stable IDs and explicit net membership only',()=>{
 test('spatial issue mapping is gated by exact source and draft signature',()=>{
   const report={design_revision:'rev-a',engine_revision:'engine-a'};
   const build={design_revision:'rev-a',engine_revision:'engine-a'};
-  const base={report,build,dirty:false,stale:false,externalChange:false,draftCheckedSignature:null,draftSignature:'current'};
+  const base={report,build,dirty:false,stale:false,externalChange:false,draftCheckedSignature:null,draftSignature:'current',displayedDraftSignature:'current',displayedSource:'authoritative'};
   assert.equal(reportSource(base).kind,'authoritative');
+  assert.equal(reportSource({...base,displayedSource:'proposal'}).spatial,false);
   assert.equal(reportSource({...base,dirty:true}).spatial,false);
   assert.equal(reportSource({...base,externalChange:true}).spatial,false);
   assert.equal(reportSource({...base,report:{...report,engine_revision:'other'}}).spatial,false);
-  assert.equal(reportSource({...base,dirty:true,draftCheckedSignature:'current'}).kind,'draft');
+  assert.equal(reportSource({...base,dirty:true,draftCheckedSignature:'current',displayedSource:'draft'}).kind,'draft');
+  assert.equal(reportSource({...base,dirty:true,draftCheckedSignature:'current',displayedDraftSignature:'old',displayedSource:'draft'}).spatial,false);
+  assert.equal(reportSource({...base,dirty:true,draftCheckedSignature:'current',displayedSource:'retained'}).spatial,false);
   assert.equal(reportSource({...base,dirty:true,draftCheckedSignature:'old'}).spatial,false);
   assert.match(reportSource({...base,dirty:true,draftCheckedSignature:'old',reportWasDraft:true}).label,/Previous draft/);
 });
