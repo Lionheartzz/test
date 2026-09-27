@@ -7,7 +7,7 @@ import {guided} from '../web/guided.js';
 class Node {
   constructor(tag,text='',className=''){
     this.tagName=tag;this.textContent=text||'';this.className=className;
-    this.children=[];this.dataset={};this.attributes={};this.value='';this.disabled=false;this.isConnected=true;
+    this.children=[];this.dataset={};this.attributes={};this.value='';this.disabled=false;this.isConnected=true;this.scrollTop=0;
     this.classList={add(){}};
   }
   append(...children){for(const child of children){child.parentElement=this;this.children.push(child);}}
@@ -18,7 +18,7 @@ class Node {
   removeAttribute(name){delete this.attributes[name];}
   querySelectorAll(selector){const tags=selector.split(',').map(value=>value.trim());const found=[];const visit=node=>{for(const child of node.children){if(tags.includes(child.tagName))found.push(child);visit(child);}};visit(this);return found;}
   querySelector(selector){const matches=node=>selector.startsWith('#')?node.id===selector.slice(1):node.tagName===selector;const visit=node=>{if(matches(node))return node;for(const child of node.children){const found=visit(child);if(found)return found;}return null;};return visit(this);}
-  scrollIntoView(options){this.scrollOptions=options;}
+  getBoundingClientRect(){return {top:this.top??0};}
   focus(options){this.focusOptions=options;globalThis.document.activeElement=this;}
   get firstElementChild(){return this.children[0]??null;}
   get valueAsNumber(){return Number(this.value);}
@@ -56,18 +56,25 @@ test('Home Projects jumps to the existing project heading without changing Home 
       h.root.layout.querySelector('nav').querySelectorAll('button').slice(0,6).map(node=>node.getAttribute('aria-label')));
     const title=element('h2','Archived projects');h.root.projects.append(title);
     const name=h.root.layout.querySelectorAll('input').find(node=>node.value==='New manifold');name.value='Unfinished setup';
-    const calls=h.apiCalls(),projects=h.root.projects;
+    const calls=h.apiCalls(),projects=h.root.projects,content=projects.parentElement;
+    projects.top=336;content.top=48;
     h.nav('Projects').onclick();
     assert.equal(projects.id,'home-projects');
-    assert.deepEqual(projects.scrollOptions,{block:'nearest'});
+    assert.equal(content.scrollTop,272);
     assert.equal(globalThis.document.activeElement,title);
     assert.equal(title.tabIndex,-1);
     assert.deepEqual(title.focusOptions,{preventScroll:true});
+    assert.equal(h.nav('Projects').getAttribute('aria-current'),'location');
+    assert.equal(h.nav('Home').getAttribute('aria-current'),null);
     assert.equal(title.textContent,'Archived projects');
     assert.equal(name.value,'Unfinished setup');
     assert.equal(h.apiCalls(),calls);
     assert.deepEqual(h.launched,[]);
     assert.equal(projects.parentElement.className,'home-content');
+    h.nav('Home').onclick();
+    assert.equal(content.scrollTop,0);
+    assert.equal(h.nav('Home').getAttribute('aria-current'),'page');
+    assert.equal(h.nav('Projects').getAttribute('aria-current'),null);
   }finally{h.restore();}
 });
 

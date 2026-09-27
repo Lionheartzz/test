@@ -24,8 +24,15 @@ export function renderHome({element,action,api,launch,hasProject,returnToDraft,s
   brand.append(homeIcon('block'),element('strong','PMC'),element('span','MANIFOLD STUDIO'));
   const statuses=element('div',null,'home-services'),service=element('span','Checking service…'),database=element('span','Checking engineering DB…');
   statuses.setAttribute('role','status');statuses.append(service,database);header.append(brand,statuses);
-  const layout=element('div',null,'home-layout'),sidebar=element('nav',null,'home-sidebar');sidebar.setAttribute('aria-label','Home navigation');
-  const jump=id=>{const target=layout.querySelector('#'+id);target?.scrollIntoView({block:'nearest'});const focus=target?.querySelector('h2')||target;if(focus){focus.tabIndex=-1;focus.focus({preventScroll:true});}};
+  const layout=element('div',null,'home-layout'),sidebar=element('nav',null,'home-sidebar'),content=element('div',null,'home-content');sidebar.setAttribute('aria-label','Home navigation');
+  const navigationButtons={};
+  const jump=id=>{
+    const target=layout.querySelector('#'+id);if(!target)return;
+    content.scrollTop=id==='home-start'?0:Math.max(0,content.scrollTop+target.getBoundingClientRect().top-content.getBoundingClientRect().top-16);
+    const focus=target.querySelector('h2')||target;focus.tabIndex=-1;focus.focus({preventScroll:true});
+    for(const button of [navigationButtons.Home,navigationButtons.Projects])button.removeAttribute('aria-current');
+    navigationButtons[id==='home-projects'?'Projects':'Home'].setAttribute('aria-current',id==='home-projects'?'location':'page');
+  };
   for(const [section,entries]of [
     ['WORKSPACE',[
       ['home','Home',()=>jump('home-start'),false],
@@ -46,13 +53,14 @@ export function renderHome({element,action,api,launch,hasProject,returnToDraft,s
     for(const [icon,label,handler,needsProject]of entries){
       const button=action(sidebar,'',()=>typeof handler==='function'?handler():launch(handler,button));
       button.append(homeIcon(icon),element('span',label));button.setAttribute('aria-label',label);button.title=label;
+      if(label==='Home'||label==='Projects')navigationButtons[label]=button;
       if(icon==='home')button.setAttribute('aria-current','page');
       if(needsProject&&!hasProject()){button.disabled=true;button.title=label+' · Open or create a manifold first';}
     }
   }
   const sidebarNote=element('p',hasProject()?'Current draft stays open while you browse Home.':'Open or create a manifold to use project engineering tools.','home-sidebar-note');sidebar.append(sidebarNote);
   const sidebarFoot=element('div',null,'home-sidebar-foot');sidebarFoot.append(element('span','LOCAL WORKSPACE'),element('small','Projects and drawings stay in this workspace.'));sidebar.append(sidebarFoot);
-  const content=element('div',null,'home-content');layout.append(sidebar,content);
+  layout.append(sidebar,content);
   const titlebar=element('div',null,'home-titlebar'),title=element('h1','Start a manifold');title.id='home-start';title.tabIndex=-1;titlebar.append(title);
   const titleActions=element('div',null,'home-title-actions');
   const importButton=action(titleActions,'Import Project',()=>launch('project-import',importButton));importButton.prepend(homeIcon('import'));
