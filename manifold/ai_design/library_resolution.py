@@ -1,6 +1,6 @@
 """AI engineering-library binding through the same runtime SQLite master."""
 import re
-from ..engineering_db import compatible_cavity_ids,get_definition,normalized_port_family,search_cartridges,search_definitions
+from ..engineering_db import compatible_logical_cavities,get_definition,normalized_port_family,search_cartridges,search_definitions
 from .service import digest
 
 
@@ -97,19 +97,40 @@ def candidates(inputs,result,component):
     matches=[row for row in cartridges if norm(row['model'])==norm(model) and (not maker or norm(maker) in norm(row['manufacturer']))]
     found=[]
     for cartridge in matches:
-        for cavity_id in compatible_cavity_ids(cartridge['id']):
+        for candidate in compatible_logical_cavities(cartridge['id']):
+            cavity_id = candidate['cavity_id']
             definition=get_definition(cavity_id)
-            found.append(dict(**summary('db:'+cavity_id,definition),cartridge_id=cartridge['id'],reason='Explicit SQLite cartridge-cavity relationship'))
+            found.append(dict(**summary('db:'+cavity_id,definition),cartridge_id=cartridge['id'],
+                              logical_id=candidate['logical_id'],reason='Explicit SQLite cartridge-cavity relationship'))
     return found
 
 
-def resolution_status(inputs,result,component,choices):
+def automatic_choice(inputs, choices):
+    """Choose within one source-backed logical cavity and the requested unit only."""
+    groups={row.get('logical_id',row['key']) for row in choices}
+    if not choices:return None,'relationship_missing'
+    if len(groups)>1:return None,'ambiguous_cavities'
     usable=[row for row in choices if row['usable']]
-    if not choices:return dict(code='relationship_missing',message='No explicit cartridge-cavity relationship exists in SQLite.',action='Select a cavity explicitly or import confirmed cartridge compatibility.',candidate_count=0,usable_count=0)
-    if not usable:return dict(code='geometry_unusable',message='Compatible cavities exist but lack executable geometry.',action='Choose a usable cavity definition.',candidate_count=len(choices),usable_count=0)
-    if len(usable)>1:return dict(code='ambiguous_cavities',message='Multiple compatible cavities exist.',action='Choose one cavity and map its interfaces.',candidate_count=len(choices),usable_count=len(usable))
-    mapping=matching_zones(result,component,usable[0]['zones'])
-    return dict(code='resolved' if mapping else 'window_mapping_required',message='One explicit compatible cavity was found.',action='Confirm the interface mapping.',candidate_count=len(choices),usable_count=1)
+    if not usable:return None,'geometry_unusable'
+    preferred={row['key']: row for row in usable if row['unit']==inputs.project_context}
+    if len(preferred)!=1:return None,'unit_context_unavailable'
+    return next(iter(preferred.values())),None
+
+
+def resolution_status(inputs,result,component,choices):
+    chosen,blocked=automatic_choice(inputs,choices)
+    usable=[row for row in choices if row['usable']]
+    messages={
+        'relationship_missing':('No explicit cartridge-cavity relationship exists in SQLite.','Select a cavity explicitly or import confirmed cartridge compatibility.'),
+        'geometry_unusable':('Compatible cavities exist but lack executable geometry.','Choose a usable cavity definition.'),
+        'ambiguous_cavities':('Multiple distinct logical cavities are compatible.','Choose one cavity and map its interfaces.'),
+        'unit_context_unavailable':('No unique usable physical cavity matches the project unit context.','Select a physical cavity explicitly.'),
+    }
+    if blocked:
+        message,action=messages[blocked]
+        return dict(code=blocked,message=message,action=action,candidate_count=len(choices),usable_count=len(usable))
+    mapping=matching_zones(result,component,chosen['zones'])
+    return dict(code='resolved' if mapping else 'window_mapping_required',message='One logical cavity and matching physical unit were found.',action='Confirm the interface mapping.',candidate_count=len(choices),usable_count=len(usable))
 
 
 def matching_zones(result,component,zones):

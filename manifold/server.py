@@ -366,6 +366,33 @@ def cavity_cartridges(cavity_id: str):
     return {'cavity_id':cavity_id,'items':compatible_cartridges(cavity_id)}
 
 
+@app.get('/api/knowledge/cartridges/{cartridge_id}/cavities')
+def cartridge_knowledge(cartridge_id: str, offset: int = Query(0, ge=0), limit: int = Query(40, ge=1, le=100)):
+    from .engineering_db import knowledge_relations
+    try:
+        return knowledge_relations(cartridge_id=cartridge_id, offset=offset, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@app.get('/api/knowledge/cavities/{cavity_id}/cartridges')
+def cavity_knowledge(cavity_id: str, offset: int = Query(0, ge=0), limit: int = Query(40, ge=1, le=100)):
+    from .engineering_db import knowledge_relations
+    try:
+        return knowledge_relations(cavity_id=cavity_id, offset=offset, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@app.get('/api/knowledge/relations/{relation_id}')
+def relation_knowledge(relation_id: str):
+    from .engineering_db import knowledge_relation
+    try:
+        return knowledge_relation(relation_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
 class LibraryVisibility(Strict):
     id: str = Field(pattern=r'^[A-Za-z][A-Za-z0-9_-]{0,39}$')
     deleted: bool

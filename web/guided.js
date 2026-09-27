@@ -2,6 +2,7 @@ import {isCavity} from './definition-role.js';
 import {customPort,portSetup} from './port-setup.js';
 import {syncNets,clamp,axes,sizes} from './kinematics.js';
 import {hydrateDesign} from './domain.js';
+import {uuidToken} from './crypto-utils.js';
 
 export function guided(ctx,open){
   const {$,element,field,action,post,api,notice,newProject}=ctx;
@@ -79,7 +80,7 @@ export function guided(ctx,open){
         const scale=context==='inch'?25.4:1,configured=names.flatMap(n=>portConfig[n].map((p,i,rows)=>({p,net:n,label:rows.length===1?n:n.slice(0,37)+(i+1)}))),d=hydrateDesign({schema_version:2,name,units:'mm',project_context:context,block:{length:length*scale,width:width*scale,height:height*scale,material,...(materialSelection?.name===material?{material_id:materialSelection.id}:{})},features:[],schematic_intent:null,nets:names.map((id,i)=>({id,label:id,routing:'automatic',diameter:8,color:['#ef5959','#459cff','#41ca8b','#f2d454','#f79b42','#b08bea'][i%6]})),origin:{method:'manual',notes:'Guided setup'},review_items:[],rules:{minimum_wall:7,minimum_overlap_volume:.1,max_depth_diameter_ratio:20,minimum_access_gap:2},constraints:{preferred_wall_margin:4,preferred_component_faces:['top'],preferred_port_faces:{},priority:'fewer_plugs',standard_drills:[4,5,6,8,10,12,16,20],forbidden_drilling_faces:[],required_feature_faces:{},notes:''}},Object.fromEntries([...selected.map(s=>[s.def.id,s.def]),...configured.filter(x=>x.p.definition).map(x=>[x.p.definition.id,x.p.definition])]));
         const dims=sizes(d.block);
         for(const {p,net,label}of configured){const sameFace=configured.filter(x=>x.p.face===p.face),index=sameFace.findIndex(x=>x.p===p),[u,v]=axes[p.face];
-          const id='PORT_'+crypto.randomUUID().replaceAll('-','');
+          const id='PORT_'+uuidToken().replaceAll('-','');
           const f={id:id.slice(0,40),kind:'port',face:p.face,u:dims[u]*(index+1)/(sameFace.length+1),v:dims[v]/2,circuit:net,size:p.size.slice(0,80),port_type:p.definition?p.definition.label:'Custom straight bore',diameter:p.diameter,depth:p.depth,clearance_diameter:p.clearance};
           if(p.definition){f.port_definition_id=p.definition.id;f.diameter=Math.min(...p.definition.stages.map(s=>s.diameter));f.depth=p.definition.zones[0].end;f.clearance_diameter=p.definition.clearance_diameter;f.clearance_height=p.definition.clearance_height;f.tip_angle=180;}
           [f.u,f.v]=clamp(f,d,f.u,f.v);d.features.push(f);if(!p.definition){const n=d.review_items.length+1;d.review_items.push({id:'PORT_SPEC_'+n,kind:'component',subject:f.id,description:`${label}: resolve thread/fitting installation and machining specification for this one-off custom straight bore.`,status:'open'});}

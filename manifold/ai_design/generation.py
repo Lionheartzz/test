@@ -105,10 +105,10 @@ def prepare(inputs, result, options):
             if not decision:
                 blocked.append(f'{library.value(result,key,"label") or key}: confirm the selected cavity and interface mapping.')
         else:
-            usable = [row for row in choices if row['usable']]
-            mapping = library.matching_zones(result, component, usable[0]['zones']) if len(usable) == 1 else None
+            chosen, _ = library.automatic_choice(inputs, choices)
+            mapping = library.matching_zones(result, component, chosen['zones']) if chosen else None
             if mapping:
-                row = usable[0]
+                row = chosen
                 definition = library.load(inputs, row['key'], row['sha256'])
                 automatic = True
                 decision = row['reason'] + '; exact port-number/window labels matched by PMC. Engineer review remains required.'

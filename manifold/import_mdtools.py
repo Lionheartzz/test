@@ -468,7 +468,8 @@ def active_revision(identity):
     return next((revision for revision in identity.get("revisions", []) if revision.get("revision_id") == identifier and revision.get("active", True)), None)
 
 
-def import_database(source: Path, destination: Path, *, preserve_custom_from: Path | None = None) -> dict:
+def import_database(source: Path, destination: Path, *, preserve_custom_from: Path | None = None,
+                    knowledge_package: Path | None = None) -> dict:
     source, destination = source.resolve(), destination.resolve()
     cavity_file, footprint_file = source / "cavities_master.jsonl", source / "footprints_master.jsonl"
     if not cavity_file.is_file() or not footprint_file.is_file():
@@ -614,6 +615,9 @@ def import_database(source: Path, destination: Path, *, preserve_custom_from: Pa
                              zone.get("offset_u", 0), zone.get("offset_v", 0), int(zone.get("clip_to_cut", True))),
                         )
                     report["cavities"] += 1
+            if knowledge_package:
+                from .knowledge_import import import_knowledge
+                report.update(import_knowledge(connection, knowledge_package.resolve(), source))
             if preserve_custom_from:
                 preserve_custom_definitions(connection,preserve_custom_from)
         violations=connection.execute("PRAGMA foreign_key_check").fetchall()
@@ -634,13 +638,27 @@ def preserve_custom_definitions(connection,existing_path: Path):
     """Copy user-owned custom/legacy rows into a staged import transaction."""
     existing_path=existing_path.resolve()
     if not existing_path.is_file():raise ValueError(f"Existing engineering database not found: {existing_path}")
-    old=sqlite3.connect(existing_path);old.row_factory=sqlite3.Row
+    old=sqlite3.connect(existing_path.as_uri()+"?mode=ro",uri=True);old.row_factory=sqlite3.Row
     try:
+        version=old.execute('PRAGMA user_version').fetchone()[0]
+        if version not in (2,3):raise ValueError(f'Unsupported custom-definition source schema: {version}')
+        required={'cavities','cavity_interfaces','external_port_definitions','thread_definitions'}
+        present={row[0] for row in old.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not required <= present:raise ValueError('Custom-definition source lacks required tables')
+        for table in ('cavities','cavity_interfaces','thread_definitions'):
+            source_columns=[row[1] for row in old.execute(f'PRAGMA table_info({table})')]
+            target_columns=[row[1] for row in connection.execute(f'PRAGMA table_info({table})')]
+            if source_columns!=target_columns:
+                raise ValueError(f'Custom-definition source has incompatible {table} columns')
+        external_columns={row[1] for row in old.execute('PRAGMA table_info(external_port_definitions)')}
+        required_external={row[1] for row in connection.execute('PRAGMA table_info(external_port_definitions)')}
+        if not required_external-{'thread_definition_id'} <= external_columns:
+            raise ValueError('Custom-definition source has incompatible external-port columns')
         for row in old.execute("SELECT * FROM cavities WHERE id LIKE 'custom_%' OR id LIKE 'legacy_%'"):
             connection.execute("INSERT INTO cavities VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",tuple(row))
             for interface in old.execute("SELECT * FROM cavity_interfaces WHERE cavity_id=?",(row['id'],)):
                 connection.execute("INSERT INTO cavity_interfaces VALUES (?,?,?,?,?,?,?,?)",tuple(interface))
-        old_columns={row[1] for row in old.execute("PRAGMA table_info(external_port_definitions)")}
+        old_columns=external_columns
         for row in old.execute("SELECT * FROM external_port_definitions WHERE id LIKE 'custom_%' OR id LIKE 'legacy_%'"):
             columns=[item[1] for item in connection.execute("PRAGMA table_info(external_port_definitions)")]
             values=[row[column] if column in old_columns else None for column in columns]
@@ -658,8 +676,10 @@ def main(argv=None):
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--preserve-custom-from", type=Path)
+    parser.add_argument("--knowledge-package", type=Path)
     args = parser.parse_args(argv)
-    report = import_database(args.source, args.output,preserve_custom_from=args.preserve_custom_from)
+    report = import_database(args.source, args.output,preserve_custom_from=args.preserve_custom_from,
+                             knowledge_package=args.knowledge_package)
     print(json.dumps(report, indent=2))
 
 

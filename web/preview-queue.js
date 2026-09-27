@@ -1,8 +1,10 @@
+import {randomOwner} from './crypto-utils.js';
+
 // One newest snapshot. The server owns killable CAD workers; abort and explicit
 // invalidation terminate obsolete work instead of merely discarding its result.
 export function createPreviewQueue({post,stream=null,onFast,onExact,onStatus,onError,onTiming=()=>{},cancelRemote=null,delay=350,exactDelay=450,timeout=20000}) {
   let latest=null,running=false,timer=null,version=0,cache=null,controller=null;
-  const owner=globalThis.crypto?.randomUUID?.()||String(Math.random());
+  const owner=randomOwner();
   function invalidate(){if(cancelRemote){controller?.abort();Promise.resolve(cancelRemote(owner,version)).catch(()=>{});}}
   async function request(url,job,send=post){
     const abort=controller=new AbortController();

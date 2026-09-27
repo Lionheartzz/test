@@ -1,5 +1,6 @@
 import {aiGeneration} from './ai-generation.js';
 import {attemptStatus,runDiagnostics} from './ai-diagnostics.js';
+import {uuidToken} from './crypto-utils.js';
 
 export function aiDesign(ctx,open){
   const {$,element,field,action,api,post,get,state}=ctx,content=$('workflow-content');
@@ -13,7 +14,7 @@ export function aiDesign(ctx,open){
   async function watchJob(job,progress){let status=job;while(['queued','running'].includes(status.status)){if(progress?.isConnected)progress.textContent=status.message;await new Promise(resolve=>setTimeout(resolve,1000));status=await api('/api/ai-design/jobs/'+job.id);}if(status.status!=='completed')throw Error(status.message);return status.result;}
   function followAnalysisJob(job){activeJob=job;clearTimeout(jobTimer);const poll=async()=>{try{activeJob=await api('/api/ai-design/jobs/'+job.id);if(['queued','running'].includes(activeJob.status)){const status=content.querySelector('.ai-job-state');if(status)status.textContent=activeJob.message+' You may close this dialog and return later.';jobTimer=setTimeout(poll,1000);return;}if(activeJob.status==='completed'){active=activeJob.result.task;inputs=structuredClone(active.inputs);run=activeJob.result.run;dirty=false;}if(here())editor();}catch(e){activeJob={...job,status:'failed',message:e.message};if(here())editor();}};jobTimer=setTimeout(poll,250);}
   async function save(){const signature=JSON.stringify(inputs),result=await post('/api/ai-design/tasks',{inputs,task_id:active?.id||null,expected_revision:active?.revision||null});active=result;if(JSON.stringify(inputs)===signature){inputs=structuredClone(result.inputs);dirty=false;}return result;}
-  async function upload(file){if(!['application/pdf','image/png','image/jpeg'].includes(file.type))throw Error('Use PDF, PNG or JPEG schematic files.');if(file.size>20_000_000)throw Error('Each document must be at most 20 MB.');const asset=await api('/api/assets',{method:'POST',headers:{'Content-Type':file.type,'X-File-Name':encodeURIComponent(file.name),'X-PMC-Request':'local-console'},body:file});if(!inputs.documents.some(d=>d.asset.sha256===asset.sha256))inputs.documents.push({id:'DOC_'+crypto.randomUUID().replaceAll('-',''),asset,page_count:asset.media_type.startsWith('image/')?1:null});touched();}
+  async function upload(file){if(!['application/pdf','image/png','image/jpeg'].includes(file.type))throw Error('Use PDF, PNG or JPEG schematic files.');if(file.size>20_000_000)throw Error('Each document must be at most 20 MB.');const asset=await api('/api/assets',{method:'POST',headers:{'Content-Type':file.type,'X-File-Name':encodeURIComponent(file.name),'X-PMC-Request':'local-console'},body:file});if(!inputs.documents.some(d=>d.asset.sha256===asset.sha256))inputs.documents.push({id:'DOC_'+uuidToken().replaceAll('-',''),asset,page_count:asset.media_type.startsWith('image/')?1:null});touched();}
 
   async function settings(){await generator.settings(async()=>{providers=await api('/api/ai-design/providers');provider='configured';});}
   async function library(){

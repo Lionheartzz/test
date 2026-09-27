@@ -17,7 +17,7 @@ from .schema import CavityDefinition
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB = ROOT / "data" / "pmc_engineering.db"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def database_path() -> Path:
@@ -60,6 +60,9 @@ def validate_database(path: Path | None = None) -> dict:
                 "external_port_definitions",
                 "cartridges",
                 "cartridge_cavities",
+                "kb_import_batches",
+                "cartridge_cavity_evidence",
+                "cartridge_cavity_evidence_links",
                 "thread_definitions",
                 "tool_definitions",
                 "closure_definitions",
@@ -73,6 +76,17 @@ def validate_database(path: Path | None = None) -> dict:
                     f"Engineering database schema is invalid (version {version}); "
                     "run the explicit initialization/import command."
                 )
+            expected_columns = {
+                "kb_import_batches": {"id", "package_sha256", "input_relations", "report_json"},
+                "cartridge_cavity_evidence": {"relation_id", "cartridge_id", "source_row_json",
+                                                "resolution_status", "resolution_detail_json", "execution_eligible"},
+                "cartridge_cavity_evidence_links": {"relation_id", "cavity_id"},
+            }
+            for table, names in expected_columns.items():
+                actual = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+                if not names <= actual:
+                    raise RuntimeError(f"Engineering database schema is invalid: {table} lacks required columns; "
+                                       "run the explicit MDTools/KB import command.")
             return {"path": str((path or database_path()).resolve()), "schema_version": version}
     except sqlite3.DatabaseError as exc:
         raise RuntimeError(f"Engineering database is invalid: {exc}") from exc
@@ -160,6 +174,55 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             valid INTEGER NOT NULL DEFAULT 1 CHECK(valid IN (0,1)),
             PRIMARY KEY(cartridge_id, cavity_id)
         );
+        CREATE TABLE kb_import_batches (
+            id TEXT PRIMARY KEY,
+            package_name TEXT NOT NULL,
+            package_version TEXT NOT NULL,
+            package_sha256 TEXT NOT NULL,
+            generated_at TEXT NOT NULL,
+            imported_at TEXT NOT NULL,
+            input_relations INTEGER NOT NULL,
+            duplicate_relations INTEGER NOT NULL DEFAULT 0,
+            report_json TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE TABLE cartridge_cavity_evidence (
+            relation_id TEXT PRIMARY KEY,
+            import_batch_id TEXT NOT NULL REFERENCES kb_import_batches(id),
+            cartridge_id TEXT NOT NULL REFERENCES cartridges(id),
+            relation_type TEXT NOT NULL,
+            manufacturer TEXT NOT NULL,
+            manufacturer_original TEXT NOT NULL,
+            cartridge_part_number TEXT NOT NULL,
+            cartridge_part_number_original TEXT NOT NULL,
+            cavity_family TEXT NOT NULL,
+            cavity_name TEXT NOT NULL,
+            cavity_name_original TEXT NOT NULL,
+            master_record_id TEXT NOT NULL,
+            cavity_source TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_name TEXT NOT NULL,
+            source_url TEXT NOT NULL,
+            document_name TEXT NOT NULL,
+            document_revision TEXT NOT NULL,
+            published_date TEXT NOT NULL,
+            page_number TEXT NOT NULL,
+            evidence_text TEXT NOT NULL,
+            extracted_text TEXT NOT NULL,
+            confidence REAL NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
+            verification_status TEXT NOT NULL,
+            retrieved_date TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            source_row_json TEXT NOT NULL,
+            resolution_status TEXT NOT NULL,
+            resolution_detail_json TEXT NOT NULL,
+            execution_eligible INTEGER NOT NULL CHECK(execution_eligible IN (0,1))
+        );
+        CREATE TABLE cartridge_cavity_evidence_links (
+            relation_id TEXT NOT NULL REFERENCES cartridge_cavity_evidence(relation_id),
+            cavity_id TEXT NOT NULL REFERENCES cavities(id),
+            PRIMARY KEY(relation_id,cavity_id)
+        );
         CREATE TABLE tool_definitions (
             id TEXT PRIMARY KEY,
             tool_type TEXT NOT NULL CHECK(tool_type IN ('drill','flat-bottom-drill','spotface')),
@@ -217,11 +280,15 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             compound_angle_holes_allowed INTEGER NOT NULL CHECK(compound_angle_holes_allowed IN (0,1))
         );
         CREATE INDEX cavity_search ON cavities(active, unit_system, manufacturer, name);
+        CREATE INDEX compatibility_cavity ON cartridge_cavities(cavity_id,valid,cartridge_id);
+        CREATE INDEX evidence_cartridge ON cartridge_cavity_evidence(cartridge_id,relation_id);
+        CREATE INDEX evidence_master ON cartridge_cavity_evidence(master_record_id,execution_eligible);
+        CREATE INDEX evidence_link_cavity ON cartridge_cavity_evidence_links(cavity_id,relation_id);
         CREATE INDEX external_port_search ON external_port_definitions(active, unit_system, manufacturer, name);
         CREATE INDEX thread_search ON thread_definitions(active,unit_system,family,display_name);
         CREATE INDEX tool_search ON tool_definitions(active,tool_type,diameter_mm,max_depth_mm);
         CREATE INDEX material_stock_search ON material_stock(active,material_id,unit_system,size_1_mm,size_2_mm);
-        PRAGMA user_version = 2;
+        PRAGMA user_version = 3;
         """
     )
 
@@ -549,6 +616,68 @@ def compatible_cavity_ids(cartridge_id: str):
             "SELECT cc.cavity_id FROM cartridge_cavities cc JOIN cavities c ON c.id=cc.cavity_id "
             "WHERE cc.cartridge_id=? AND cc.valid=1 AND c.active=1 ORDER BY cc.cavity_id",
             (cartridge_id,))]
+
+
+def compatible_logical_cavities(cartridge_id: str) -> list[dict]:
+    """Execution-safe physical IDs with source-backed logical identity for AI choice."""
+    with _connect() as connection:
+        rows = connection.execute("""
+            SELECT DISTINCT cc.cavity_id,
+                   COALESCE(e.master_record_id, 'physical:' || cc.cavity_id) AS logical_id
+            FROM cartridge_cavities cc
+            JOIN cavities c ON c.id=cc.cavity_id AND c.active=1
+            LEFT JOIN (
+                SELECT DISTINCT e.cartridge_id,l.cavity_id,e.master_record_id
+                FROM cartridge_cavity_evidence e
+                JOIN cartridge_cavity_evidence_links l ON l.relation_id=e.relation_id
+                WHERE e.execution_eligible=1
+            ) e ON e.cavity_id=cc.cavity_id AND e.cartridge_id=cc.cartridge_id
+            WHERE cc.cartridge_id=? AND cc.valid=1
+            ORDER BY logical_id,cc.cavity_id
+        """, (cartridge_id,)).fetchall()
+        return [dict(row) for row in rows]
+
+
+def _knowledge_row(connection: sqlite3.Connection, row: sqlite3.Row) -> dict:
+    value = dict(row)
+    value["execution_eligible"] = bool(value["execution_eligible"])
+    value["resolution_detail"] = json.loads(value.pop("resolution_detail_json"))
+    value["source_row"] = json.loads(value.pop("source_row_json"))
+    value["resolved_cavities"] = [dict(item) for item in connection.execute("""
+        SELECT c.id AS cavity_id,c.name,c.family,c.unit_system,c.usable,c.unusable_reason,c.active
+        FROM cartridge_cavity_evidence_links l JOIN cavities c ON c.id=l.cavity_id
+        WHERE l.relation_id=? ORDER BY c.unit_system,c.id
+    """, (value["relation_id"],))]
+    return value
+
+
+def knowledge_relations(*, cartridge_id: str | None = None, cavity_id: str | None = None,
+                        offset: int = 0, limit: int = 40) -> dict:
+    if (cartridge_id is None) == (cavity_id is None):
+        raise ValueError("Specify one Cartridge or Cavity identity")
+    with _connect() as connection:
+        if cartridge_id is not None:
+            exists = connection.execute("SELECT 1 FROM cartridges WHERE id=?", (cartridge_id,)).fetchone()
+            where, params = "e.cartridge_id=?", (cartridge_id,)
+        else:
+            exists = connection.execute("SELECT 1 FROM cavities WHERE id=?", (cavity_id,)).fetchone()
+            where, params = ("EXISTS (SELECT 1 FROM cartridge_cavity_evidence_links l "
+                             "WHERE l.relation_id=e.relation_id AND l.cavity_id=?)"), (cavity_id,)
+        if not exists:
+            raise ValueError("Knowledge identity not found")
+        total = connection.execute(f"SELECT count(*) FROM cartridge_cavity_evidence e WHERE {where}", params).fetchone()[0]
+        rows = connection.execute(f"SELECT e.* FROM cartridge_cavity_evidence e WHERE {where} "
+                                  "ORDER BY e.manufacturer,e.cartridge_part_number,e.relation_id LIMIT ? OFFSET ?",
+                                  (*params, limit, offset)).fetchall()
+        return dict(total=total, offset=offset, limit=limit, items=[_knowledge_row(connection, row) for row in rows])
+
+
+def knowledge_relation(relation_id: str) -> dict:
+    with _connect() as connection:
+        row = connection.execute("SELECT * FROM cartridge_cavity_evidence WHERE relation_id=?", (relation_id,)).fetchone()
+        if row is None:
+            raise ValueError("Knowledge relation not found")
+        return _knowledge_row(connection, row)
 
 
 def compatible_cartridges(cavity_id: str):
