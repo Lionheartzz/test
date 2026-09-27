@@ -28,7 +28,11 @@ if ($Setup -or $recreated -or !$pythonHealthy) {
 $nodeHealthy = $false
 try { & $nodeRuntime.Executable --input-type=module -e "await import('vite')" 2>$null; $nodeHealthy = $LASTEXITCODE -eq 0 } catch {}
 $stampPath = Join-Path $PSScriptRoot 'node_modules\.pmc-runtime.json'
-$stamp = @{ root=$PSScriptRoot; node=$nodeRuntime.Version; platform=$nodeRuntime.Platform; arch=$nodeRuntime.Architecture; lock=(Get-FileHash -LiteralPath 'package-lock.json' -Algorithm SHA256).Hash }
+$lockStream = [IO.File]::OpenRead((Join-Path $PSScriptRoot 'package-lock.json'))
+$sha256 = [Security.Cryptography.SHA256]::Create()
+try { $lockHash = [BitConverter]::ToString($sha256.ComputeHash($lockStream)).Replace('-', '') }
+finally { $sha256.Dispose(); $lockStream.Dispose() }
+$stamp = @{ root=$PSScriptRoot; node=$nodeRuntime.Version; platform=$nodeRuntime.Platform; arch=$nodeRuntime.Architecture; lock=$lockHash }
 $changedRuntime = $false
 if (Test-Path -LiteralPath $stampPath) {
     try { $prior = Get-Content -LiteralPath $stampPath -Raw | ConvertFrom-Json; foreach ($key in $stamp.Keys) { if ($prior.$key -ne $stamp[$key]) { $changedRuntime=$true } } } catch { $changedRuntime=$true }

@@ -171,6 +171,6 @@ export function workflows(ctx){
   return {
     viewDefinition(feature){const definition=placedDefinition(feature);if(!definition)return notice('Cavity definition is unavailable in this project session.',true);library.viewDefinition(definition,{interfaceNames:Object.fromEntries(definition.zones.map((zone,index)=>[zone.id,displayInterfaceName(get(),feature.id,zone.id,{index})]))});},
     duplicateDefinition(feature){const definition=placedDefinition(feature);if(!definition)return notice('Cavity definition is unavailable in this project session.',true);library.duplicateAsCustom(definition);},
-    replaceFromLibrary(feature){library({title:'Replace '+feature.id+' from Engineering Library',actionLabel:'Use as Replacement',onSelect:definition=>{remember(definition);dialog.close();replaceCavity(feature,definition.id);}});}
+    replaceFromLibrary(feature){library({entryCategory:'cavities',selectionMode:'cavity',title:'Replace '+feature.id+' from Engineering Library',actionLabel:'Use as Replacement',onSelect:definition=>{remember(definition);dialog.close();replaceCavity(feature,definition.id);}});}
   };
 }

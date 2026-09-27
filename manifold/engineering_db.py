@@ -708,7 +708,16 @@ def search_threads(query="", unit="", *, family="", include_inactive=False, usab
         f"SELECT * FROM thread_definitions WHERE {' AND '.join(where)} ORDER BY family,display_name,tap_diameter_mm,id",
         values).fetchall()]
     rows=[row | {"normalized_family":normalized_thread_family(row)} | thread_semantics(row) for row in rows]
-    return [row for row in rows if not family or row["normalized_family"]==family][:limit]
+    matches=[row for row in rows if not family or row["normalized_family"]==family]
+    return matches if limit is None else matches[:limit]
+
+
+def browse_threads(query="", unit="", *, family="", usable_only=True, offset=0, limit=200):
+    with _connect() as connection:
+        rows=search_threads(query,unit,family=family,usable_only=usable_only,limit=None,connection=connection)
+        families=sorted({row["normalized_family"] for row in
+                         search_threads('',usable_only=True,limit=None,connection=connection)})
+    return {"total":len(rows),"offset":offset,"limit":limit,"items":rows[offset:offset+limit],"families":families}
 
 
 def thread_definition(identifier: str, *, include_inactive=True, connection: sqlite3.Connection | None = None):
@@ -728,10 +737,11 @@ def thread_definitions_for_design(design, *, connection: sqlite3.Connection | No
     return {identifier:thread_definition(identifier,connection=connection) for identifier in identifiers}
 
 
-def tool_definitions(tool_type="drill", *, unit="", connection: sqlite3.Connection | None = None):
+def tool_definitions(tool_type="drill", *, unit="", usable_only=True, connection: sqlite3.Connection | None = None):
     if connection is None:
-        with _connect() as opened:return tool_definitions(tool_type,unit=unit,connection=opened)
-    where=["active=1","usable=1","tool_type=?"];values=[tool_type]
+        with _connect() as opened:return tool_definitions(tool_type,unit=unit,usable_only=usable_only,connection=opened)
+    where=["active=1","tool_type=?"];values=[tool_type]
+    if usable_only:where.append("usable=1")
     if unit:where.append("unit_system=?");values.append(unit)
     return [dict(row) for row in connection.execute(
         f"SELECT * FROM tool_definitions WHERE {' AND '.join(where)} ORDER BY diameter_mm,max_depth_mm,id",values)]
@@ -793,6 +803,19 @@ def closure_definitions_for_design(design, *, connection: sqlite3.Connection | N
         value=dict(row);value['machining']=json.loads(value.pop('machining_json'));value['envelope']=json.loads(value.pop('envelope_json'))
         result[identifier]=value
     return result
+
+
+def browse_closures(*, include_inactive=False):
+    with _connect() as connection:
+        where="1=1" if include_inactive else "c.active=1"
+        rows=connection.execute(f"""
+            SELECT c.*,p.name AS construction_port_name
+            FROM closure_definitions c
+            LEFT JOIN external_port_definitions p ON p.id=c.construction_port_definition_id
+            WHERE {where} ORDER BY c.display_name,c.id
+        """).fetchall()
+    return [dict(row) | {"machining":json.loads(row["machining_json"]),
+                         "envelope":json.loads(row["envelope_json"])} for row in rows]
 
 
 def materials(*, connection: sqlite3.Connection | None = None):

@@ -275,10 +275,10 @@ def catalog_resources():
 
 
 @app.get('/api/threads')
-def threads(q: str='',unit: str='',family: str='',usable_only: bool=True,limit: int=Query(200,ge=1,le=500)):
-    from .engineering_db import search_threads
-    items=search_threads(q,unit,family=family,usable_only=usable_only,limit=limit)
-    return {'items':items,'families':sorted({row['normalized_family'] for row in search_threads('',usable_only=True,limit=500)})}
+def threads(q: str='',unit: str='',family: str='',usable_only: bool=True,
+            offset: int=Query(0,ge=0),limit: int=Query(200,ge=1,le=500)):
+    from .engineering_db import browse_threads
+    return browse_threads(q,unit,family=family,usable_only=usable_only,offset=offset,limit=limit)
 
 
 @app.get('/api/materials')
@@ -288,19 +288,32 @@ def material_catalog():
 
 
 @app.get('/api/tools')
-def tooling_catalog(type: str=Query('drill',pattern=r'^(drill|flat-bottom-drill|spotface)$'),unit: str=''):
+def tooling_catalog(type: str=Query('drill',pattern=r'^(drill|flat-bottom-drill|spotface)$'),
+                    unit: str='',usable_only: bool=True):
     from .engineering_db import tool_definitions
-    return {'items':tool_definitions(type,unit=unit)}
+    items=tool_definitions(type,unit=unit,usable_only=usable_only)
+    return {'items':items,'total':len(items)}
 
 
 @app.get('/api/machining-modifiers')
-def machining_modifier_catalog(kind: str=''):
+def machining_modifier_catalog(kind: str='',usable_only: bool=True):
     from .engineering_db import _connect
     with _connect() as connection:
-        where="active=1 AND usable=1";values=[]
+        where="active=1";values=[]
+        if usable_only:where+=" AND usable=1"
         if kind:where+=" AND kind=?";values.append(kind)
-        return {'items':[dict(row) for row in connection.execute(
-            f"SELECT id,display_name,kind,unit_system FROM machining_modifiers WHERE {where} ORDER BY kind,display_name",values)]}
+        rows=[dict(row) for row in connection.execute(
+            f"SELECT * FROM machining_modifiers WHERE {where} ORDER BY kind,display_name,id",values)]
+    return {'items':[row | {'primitives':json.loads(row['primitives_json']),
+                            'machining':json.loads(row['machining_json'])} for row in rows],
+            'total':len(rows)}
+
+
+@app.get('/api/closures')
+def closure_catalog():
+    from .engineering_db import browse_closures
+    items=browse_closures()
+    return {'items':items,'total':len(items)}
 
 
 @app.get('/api/catalog/resource')

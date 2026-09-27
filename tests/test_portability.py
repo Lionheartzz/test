@@ -4,6 +4,13 @@ from manifold import network,store
 from manifold.demo import demo
 from manifold.server import app
 
+def test_local_names_does_not_wait_for_reverse_dns(monkeypatch):
+    monkeypatch.setattr(network.socket,'gethostname',lambda:'Shop-PC')
+    monkeypatch.setattr(network.socket,'getfqdn',lambda:(_ for _ in ()).throw(AssertionError('reverse DNS must not run')))
+    monkeypatch.setattr(network.socket,'getaddrinfo',lambda name,_:[(None,None,None,None,('192.168.40.7',0))])
+    assert {'shop-pc','192.168.40.7','localhost'} <= network.local_names()
+
+
 def test_lan_hosts_and_exact_same_origin_follow_current_machine(monkeypatch):
     monkeypatch.setattr(network,'local_names',lambda:{'127.0.0.1','localhost','192.168.40.7','new-pc'})
     client=TestClient(app,base_url='http://192.168.40.7:8765')

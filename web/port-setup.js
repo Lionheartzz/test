@@ -14,7 +14,7 @@ export function portSetup(ctx,parent,port,label,redraw,context=ctx.get?.().proje
   }
   if(port.definition){card.append(element('p',port.definition.label+' · '+port.definition.id),element('p','Exact runtime machining profile from the engineering database.'));if(ctx.viewExternalPort)action(card,'View Definition',()=>ctx.viewExternalPort(port.definition,{onSelect:definition=>{port.definition=definition;port.size=definition.thread_note||definition.label;redraw();},actionLabel:'Use External Port'}));action(card,'Change '+label+' definition',()=>{port.definition=null;redraw();});return;}
   const scope=port.mode==='reusable'?'custom':'master';
-  if(ctx.externalPortLibrary)action(card,port.mode==='reusable'?'Browse Reusable Custom Ports':'Browse Standard Hydraulic Ports',()=>ctx.externalPortLibrary({scope,onSelect:definition=>{port.definition=definition;port.size=definition.thread_note||definition.label;redraw();},actionLabel:'Use External Port'}));
+  if(ctx.externalPortLibrary)action(card,port.mode==='reusable'?'Browse Reusable Custom Ports':'Browse Standard Hydraulic Ports',()=>ctx.externalPortLibrary({entryCategory:'external-ports',selectionMode:'external-port',scope,onSelect:definition=>{port.definition=definition;port.size=definition.thread_note||definition.label;redraw();},actionLabel:'Use External Port'}));
   if(port.mode==='standard'){
     if(port.standardOptions===null){port.standardOptions=[];api('/api/catalog/standards?kind=port').then(result=>{port.standardOptions=result.items||[];if(card.isConnected)redraw();}).catch(()=>{});}
     field(card,label+' · Port standard',port.standard,v=>{port.standard=v;redraw();},{'':'All source-backed standards',...Object.fromEntries(port.standardOptions.map(value=>[value,value.replaceAll('_',' ')]))});

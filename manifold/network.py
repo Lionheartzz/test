@@ -11,13 +11,16 @@ def lan_enabled():
 
 def local_names():
     names={'localhost','127.0.0.1','::1'}
-    for name in {socket.gethostname(),socket.getfqdn()}:
-        if name:
-            names.add(name.lower().rstrip('.'))
-            try:
-                names.update(row[4][0].split('%')[0].lower() for row in socket.getaddrinfo(name,None))
-            except OSError:
-                pass
+    # getfqdn() performs a reverse DNS lookup on Windows and can stall every
+    # LAN request for seconds. The local hostname resolves the same adapter
+    # addresses without that lookup.
+    name=socket.gethostname()
+    if name:
+        names.add(name.lower().rstrip('.'))
+        try:
+            names.update(row[4][0].split('%')[0].lower() for row in socket.getaddrinfo(name,None))
+        except OSError:
+            pass
     return names
 
 
