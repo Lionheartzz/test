@@ -7,7 +7,7 @@ import {guided} from '../web/guided.js';
 class Node {
   constructor(tag,text='',className=''){
     this.tagName=tag;this.textContent=text||'';this.className=className;
-    this.children=[];this.dataset={};this.attributes={};this.value='';this.isConnected=true;
+    this.children=[];this.dataset={};this.attributes={};this.value='';this.disabled=false;this.isConnected=true;
     this.classList={add(){}};
   }
   append(...children){for(const child of children){child.parentElement=this;this.children.push(child);}}
@@ -17,6 +17,9 @@ class Node {
   getAttribute(name){return this.attributes[name]??null;}
   removeAttribute(name){delete this.attributes[name];}
   querySelectorAll(selector){const tags=selector.split(',').map(value=>value.trim());const found=[];const visit=node=>{for(const child of node.children){if(tags.includes(child.tagName))found.push(child);visit(child);}};visit(this);return found;}
+  querySelector(selector){const matches=node=>selector.startsWith('#')?node.id===selector.slice(1):node.tagName===selector;const visit=node=>{if(matches(node))return node;for(const child of node.children){const found=visit(child);if(found)return found;}return null;};return visit(this);}
+  scrollIntoView(options){this.scrollOptions=options;}
+  focus(options){this.focusOptions=options;globalThis.document.activeElement=this;}
   get firstElementChild(){return this.children[0]??null;}
   get valueAsNumber(){return Number(this.value);}
   get selectedOptions(){return this.children.filter(child=>child.tagName==='option'&&child.value===this.value);}
@@ -34,6 +37,65 @@ const field=(parent,label,value,onChange,options=null,numeric=false)=>{
   const input=element(options?'select':'input');input.setAttribute('aria-label',label);input.value=value;
   input.onchange=()=>onChange(numeric?input.valueAsNumber:input.value);parent.append(input);return input;
 };
+
+function homeSidebar(hasDraft){
+  const previous=globalThis.document;globalThis.document={createElementNS:(_,tag)=>new Node(tag),activeElement:null};
+  const launched=[],returned=[];let apiCalls=0;
+  const root=renderHome({element,action:(parent,label,callback)=>{const button=element('button',label);button.onclick=callback;parent.append(button);return button;},
+    api:async path=>{apiCalls++;return path==='/api/materials'?{items:[]}:path==='/api/health'?{service:'pmc-manifold',network:{mode:'local'}}:{schema_version:3};},
+    launch:id=>launched.push(id),hasProject:()=>hasDraft,returnToDraft:()=>returned.push(true),startSetup:()=>{}});
+  const nav=label=>root.layout.querySelectorAll('button').find(node=>node.getAttribute('aria-label')===label);
+  return {root,nav,launched,returned,apiCalls:()=>apiCalls,restore:()=>{globalThis.document=previous;}};
+}
+
+test('Home Projects jumps to the existing project heading without changing Home or setup state',()=>{
+  const h=homeSidebar(false);
+  try{
+    assert.ok(h.nav('Projects'));
+    assert.deepEqual(['Home','Projects','New Manifold','Model','Drawing','AI Design'],
+      h.root.layout.querySelector('nav').querySelectorAll('button').slice(0,6).map(node=>node.getAttribute('aria-label')));
+    const title=element('h2','Archived projects');h.root.projects.append(title);
+    const name=h.root.layout.querySelectorAll('input').find(node=>node.value==='New manifold');name.value='Unfinished setup';
+    const calls=h.apiCalls(),projects=h.root.projects;
+    h.nav('Projects').onclick();
+    assert.equal(projects.id,'home-projects');
+    assert.deepEqual(projects.scrollOptions,{block:'nearest'});
+    assert.equal(globalThis.document.activeElement,title);
+    assert.equal(title.tabIndex,-1);
+    assert.deepEqual(title.focusOptions,{preventScroll:true});
+    assert.equal(title.textContent,'Archived projects');
+    assert.equal(name.value,'Unfinished setup');
+    assert.equal(h.apiCalls(),calls);
+    assert.deepEqual(h.launched,[]);
+    assert.equal(projects.parentElement.className,'home-content');
+  }finally{h.restore();}
+});
+
+test('Home sidebar separates New Manifold, Model, Drawing, AI and Engineering actions',()=>{
+  const empty=homeSidebar(false);
+  try{
+    assert.equal(empty.nav('Model').disabled,true);
+    assert.equal(empty.nav('Model').title,'Model · Open or create a manifold first');
+    empty.nav('Model').onclick();
+    assert.deepEqual(empty.launched,[]);
+    assert.deepEqual(empty.returned,[]);
+    empty.nav('New Manifold').onclick();
+    empty.nav('AI Design').onclick();
+    empty.nav('Engineering Library').onclick();
+    assert.deepEqual(empty.launched,['project-new','ai-design-open','library-open']);
+    assert.equal(empty.nav('Drawing').disabled,true);
+  }finally{empty.restore();}
+  const current=homeSidebar(true);
+  try{
+    assert.equal(current.nav('Model').disabled,false);
+    current.nav('Model').onclick();
+    assert.deepEqual(current.returned,[true]);
+    assert.deepEqual(current.launched,[]);
+    assert.equal(current.nav('Drawing').disabled,false);
+    current.nav('Drawing').onclick();
+    assert.deepEqual(current.launched,['drawings-open']);
+  }finally{current.restore();}
+});
 
 async function homeSelection(){
   const previous=globalThis.document;globalThis.document={createElementNS:(_,tag)=>new Node(tag)};

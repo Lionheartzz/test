@@ -1,5 +1,6 @@
 const icons={
   home:'m3 11 9-8 9 8M5 10v11h5v-7h4v7h5V10',
+  projects:'M3 5h7l2 3h9v13H3V5zM3 10h18',
   block:'m12 3 9 5v10l-9 5-9-5V8l9-5Zm0 10 9-5M12 13 3 8m9 5v10',
   new:'M12 4v16M4 12h16',
   drawing:'M4 3h16v19H4zM7 7h6v7H7zM7 18h10m-2-11h2m-2 4h2',
@@ -24,12 +25,13 @@ export function renderHome({element,action,api,launch,hasProject,returnToDraft,s
   const statuses=element('div',null,'home-services'),service=element('span','Checking service…'),database=element('span','Checking engineering DB…');
   statuses.setAttribute('role','status');statuses.append(service,database);header.append(brand,statuses);
   const layout=element('div',null,'home-layout'),sidebar=element('nav',null,'home-sidebar');sidebar.setAttribute('aria-label','Home navigation');
-  const jump=id=>{const target=layout.querySelector('#'+id);target?.scrollIntoView({block:'nearest'});target?.focus({preventScroll:true});};
+  const jump=id=>{const target=layout.querySelector('#'+id);target?.scrollIntoView({block:'nearest'});const focus=target?.querySelector('h2')||target;if(focus){focus.tabIndex=-1;focus.focus({preventScroll:true});}};
   for(const [section,entries]of [
     ['WORKSPACE',[
       ['home','Home',()=>jump('home-start'),false],
+      ['projects','Projects',()=>jump('home-projects'),false],
       ['new','New Manifold','project-new',false],
-      ['block','Model',()=>hasProject()?returnToDraft():launch('project-new'),false],
+      ['block','Model',()=>{if(hasProject())returnToDraft();},true],
       ['drawing','Drawing','drawings-open',true],
       ['ai','AI Design','ai-design-open',false],
     ]],
@@ -84,7 +86,7 @@ export function renderHome({element,action,api,launch,hasProject,returnToDraft,s
   const aiCopy=element('div');aiCopy.append(element('h3','Start with your hydraulic circuit'),element('p','Use your configured AI provider to interpret a schematic and prepare an editable manifold draft.'));aiBody.append(diagram,aiCopy);ai.append(aiBody);
   const aiFoot=element('div',null,'home-ai-footer');aiFoot.append(element('small','Selected documents are sent to your provider.'));
   const aiButton=action(aiFoot,'Open AI Design',()=>launch('ai-design-open',aiButton));aiButton.append(homeIcon('arrow'));ai.append(aiFoot);cards.append(ai);
-  const projects=element('section',null,'home-projects');projects.setAttribute('aria-label','Recent projects');content.append(projects);
+  const projects=element('section',null,'home-projects');projects.id='home-projects';projects.setAttribute('aria-label','Recent projects');content.append(projects);
   const library=element('section',null,'home-library-search');library.setAttribute('aria-label','Engineering Library quick search');content.append(library);
   Promise.allSettled([api('/api/health'),api('/api/catalog/manifest')]).then(([health,manifest])=>{
     if(!header.isConnected)return;
