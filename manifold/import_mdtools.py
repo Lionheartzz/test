@@ -26,7 +26,12 @@ def number(value):
     try:
         return float(value)
     except (TypeError, ValueError):
-        return None
+        match = re.fullmatch(r"([+-]?)(?:(\d+)[ -])?(\d+)/(\d+)", str(value).strip())
+        if not match or int(match.group(4)) == 0:
+            return None
+        whole = int(match.group(2) or 0)
+        fraction = int(match.group(3))/int(match.group(4))
+        return (-1 if match.group(1) == '-' else 1)*(whole+fraction)
 
 
 def safe_id(value, fallback):
@@ -294,10 +299,7 @@ def has_unrepresented_special_cut(*records):
 
 
 def unresolved_datum(row):
-    return bool(row.get("IsSunCavity")) or any(
-        row.get(key) not in (None, "", 0, "0")
-        for key in ("LSMinDepth", "LSMaxDepth", "LSCircleNumber")
-    )
+    return bool(row.get("IsSunCavity") and number(row.get("LSMinDepth")) is None)
 
 
 def linked_special_cuts(source):
@@ -359,50 +361,111 @@ try {
     return result
 
 
+def profile_datum(row, scale):
+    """Resolve the axial origin of a CV form profile, independently of tool reach."""
+    if str(row.get("CavityType") or "").upper() != "CV":
+        return 0.0
+    if not any(number(row.get(f"Circle{i}Dia")) for i in range(1, 12)):
+        return 0.0
+    explicit = number(row.get("LSMinDepth"))
+    if explicit is not None:
+        return max(0.0, explicit)*scale
+    entry = number(row.get("Circle0Depth")) or 0.0
+    main_depths = [number(row.get(f"Circle{i}Depth")) for i in range(1,12)
+                   if number(row.get(f"Circle{i}Dia")) and number(row.get(f"Circle{i}Depth")) is not None]
+    # A Circle0 bore deeper than the entire form sequence is an independent
+    # operation, not a shoulder offset (seen in a source-coded special port).
+    if main_depths and entry > max(main_depths)+1e-6:
+        return 0.0
+    return max(0.0, entry)*scale
+
+
 def profile(row, scale, *, offset_u=0.0, offset_v=0.0, source_prefix=""):
-    points = []
+    circles = []
     for index in range(13):
-        diameter = number(row.get(f"Circle{index}Dia"))
-        depth = number(row.get(f"Circle{index}Depth"))
-        angle = number(row.get(f"Circle{index}Angle"))
-        if diameter and diameter > 0 and depth is not None and depth >= 0:
-            points.append((index, diameter * scale, depth * scale, angle or 90.0))
-    if not points:
+        diameter, depth = number(row.get(f"Circle{index}Dia")), number(row.get(f"Circle{index}Depth"))
+        if diameter is not None and diameter > 0 and depth is not None and depth >= 0:
+            circles.append((index, diameter * scale, depth * scale,
+                            number(row.get(f"Circle{index}Angle")) or 90.0))
+    if not circles:
         return [], []
-    step0 = next((depth for index, _, depth, _ in points if index == 0), 0.0)
-    adjusted = []
-    for index, diameter, depth, angle in points:
-        adjusted.append((index, diameter, depth + (step0 if 1 <= index <= 11 else 0), angle))
+    by_index = {point[0]: point for point in circles}
+    core = [point for point in circles if 1 <= point[0] <= 11]
+    cavity = str(row.get("CavityType") or "").upper() == "CV" and bool(core)
+    datum = profile_datum(row, scale)
+    # IsSunCavity is a source profile-mode flag also used outside the SUN
+    # manufacturer. Circle0 on these profiles describes socket/tool access.
+    entry_cut = by_index.get(0) if not cavity or not row.get("IsSunCavity") else None
+    pilot = by_index.get(12)
     primitives = []
-    for position, (index, diameter, depth, angle) in enumerate(adjusted):
-        ref = f"{source_prefix}circle{index}"
-        if depth > 0:
-            primitives.append(
-                dict(kind="cylinder", source_ref=ref, start=0, end=depth, diameter=diameter,
-                     end_diameter=0, inner_diameter=0, offset_u=offset_u, offset_v=offset_v)
-            )
-        next_diameter = adjusted[position + 1][1] if position + 1 < len(adjusted) else 0
-        if 0 < angle < 90 and 0 <= next_diameter < diameter:
-            height = (diameter - next_diameter) / 2 / math.tan(math.radians(angle))
-            if height > 0:
-                primitives.append(
-                    dict(kind="cone", source_ref=ref, start=depth, end=depth + height,
-                         diameter=diameter, end_diameter=next_diameter, inner_diameter=0,
-                         offset_u=offset_u, offset_v=offset_v)
-                )
-    cylinders = [(item["diameter"], item["end"]) for item in primitives if item["kind"] == "cylinder"]
-    stages, start = [], 0.0
-    for end in sorted({end for _, end in cylinders if end > 0}):
-        diameter = max(diameter for diameter, candidate_end in cylinders if candidate_end >= end)
-        if stages and abs(stages[-1]["diameter"] - diameter) < 1e-9:
-            stages[-1]["end"] = end
+
+    def piece(kind, index, start, end, diameter, end_diameter=0):
+        if end <= start + 1e-9:
+            return
+        primitives.append(dict(kind=kind, source_ref=f"{source_prefix}circle{index}",
+                               start=start, end=end, diameter=diameter,
+                               end_diameter=end_diameter, inner_diameter=0,
+                               offset_u=offset_u, offset_v=offset_v))
+
+    if entry_cut:
+        index, diameter, depth, angle = entry_cut
+        piece("cylinder", index, 0, depth, diameter)
+        if core and 0 < angle < 90 and core[0][1] < diameter:
+            height = (diameter-core[0][1])/2/math.tan(math.radians(angle))
+            height = min(height, max(0.0, datum+core[0][2]-depth))
+            piece("cone", index, depth, depth+height, diameter, core[0][1])
+
+    if core:
+        cursor = 0.0
+        for position, (index, diameter, source_depth, angle) in enumerate(core):
+            target = datum+source_depth
+            if target < cursor-0.02:
+                raise ValueError(f"Circle{index} depth precedes the prior axial profile")
+            end = max(cursor, target)  # one source row differs by 0.013 mm rounding
+            piece("cylinder", index, cursor, end, diameter)
+            cursor = end
+            following = core[position+1] if position+1 < len(core) else pilot
+            if following and 0 < angle < 90 and following[1] < diameter:
+                height = (diameter-following[1])/2/math.tan(math.radians(angle))
+                if position+1 < len(core):
+                    height = min(height, max(0.0, datum+following[2]-cursor))
+                elif not cavity:
+                    height = min(height, max(0.0, following[2]-cursor))
+                piece("cone", index, cursor, cursor+height, diameter, following[1])
+                cursor += height
+    else:
+        cursor = entry_cut[2] if entry_cut else 0.0
+
+    # Circle12 is a predrill. A CV's pilot reach varies with the connecting
+    # passage; its final form-to-pilot cone is fixed but its drilled depth is
+    # not. On ports, direct holes and bolt holes the pilot is a fixed cut.
+    if pilot and not cavity:
+        index, diameter, depth, angle = pilot
+        end = max(cursor, depth)
+        piece("cylinder", index, cursor, end, diameter)
+        if 0 < angle < 90:
+            tip = diameter/2/math.tan(math.radians(angle))
+            piece("cone", index, end, end+tip, diameter, 0)
+
+    breaks = sorted({0.0, *(value for item in primitives for value in (item['start'], item['end']))})
+    stages = []
+    for start, end in zip(breaks, breaks[1:]):
+        if end <= start+1e-9:
+            continue
+        active = [item for item in primitives if item['start'] <= start+1e-9 and item['end'] >= end-1e-9]
+        if not active:
+            continue
+        diameter = max(item['diameter'] if item['kind'] == 'cylinder' else
+                       item['diameter']+(item['end_diameter']-item['diameter'])*
+                       (start-item['start'])/(item['end']-item['start']) for item in active)
+        if stages and abs(stages[-1]['diameter']-diameter) < 1e-9:
+            stages[-1]['end'] = end
         else:
             stages.append(dict(start=start, end=end, diameter=diameter))
-        start = end
     return stages, primitives
 
 
-def interfaces(row, primitives, scale, *, offset_u=0.0, offset_v=0.0, prefix=""):
+def interfaces(row, primitives, scale, *, stages=None, offset_u=0.0, offset_v=0.0, prefix=""):
     if not primitives:
         return []
     end = max(item["end"] for item in primitives)
@@ -412,16 +475,20 @@ def interfaces(row, primitives, scale, *, offset_u=0.0, offset_v=0.0, prefix="")
         return []
     result = []
     if cavity_type == "CV":
+        datum = profile_datum(row, scale)
         count = int(number(row.get("NumberofPorts")) or 0)
         for index in range(1, count + 1):
             depth = number(row.get(f"Port{index}Depth"))
             size = number(row.get(f"Port{index}Diameter"))
             if depth is None:
                 continue
-            depth *= scale
+            depth = depth*scale+datum
             size = (size or 0) * scale
             if index == 1 and not size:
-                start, stop = depth, end
+                # The zero-diameter nose port opens in the final form land.
+                # Circle12's optional drill reach cannot create a long window.
+                final = (stages or [])[-1] if stages else None
+                start, stop = (final['start'], final['end']) if final else (depth, end)
             elif size > 0:
                 start, stop = depth - size / 2, depth + size / 2
             else:
@@ -447,7 +514,7 @@ def machining(row,scale=1.0):
         if match:
             index=int(match.group(1));value=row.get(f'Circle{index}{"Dia" if kind=="diameter" else "Depth"}')
             result=number(value)
-            if result is not None and kind=='depth' and 1<=index<=11:result+=(number(row.get('Circle0Depth')) or 0)
+            if result is not None and kind=='depth' and 1<=index<=11:result+=profile_datum(row,1.0)
             return result*scale if result is not None else None
         result=number(value);return result*scale if result is not None else None
     result=[]
@@ -459,7 +526,13 @@ def machining(row,scale=1.0):
         result.append({"operation":operation,"tool":row.get(f"MachineTool{i}"),
                        "diameter":row.get(f"MachineDia{i}"),"depth":row.get(f"MachineDepth{i}"),
                        "tool_type":tool_type,"diameter_mm":operand(row.get(f"MachineDia{i}"),'diameter'),
-                       "depth_mm":operand(row.get(f"MachineDepth{i}"),'depth')})
+                       "depth_mm":operand(row.get(f"MachineDepth{i}"),'depth'),
+                       "geometry_role":("tool_clearance" if row.get('IsSunCavity') and
+                                        any(str(row.get(f'Machine{field}{i}') or '').strip().upper()=='$STEP0'
+                                            for field in ('Dia','Depth')) else
+                                        "pilot_reference" if str(row.get('CavityType') or '').upper()=='CV' and
+                                        any(str(row.get(f'Machine{field}{i}') or '').strip().upper()=='$STEP12'
+                                            for field in ('Dia','Depth')) else "cut")})
     return result
 
 
@@ -518,7 +591,7 @@ def import_database(source: Path, destination: Path, *, preserve_custom_from: Pa
                 row = revision["row"]
                 scale = 25.4 if identity["unit"] == "inch" else 1.0
                 stages, primitives = profile(row, scale, source_prefix="main:")
-                zones = interfaces(row, primitives, scale)
+                zones = interfaces(row, primitives, scale, stages=stages)
                 main_zone_count = len(zones)
                 children = footprints.get(revision["revision_id"], [])
                 if not children:
@@ -534,10 +607,10 @@ def import_database(source: Path, destination: Path, *, preserve_custom_from: Pa
                     child_row = child["row"]
                     u = (number(child_row.get("CavityXDim")) or 0) * scale
                     v = (number(child_row.get("CavityYDim")) or 0) * scale
-                    _, child_primitives = profile(child_row, scale, offset_u=u, offset_v=v,
+                    child_stages, child_primitives = profile(child_row, scale, offset_u=u, offset_v=v,
                                                   source_prefix=child["footprint_id"] + ":")
                     primitives.extend(child_primitives)
-                    zones.extend(interfaces(child_row, child_primitives, scale, offset_u=u, offset_v=v,
+                    zones.extend(interfaces(child_row, child_primitives, scale, stages=child_stages, offset_u=u, offset_v=v,
                                             prefix=safe_id(child.get("port_application"), "fp") + "_"))
                     envelope = child_row.get("EnvelopDimensions")
                     if envelope not in (None, ""):
@@ -578,6 +651,7 @@ def import_database(source: Path, destination: Path, *, preserve_custom_from: Pa
                 clearance = max(
                     [stage["diameter"] for stage in stages]
                     + [2 * math.hypot(item["offset_u"], item["offset_v"]) + item["diameter"] for item in primitives]
+                    + ([(number(row.get('Circle0Dia')) or 0)*scale] if row.get('IsSunCavity') else [])
                     + [1.0]
                 )
                 height = max([item["end"] for item in primitives] + [1.0])
