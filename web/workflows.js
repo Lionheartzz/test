@@ -6,7 +6,7 @@ import {libraryUI} from './library-ui.js';
 import {projectUI} from './project-ui.js';
 import {clamp,syncNets,featureLabel,returnNetToAutomatic} from './kinematics.js';
 import {hydrateDesign} from './domain.js';
-import {displayMemberName,displayNetName,displayInterfaceName} from './presentation.js';
+import {displayMemberName,displayNetName} from './presentation.js';
 import {uuidToken} from './crypto-utils.js';
 
 function flowSizing(net,tools,requiredDepth,unit){
@@ -68,7 +68,6 @@ export function workflows(ctx){
   }
 
   const library=libraryUI(ctx,{open,insert,onCustomSaved:remember});
-  ctx.externalPortLibrary=library.externalPorts;ctx.createCustomExternalPort=library.createExternalPort;ctx.viewExternalPort=library.viewExternalPort;
   projectUI({...ctx,openSchematic:schematic});
   guided(ctx,open,library,nets);
   $('library-open').onclick=guard(library);
@@ -167,10 +166,24 @@ export function workflows(ctx){
     action(content,'Analyze schematics with AI Design',()=>ai.open());
   }
   const ai=aiDesign(ctx,open);$('schematic-open').onclick=schematic;
-  const placedDefinition=feature=>get().library.find(d=>d.id===feature.cavity_id);
   return {
-    viewDefinition(feature){const definition=placedDefinition(feature);if(!definition)return notice('Cavity definition is unavailable in this project session.',true);library.viewDefinition(definition,{interfaceNames:Object.fromEntries(definition.zones.map((zone,index)=>[zone.id,displayInterfaceName(get(),feature.id,zone.id,{index})]))});},
-    duplicateDefinition(feature){const definition=placedDefinition(feature);if(!definition)return notice('Cavity definition is unavailable in this project session.',true);library.duplicateAsCustom(definition);},
-    replaceFromLibrary(feature){library({entryCategory:'cavities',selectionMode:'cavity',title:'Replace '+feature.id+' from Engineering Library',actionLabel:'Use as Replacement',onSelect:definition=>{remember(definition);dialog.close();replaceCavity(feature,definition.id);}});}
+    changeCavityDefinition(feature){
+      const owner=get();let query='',request=0,timer;
+      open('Change cavity definition · '+feature.id);
+      content.append(element('p','Select a usable cavity for this project. Existing interface assignments are checked when the replacement is applied.'));
+      const input=field(content,'Search cavity',query,value=>query=value),results=element('div');content.append(results);
+      const current=()=>get()===owner&&owner.features.includes(feature)&&dialog.open&&results.isConnected;
+      const search=async()=>{const token=++request;results.replaceChildren(element('p','Searching usable cavities…','loading-state'));
+        try{const response=await api('/api/catalog?'+new URLSearchParams({kind:'cavity',unit:owner.project_context||'metric',status:'usable',q:query,limit:30}));
+          if(token!==request||!current())return;results.replaceChildren();let count=0;
+          for(const row of response.items||[]){if(!row.usable||!row.active)continue;count++;const card=element('section',null,'library-card');results.append(card);
+            card.append(element('h3',row.name),element('p',`${row.unit_system.toUpperCase()} · ${row.manufacturer||'Manufacturer unspecified'} · ${row.family||'Family unspecified'} · ${row.id}`));
+            action(card,'Use as replacement',guard(async()=>{const definition=await api('/api/catalog/definition?'+new URLSearchParams({id:row.id}));if(!current())return;if(!isCavity(definition)||!definition.usable)throw Error(definition.unusable_reason||'Select a usable cavity definition.');remember(definition);dialog.close();replaceCavity(feature,definition.id);}));
+          }
+          if(!count)results.append(element('p','No usable cavities match. Refine the search.'));
+        }catch(error){if(token===request&&current())results.replaceChildren(element('p','Cavity search failed: '+error.message,'error'));}
+      };
+      input.oninput=()=>{query=input.value;clearTimeout(timer);timer=setTimeout(search,180);};search();
+    }
   };
 }

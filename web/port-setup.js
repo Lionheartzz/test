@@ -1,4 +1,4 @@
-import {isPort as suitable,nativeUnit} from './definition-role.js';
+import {isPort as suitable} from './definition-role.js';
 export const customPort=()=>({face:'front',size:'Custom',diameter:12,depth:16,clearance:20,mode:'oneoff',definition:null,search:'',unit:'',standard:'',standardOptions:null});
 
 export function portSetup(ctx,parent,port,label,redraw,context=ctx.get?.().project_context||'metric'){
@@ -9,12 +9,10 @@ export function portSetup(ctx,parent,port,label,redraw,context=ctx.get?.().proje
   if(port.mode==='oneoff'){
     field(card,label+' · Specification / note',port.size,v=>port.size=v);
     for(const [key,title]of [['diameter','Diameter'],['depth','Cylinder depth'],['clearance','Fitting / tool clearance diameter']])field(card,label+' · '+title+' / mm',port[key],v=>port[key]=v,null,true);
-    if(ctx.createCustomExternalPort)action(card,'Create reusable custom external port',()=>ctx.createCustomExternalPort({onSelect:definition=>{port.mode='reusable';port.definition=definition;port.size=definition.thread_note||definition.label;redraw();},actionLabel:'Use External Port'}));
     return;
   }
-  if(port.definition){card.append(element('p',port.definition.label+' · '+port.definition.id),element('p','Exact runtime machining profile from the engineering database.'));if(ctx.viewExternalPort)action(card,'View Definition',()=>ctx.viewExternalPort(port.definition,{onSelect:definition=>{port.definition=definition;port.size=definition.thread_note||definition.label;redraw();},actionLabel:'Use External Port'}));action(card,'Change '+label+' definition',()=>{port.definition=null;redraw();});return;}
+  if(port.definition){card.append(element('p',port.definition.label+' · '+port.definition.id),element('p',(port.definition.thread_note||'Thread specification not recorded')+' · SQLite source-backed machining definition.'));action(card,'Change '+label+' definition',()=>{port.definition=null;redraw();});return;}
   const scope=port.mode==='reusable'?'custom':'master';
-  if(ctx.externalPortLibrary)action(card,port.mode==='reusable'?'Browse Reusable Custom Ports':'Browse Standard Hydraulic Ports',()=>ctx.externalPortLibrary({entryCategory:'external-ports',selectionMode:'external-port',scope,onSelect:definition=>{port.definition=definition;port.size=definition.thread_note||definition.label;redraw();},actionLabel:'Use External Port'}));
   if(port.mode==='standard'){
     if(port.standardOptions===null){port.standardOptions=[];api('/api/catalog/standards?kind=port').then(result=>{port.standardOptions=result.items||[];if(card.isConnected)redraw();}).catch(()=>{});}
     field(card,label+' · Port standard',port.standard,v=>{port.standard=v;redraw();},{'':'All source-backed standards',...Object.fromEntries(port.standardOptions.map(value=>[value,value.replaceAll('_',' ')]))});
@@ -25,10 +23,9 @@ export function portSetup(ctx,parent,port,label,redraw,context=ctx.get?.().proje
     const rows=(await api('/api/catalog?'+new URLSearchParams({kind:'port_definition',unit:port.unit,standard:port.standard||'',q:port.search,scope,status:'usable',limit:30}))).items;
     if(token!==request||!card.isConnected)return;results.replaceChildren();
     for(const row of rows){const item=element('div',null,'library-card');results.append(item);item.append(element('p',row.name||row.definition.label),element('p',row.definition?row.definition.thread_note:`${row.thread_spec||'No thread specification'} · ${(row.unit_system||'').toUpperCase()||'Units unspecified'} · ${row.manufacturer||'Manufacturer unspecified'} · ${row.id}`));
-      if(ctx.viewExternalPort)action(item,'View Definition',async()=>{const payload=await api('/api/catalog/record?'+new URLSearchParams({id:row.id}));ctx.viewExternalPort(payload.definition,{onSelect:definition=>{port.definition=definition;port.size=definition.thread_note||definition.label;redraw();},actionLabel:'Use External Port'});});
       action(item,'Use for '+label,async()=>{const buttons=[...results.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);const status=element('p','Preparing full machining definition…','loading-state');item.append(status);try{const d=row.definition||await api('/api/catalog/definition?'+new URLSearchParams({id:row.id}));if(!suitable(d))throw Error('This definition does not provide a single centered port interface. Select another definition or use a reviewed custom bore.');port.definition=d;port.size=d.thread_note||d.label;redraw();}catch(e){status.textContent=e.message;buttons.forEach(b=>b.disabled=false);}});
     }
-    if(!rows.length)results.append(element('p',port.mode==='reusable'?'No reusable custom port definitions match. Create one from the one-off workflow if its engineering geometry is complete.':'No matching standard hydraulic port definitions. Search another family or size, or explicitly choose a one-off custom straight bore. No standard dimensions are inferred.'));
+    if(!rows.length)results.append(element('p',port.mode==='reusable'?'No reusable custom port definitions match. Create reusable definitions in Engineering Library → External Ports.':'No matching standard hydraulic port definitions. Search another family or size, or explicitly choose a one-off custom straight bore. No standard dimensions are inferred.'));
   }catch(e){if(token===request)results.replaceChildren(element('p',e.message));}finally{if(token===request)results.removeAttribute('aria-busy');}}
   input.oninput=()=>{port.search=input.value;++request;clearTimeout(timer);results.replaceChildren(element('p','Searching port definitions…','loading-state'));timer=setTimeout(search,200);};search();
 }

@@ -236,10 +236,5 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{}}){
     if(['materials','tooling','closures','modifiers'].includes(category))return readonlyCategory(category,options);
     throw Error('Unknown Engineering Library category: '+category);
   }
-  library.viewDefinition=(definition,options={})=>viewDefinition(definition,options);
-  library.duplicateAsCustom=(definition,options={})=>editCustom(definition,options);
-  library.externalPorts=(options={})=>library({...options,entryCategory:'external-ports',selectionMode:options.selectionMode||'external-port'});
-  library.createExternalPort=(options={})=>editCustom(null,{...options,entryCategory:'external-ports',selectionMode:'external-port'},'external-port');
-  library.viewExternalPort=(definition,options={})=>viewDefinition(definition,{...options,entryCategory:'external-ports',selectionMode:'external-port'});
   return library;
 }
