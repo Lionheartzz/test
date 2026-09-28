@@ -38,9 +38,9 @@ async page => {
     assert(materialRows.length>0,'Fixture has no active material records');
     for(const [width,height]of [[1366,768],[900,800]]){
       await page.setViewportSize({width,height});
-      const dimensions=await home.evaluate(node=>({page:document.documentElement.scrollWidth,client:innerWidth,search:node.querySelector('.home-library-input').getBoundingClientRect().bottom,content:node.querySelector('.home-content').scrollWidth,container:node.querySelector('.home-content').clientWidth}));
+      const dimensions=await home.evaluate(node=>({page:document.documentElement.scrollWidth,client:innerWidth,content:node.querySelector('.home-content').scrollWidth,container:node.querySelector('.home-content').clientWidth}));
       assert(dimensions.page<=width&&dimensions.content<=dimensions.container+1,'Home overflows horizontally at '+width);
-      assert(dimensions.search<=height,'Library search is below the initial viewport at '+width);
+      assert(await home.locator('.home-library-search').count()===0,'Projects area still contains Engineering Library search');
       await page.screenshot({path:`${output}/launchpad-${width}x${height}.png`});
     }
     await page.setViewportSize({width:1366,height:768});
@@ -65,7 +65,9 @@ async page => {
     assert(await dialog.getByLabel('Project context',{exact:true}).inputValue()==='inch','Unit prefill lost');
     assert(await dialog.getByLabel('Project name',{exact:true}).inputValue()===prefix+' draft','Name prefill lost');
     assert(await dialog.getByLabel('Length / in',{exact:true}).inputValue()==='8','Envelope prefill lost');
-    assert(await dialog.getByLabel('Block material / grade').inputValue()===materialRows[0].display_name,'Material prefill lost');
+    await dialog.getByLabel('Material',{exact:true}).waitFor();
+    await page.waitForFunction(()=>!document.querySelector('#workflow-dialog [aria-label="Material"]')?.disabled);
+    assert(await dialog.getByLabel('Material',{exact:true}).inputValue()===materialRows[0].id,'Material prefill lost');
     await close();assert(await home.getByRole('button',{name:'Continue Engineering Setup'}).evaluate(node=>node===document.activeElement),'Native dialog close did not return focus');
     await nav.getByRole('button',{name:'New Manifold',exact:true}).click();await dialog.getByRole('heading',{name:'New Manifold · 1 / 5 · Block'}).waitFor();await close();
     await home.getByRole('button',{name:'Open AI Design',exact:true}).click();await dialog.getByRole('heading',{name:/AI Design/}).waitFor();await close();
@@ -76,12 +78,7 @@ async page => {
     await page.waitForFunction(()=>!document.getElementById('workflow-content').textContent.includes('Loading SQLite'));
     assert(await dialog.locator('button').filter({hasText:/^Place Cavity$/}).evaluateAll(nodes=>nodes.every(node=>node.disabled)),'Library can place a feature without a draft');
     assert(!await page.locator('#workflow-error').innerText(),'Library failed without a draft');await close();
-    const librarySearch=home.getByRole('searchbox',{name:'Search engineering library'});
-    await librarySearch.fill('M8');await home.locator('.home-library-result').first().waitFor();
-    assert(await home.locator('.home-library-result').count()<=6,'Library search returned more than six rows');
-    assert((await home.locator('.home-result-type').allTextContents()).includes('Thread'),'Real thread result missing');
-    for(const path of ['catalog','cartridges','threads'])assert(requests.some(url=>url.includes('/api/'+path+'?')&&url.includes('q=M8')),'Library did not query '+path);
-    await librarySearch.fill('');assert(await home.locator('.home-library-result').count()===0,'Cleared search kept old results');stages.push(stage);
+    assert(await home.locator('.home-library-search').count()===0,'Home rendered a second Library entry');stages.push(stage);
 
     stage='Project management, archive filter and exact-name delete';
     await search().fill(prefix+' 0');
@@ -103,6 +100,7 @@ async page => {
     stage='Five-step draft, Home return, dirty protection and Drawing handoff';
     await quick.getByLabel('Project name',{exact:true}).fill(prefix+' draft');
     await home.getByRole('button',{name:'Continue Engineering Setup'}).click();
+    await page.waitForFunction(()=>!document.querySelector('#workflow-dialog [aria-label="Material"]')?.disabled);
     await dialog.getByRole('button',{name:'Next · Nets and ports'}).click();
     await dialog.getByLabel('Net IDs (comma separated)').fill('P');await dialog.getByLabel('Net IDs (comma separated)').press('Tab');
     await dialog.getByRole('button',{name:'Next · Cartridges and cavities'}).click();

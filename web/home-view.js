@@ -9,7 +9,6 @@ const icons={
   library:'M3 4h5v17H3zM10 4h5v17h-5zM17 4l4-1 4 17-4 1z',
   schematic:'M3 7h6v6H3zM15 7h6v6h-6zM9 10h6M6 13v7h12v-7',
   review:'M8 4H4v18h16V4h-4M8 2h8v5H8zM8 13l2 2 5-5m-7 9h8',
-  search:'M16 16l6 6M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
   import:'M5 3h9l5 5v5M14 3v6h5M5 3v19h14v-4M9 15h12m-3-3 3 3-3 3',
   arrow:'M4 12h16m-6-6 6 6-6 6',
 };
@@ -95,7 +94,6 @@ export function renderHome({element,action,api,launch,hasProject,returnToDraft,s
   const aiFoot=element('div',null,'home-ai-footer');aiFoot.append(element('small','Selected documents are sent to your provider.'));
   const aiButton=action(aiFoot,'Open AI Design',()=>launch('ai-design-open',aiButton));aiButton.append(homeIcon('arrow'));ai.append(aiFoot);cards.append(ai);
   const projects=element('section',null,'home-projects');projects.id='home-projects';projects.setAttribute('aria-label','Recent projects');content.append(projects);
-  const library=element('section',null,'home-library-search');library.setAttribute('aria-label','Engineering Library quick search');content.append(library);
   Promise.allSettled([api('/api/health'),api('/api/catalog/manifest')]).then(([health,manifest])=>{
     if(!header.isConnected)return;
     const online=health.status==='fulfilled'&&health.value.service==='pmc-manifold';
@@ -104,29 +102,5 @@ export function renderHome({element,action,api,launch,hasProject,returnToDraft,s
     database.textContent=ready?'ENGINEERING DB READY':'ENGINEERING DB UNAVAILABLE';database.dataset.state=ready?'ready':'error';
     database.title=ready?'SQLite schema '+manifest.value.schema_version:'Engineering database could not be checked. Reload the page to retry.';
   });
-  return {header,layout,projects,library};
-}
-
-export function renderLibrarySearch(parent,{element,action,api,launch}){
-  const heading=element('div',null,'home-library-heading');heading.append(homeIcon('library'),element('h2','Engineering Library'),element('span','Cavities · Cartridges · Threads'));
-  const open=action(heading,'Open Engineering Library',()=>launch('library-open',open));parent.append(heading);
-  const label=element('label',null,'home-library-input');label.append(homeIcon('search'));const search=element('input');search.type='search';search.placeholder='Search cavity, cartridge, thread…';search.setAttribute('aria-label','Search engineering library');label.append(search);parent.append(label);
-  const results=element('div',null,'home-library-results');results.setAttribute('aria-live','polite');parent.append(results);
-  let timer,request=0;
-  search.oninput=()=>{
-    clearTimeout(timer);const token=++request,q=search.value.trim();results.replaceChildren();if(!q)return;
-    results.append(element('p','Searching engineering records…','home-search-message'));
-    timer=setTimeout(async()=>{
-      const definitions=[['Cavity','/api/catalog',row=>row.name,row=>row.thread_spec||row.family],['Cartridge','/api/cartridges',row=>[row.manufacturer,row.model].filter(Boolean).join(' '),row=>row.function],['Thread','/api/threads',row=>row.display_name,row=>row.normalized_family||row.family]];
-      const response=await Promise.allSettled(definitions.map(([,path])=>api(path+'?'+new URLSearchParams({q,limit:6}))));
-      if(token!==request||!results.isConnected)return;results.replaceChildren();
-      const groups=response.map((result,index)=>result.status==='fulfilled'?(result.value.items||[]).map(row=>({row,type:definitions[index][0],name:definitions[index][2](row),detail:definitions[index][3](row)})):[]);
-      const found=[];for(let i=0;i<6;i++)for(const group of groups)if(group[i]&&found.length<6)found.push(group[i]);
-      for(const item of found){const row=element('div',null,'home-library-result');row.append(element('span',item.type,'home-result-type'),element('strong',item.name),element('span',item.detail||'','home-result-detail'));row.title=item.row.id;
-        if(item.row.usable===0||item.row.usable===false){const unavailable=element('span','Unavailable','home-result-unavailable');unavailable.title=item.row.unusable_reason||'This definition is unavailable for placement.';row.append(unavailable);}results.append(row);}
-      const failed=response.flatMap((result,index)=>result.status==='rejected'?[definitions[index][0]]:[]);
-      if(failed.length)results.append(element('p',failed.join(', ')+' search unavailable. Edit the search to retry.','home-search-message error'));
-      if(!found.length&&!failed.length)results.append(element('p','No matching engineering records. Try another designation or name.','home-search-message'));
-    },220);
-  };
+  return {header,layout,projects};
 }

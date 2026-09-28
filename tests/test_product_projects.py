@@ -1,3 +1,4 @@
+import hashlib
 import json
 import pytest
 from fastapi.testclient import TestClient
@@ -39,7 +40,7 @@ def test_project_library_lists_eight_projects_without_opening_or_engineering_res
     expected={}
     projects.folder().mkdir(parents=True)
     for index in range(8):
-        design=blank(f'Project {index}').model_dump();revision=projects.saved_revision(design)
+        design=blank(f'Project {index}').model_dump();revision=store.revision(Design.model_validate(design))
         build=None
         if index==1:build=dict(build_id='a'*32,design_revision=revision,engine_revision=engine,status='PASS',counts={})
         if index==2:build=dict(build_id='b'*32,design_revision=revision,engine_revision=engine,status='FAIL',counts={})
@@ -63,6 +64,37 @@ def test_project_library_lists_eight_projects_without_opening_or_engineering_res
     assert polled.status_code==200 and polled.json()['build']['build_id']=='a'*32
     assert polled.json()['revision']==expected[1] and polled.json()['stale'] is False
     assert calls==[1,1]
+
+
+def test_legacy_saved_project_uses_normalized_revision_for_all_mutations(isolated):
+    design=blank('Legacy revision').model_dump()
+    design.pop('constraints')
+    design.pop('project_context')
+    raw_revision=hashlib.sha256(json.dumps(design,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
+    key='a'*32
+    store.atomic_json(projects.path(key),dict(id=key,design=design,build=None,archived=False,updated_at='2026-09-18T12:00:00+00:00'))
+    normalized=store.revision(Design.model_validate(design))
+    assert raw_revision!=normalized
+    listed=next(row for row in isolated.get('/api/projects').json() if row['id']==key)
+    assert listed['revision']==normalized
+    assert isolated.get(f'/api/projects/{key}/status').json()['revision']==normalized
+    assert projects.prepare_build(key,normalized)['expected']==normalized
+    stale=isolated.post(f'/api/projects/{key}/manage',json=dict(expected_revision=raw_revision,action='archive'),headers=HEADERS)
+    assert stale.status_code==409
+    assert projects.read(key)['archived'] is False
+    renamed=isolated.post(f'/api/projects/{key}/manage',json=dict(expected_revision=normalized,action='rename',name='Renamed legacy'),headers=HEADERS)
+    assert renamed.status_code==200
+    revision=renamed.json()['revision']
+    for action,archived in [('archive',True),('restore',False)]:
+        result=isolated.post(f'/api/projects/{key}/manage',json=dict(expected_revision=revision,action=action),headers=HEADERS)
+        assert result.status_code==200 and result.json()['archived'] is archived
+        revision=result.json()['revision']
+    changed=projects.read(key);changed['design']['name']='Updated elsewhere';store.atomic_json(projects.path(key),changed)
+    conflict=isolated.post(f'/api/projects/{key}/delete',json=dict(expected_revision=revision,confirm_name='Updated elsewhere'),headers=HEADERS)
+    assert conflict.status_code==409 and projects.path(key).exists()
+    revision=isolated.get('/api/projects').json()[0]['revision']
+    deleted=isolated.post(f'/api/projects/{key}/delete',json=dict(expected_revision=revision,confirm_name='Updated elsewhere'),headers=HEADERS)
+    assert deleted.status_code==200 and not projects.path(key).exists()
 
 def test_project_manage_preserves_copies_history_and_source(isolated):
     first=projects.save(blank());key=first['project_id']

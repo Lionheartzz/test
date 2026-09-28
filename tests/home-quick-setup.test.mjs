@@ -35,6 +35,7 @@ const element=(tag,text,className)=>new Node(tag,text,className);
 const find=(parent,tag,text)=>parent.querySelectorAll(tag).find(node=>node.textContent===text);
 const field=(parent,label,value,onChange,options=null,numeric=false)=>{
   const input=element(options?'select':'input');input.setAttribute('aria-label',label);input.value=value;
+  if(options)for(const [id,text]of Object.entries(options)){const option=element('option',text);option.value=id;input.append(option);}
   input.onchange=()=>onChange(numeric?input.valueAsNumber:input.value);parent.append(input);return input;
 };
 
@@ -71,6 +72,7 @@ test('Home Projects jumps to the existing project heading without changing Home 
     assert.equal(h.apiCalls(),calls);
     assert.deepEqual(h.launched,[]);
     assert.equal(projects.parentElement.className,'home-content');
+    assert.equal(h.root.layout.querySelectorAll('section').some(node=>node.className==='home-library-search'),false);
     h.nav('Home').onclick();
     assert.equal(content.scrollTop,0);
     assert.equal(h.nav('Home').getAttribute('aria-current'),'page');
@@ -125,7 +127,7 @@ async function homeSelection(){
   }finally{globalThis.document=previous;}
 }
 
-async function createFromGuided(values,changeMaterial=false){
+function guidedHarness({materials=[material],postError=null,materialsError=false,otherApi=()=>({items:[]})}={}){
   const nodes={
     'project-new':element('button'),
     'workflow-content':element('div'),
@@ -133,47 +135,97 @@ async function createFromGuided(values,changeMaterial=false){
     'workflow-title':element('h2'),
     'workflow-error':element('div'),
   };
-  const $=id=>nodes[id];let created;
+  const $=id=>nodes[id];let created,materialCalls=0,checkCalls=0;const apiPaths=[];
   const open=title=>{nodes['workflow-title'].textContent=title;nodes['workflow-content'].replaceChildren();nodes['workflow-error'].textContent='';nodes['workflow-dialog'].showModal();};
   guided({$,element,field,action:(parent,label,callback)=>{const button=element('button',label);button.onclick=callback;parent.append(button);return button;},
-    post:async(path,design)=>{assert.equal(path,'/api/check-design');return design;},
-    api:async()=>({items:[]}),notice:()=>{},newProject:design=>{created=design;return true;}},open);
-  nodes['project-new'].onclick();
-  prefillGuidedBlock($,values);
-  const content=nodes['workflow-content'];
-  const materialInput=content.querySelectorAll('input').find(node=>node.getAttribute('aria-label')==='Block material / grade');
-  assert.equal(materialInput.value,material.display_name);
-  assert.equal(materialInput.dataset.materialId,material.id);
-  if(changeMaterial){materialInput.value='Custom material';materialInput.dispatchEvent(new Event('change'));}
+    post:async(path,design)=>{assert.equal(path,'/api/check-design');checkCalls++;if(postError)throw Error(postError);return design;},
+    api:async path=>{apiPaths.push(path);if(path==='/api/materials'){materialCalls++;if(materialsError&&materialCalls===1)throw Error('offline');return {items:materials};}return otherApi(path);},
+    notice:()=>{},newProject:design=>{created=design;return true;}},open);
+  return {nodes,$,apiPaths,start:()=>nodes['project-new'].onclick(),get created(){return created;},get materialCalls(){return materialCalls;},get checkCalls(){return checkCalls;}};
+}
+
+const control=(content,label)=>content.querySelectorAll('input,select').find(node=>node.getAttribute('aria-label')===label);
+const next=()=>new Promise(resolve=>setImmediate(resolve));
+
+async function finishSimpleGuided(h){
+  const content=h.nodes['workflow-content'];
   find(content,'button','Next · Nets and ports').onclick();
-  const nets=content.querySelectorAll('input').find(node=>node.getAttribute('aria-label')==='Net IDs (comma separated)');
-  nets.value='P';nets.dispatchEvent(new Event('change'));
-  const portCount=content.querySelectorAll('input').find(node=>node.getAttribute('aria-label')==='P · External port quantity');
-  portCount.value='0';portCount.dispatchEvent(new Event('change'));
+  assert.equal(h.nodes['workflow-title'].textContent,'New Manifold · 2 / 5 · Nets and ports');
+  const nets=control(content,'Net IDs (comma separated)');nets.value='P';nets.dispatchEvent(new Event('change'));
+  const portCount=control(content,'P · External port quantity');portCount.value='0';portCount.dispatchEvent(new Event('change'));
   find(content,'button','Next · Cartridges and cavities').onclick();
   find(content,'button','Continue without cavities').onclick();
   find(content,'button','Next · Review').onclick();
   await find(content,'button','Create editable draft').onclick();
-  assert.equal(nodes['workflow-error'].textContent,'');
-  assert.ok(created,'Guided did not create a draft');
-  return created;
+  return h.created;
 }
 
-test('Home material option carries SQLite id and name; project name limit matches schema',async()=>{
-  await homeSelection();
-});
-
-test('Home Quick Setup preserves material identity through the existing five-step Guided flow',async()=>{
-  const draft=await createFromGuided(await homeSelection());
+test('Direct New Manifold loads SQLite materials and requires a selection',async()=>{
+  const h=guidedHarness();h.start();await next();
+  const content=h.nodes['workflow-content'],select=control(content,'Material');
+  assert.equal(h.materialCalls,1);
+  assert.equal(control(content,'Block material / grade'),undefined);
+  assert.equal(select.value,'');
+  assert.equal(select.children.find(option=>option.value===material.id).textContent,material.display_name);
+  const button=find(content,'button','Next · Nets and ports');
+  assert.equal(button.parentElement.className,'action-row guided-actions');
+  button.onclick();
+  assert.equal(h.nodes['workflow-title'].textContent,'New Manifold · 1 / 5 · Block');
+  assert.match(h.nodes['workflow-error'].textContent,/Select an active engineering material/);
+  select.value=material.id;select.dispatchEvent(new Event('change'));
+  const draft=await finishSimpleGuided(h);
+  assert.equal(h.checkCalls,1);
+  assert.equal(h.nodes['workflow-dialog'].open,false);
   assert.equal(draft.block.material,material.display_name);
   assert.equal(draft.block.material_id,material.id);
-  assert.equal(draft.block.stock_id,undefined);
-  assert.equal(draft.block.stock_dimensions,undefined);
-  assert.equal(draft.block.machining_allowance,undefined);
+  for(const key of ['stock_id','stock_dimensions','machining_allowance','stock_excess'])assert.equal(draft.block[key],undefined);
 });
 
-test('customized Guided material text clears the previous SQLite material identity',async()=>{
-  const draft=await createFromGuided(await homeSelection(),true);
-  assert.equal(draft.block.material,'Custom material');
-  assert.equal(draft.block.material_id,undefined);
+test('Home Quick Setup preselection survives asynchronous material loading and five Guided steps',async()=>{
+  const values=await homeSelection();
+  const h=guidedHarness();h.start();prefillGuidedBlock(h.$,values);await next();
+  const content=h.nodes['workflow-content'];
+  assert.equal(control(content,'Material').value,material.id);
+  const context=control(content,'Project context');context.value='inch';context.dispatchEvent(new Event('change'));
+  assert.equal(control(content,'Material').value,material.id);
+  const draft=await finishSimpleGuided(h);
+  assert.equal(draft.block.material,material.display_name);
+  assert.equal(draft.block.material_id,material.id);
+  assert.equal(h.nodes['workflow-error'].textContent,'');
+});
+
+test('material service failure stays inline and Retry recovers the selector',async()=>{
+  const h=guidedHarness({materialsError:true});h.start();await next();
+  const content=h.nodes['workflow-content'];
+  assert.match(find(content,'p','Engineering material library is unavailable.').textContent,/unavailable/);
+  assert.equal(control(content,'Material').disabled,true);
+  find(content,'button','Next · Nets and ports').onclick();
+  assert.equal(h.nodes['workflow-title'].textContent,'New Manifold · 1 / 5 · Block');
+  await find(content,'button','Retry engineering materials').onclick();
+  assert.equal(h.materialCalls,2);
+  assert.equal(control(content,'Material').disabled,false);
+});
+
+test('Guided searches usable cavities and rejects an unusable definition before review',async()=>{
+  const h=guidedHarness({otherApi:path=>path.startsWith('/api/catalog/definition')?
+    {id:'CAV_UNUSABLE',kind:'cavity',label:'Unusable cavity',usable:false,unusable_reason:'Source geometry is incomplete',zones:[{id:'P'}]}:
+    {items:[{id:'CAV_UNUSABLE',name:'Unusable cavity',manufacturer:'Fixture'}]}});
+  h.start();await next();
+  const content=h.nodes['workflow-content'],select=control(content,'Material');select.value=material.id;select.dispatchEvent(new Event('change'));
+  find(content,'button','Next · Nets and ports').onclick();
+  const nets=control(content,'Net IDs (comma separated)');nets.value='P';nets.dispatchEvent(new Event('change'));
+  const portCount=control(content,'P · External port quantity');portCount.value='0';portCount.dispatchEvent(new Event('change'));
+  find(content,'button','Next · Cartridges and cavities').onclick();await next();
+  assert.ok(h.apiPaths.some(path=>path.includes('kind=cavity')&&path.includes('status=usable')));
+  await find(content,'button','Select cavity').onclick();
+  assert.match(h.nodes['workflow-error'].textContent,/Cavity is unusable: Source geometry is incomplete/);
+  assert.ok(find(content,'h3','Selected · 0'));
+});
+
+test('Guided shows backend engineering detail rather than a bare status code',async()=>{
+  const h=guidedHarness({postError:'CV1: assign a hydraulic net to every cavity interface'});h.start();await next();
+  const select=control(h.nodes['workflow-content'],'Material');select.value=material.id;select.dispatchEvent(new Event('change'));
+  await finishSimpleGuided(h);
+  assert.equal(h.created,undefined);
+  assert.match(h.nodes['workflow-error'].textContent,/CV1: assign a hydraulic net/);
 });

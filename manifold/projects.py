@@ -1,6 +1,5 @@
 """Local named projects. IDs select fixed files, never caller-provided paths."""
 import json
-import hashlib
 import re
 import uuid
 from datetime import datetime, timezone
@@ -22,14 +21,13 @@ def path(key):
 def read(key):
     return json.loads(path(key).read_text(encoding='utf-8'))
 
-def saved_revision(design):
-    """Hash already-normalized saved project state without opening the project."""
-    payload=json.dumps(design,sort_keys=True,separators=(',',':'),ensure_ascii=False)
-    return hashlib.sha256(payload.encode()).hexdigest()
+def project_revision(record):
+    """Use the same normalized Design revision for listing and mutations."""
+    return store.revision(Design.model_validate(record['design']))
 
 def status(record, *, engine_revision=None, engine_current=None):
     """Return saved-project/build state without opening engineering definitions."""
-    revision=saved_revision(record['design']);pointer=record.get('build')
+    revision=project_revision(record);pointer=record.get('build')
     current_revision=engine_revision if engine_revision is not None else store.engine_revision()
     current_engine=engine_current if engine_current is not None else store.engine_current()
     stale=not pointer or pointer['design_revision']!=revision or \
@@ -45,7 +43,7 @@ def snapshot(record):
     validate_references(design)
     engineering={key:value.model_dump() for key,value in definitions_for_design(design).items()}
     threads=thread_definitions_for_design(design)
-    revision=store.revision(design)
+    revision=project_revision(record)
     pointer=record.get('build')
     return dict(project_id=record['id'],design=design.model_dump(),engineering=dict(definitions=engineering,threads=threads),revision=revision,build=pointer,network=endpoints(),
                 updated_at=record['updated_at'],archived=record.get('archived',False),
@@ -57,7 +55,7 @@ def write(record):
     return snapshot(record)
 
 def check(record,expected):
-    if store.revision(Design.model_validate(record['design']))!=expected:
+    if project_revision(record)!=expected:
         raise ValueError('Saved project changed. Reopen it before saving; your draft is preserved.')
 
 def save(design,key=None,expected=None):

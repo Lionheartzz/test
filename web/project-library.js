@@ -1,13 +1,13 @@
-import {renderHome,renderLibrarySearch,homeIcon} from './home-view.js';
+import {renderHome,homeIcon} from './home-view.js';
 
 export function prefillGuidedBlock($,values){
   const input=label=>[...$('workflow-content').querySelectorAll('input,select')].find(node=>node.getAttribute('aria-label')===label);
   const set=(label,value)=>{const node=input(label);if(!node)throw Error('Engineering setup field is unavailable: '+label);node.value=value;node.dispatchEvent(new Event('change',{bubbles:true}));};
   set('Project context',values.unit);set('Project name',values.name);
   if(values.material){
-    const node=input('Block material / grade');if(!node)throw Error('Engineering setup field is unavailable: Block material / grade');
-    node.dataset.materialId=values.material.id;node.dataset.materialName=values.material.name;
-    set('Block material / grade',values.material.name);
+    const node=input('Material');if(!node)throw Error('Engineering setup field is unavailable: Material');
+    node.dataset.prefillMaterialId=values.material.id;
+    set('Material',values.material.id);
   }
   const suffix=values.unit==='inch'?'in':'mm';['Length','Width','Height'].forEach((label,index)=>set(label+' / '+suffix,values.dimensions[index]));
 }
@@ -101,7 +101,7 @@ export function projectLibrary(ctx){
   async function show(){
     ++generation;document.body.classList.add('home');home.replaceChildren();home.setAttribute('aria-label','Engineering Home');
     const view=renderHome({element,action,api,launch,hasProject,returnToDraft,startSetup});home.append(view.header,view.layout);
-    renderLibrarySearch(view.library,{element,action,api,launch});await projectTable(view.projects);
+    await projectTable(view.projects);
   }
   $('projects-open').onclick=show;
   return {show};

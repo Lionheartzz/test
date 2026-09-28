@@ -119,7 +119,8 @@ async def build(payload: BuildRequest):
 def check_design(design: Design):
     """Normalize an editor draft without saving or running CAD."""
     from .engineering_db import validate_references
-    validate_references(design)
+    try:validate_references(design)
+    except (ValueError,RuntimeError) as exc:raise HTTPException(422,str(exc)) from exc
     return design.model_dump()
 
 

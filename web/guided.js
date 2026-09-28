@@ -8,20 +8,37 @@ export function guided(ctx,open){
   const {$,element,field,action,post,api,notice,newProject}=ctx;
   const content=$('workflow-content'),dialog=$('workflow-dialog');
   $('project-new').onclick=()=>{
-    let context='metric',name='New manifold',material='Aluminium · engineer to specify grade',materialSelection=null,length=160,width=100,height=100,ids='P, T, A, B',portConfig=Object.create(null);
+    let context='metric',name='New manifold',materialId='',materials=[],materialStatus='loading',length=160,width=100,height=100,ids='P, T, A, B',portConfig=Object.create(null);
     let selected=[],names=[],search='',mode='cavity',generation=0;
-    const guard=fn=>async()=>{try{await fn();}catch(e){$('workflow-error').textContent=e.message;for(const status of content.querySelectorAll('.loading-state'))status.textContent='Unable to finish: '+e.message;for(const area of content.querySelectorAll('[aria-busy]'))area.removeAttribute('aria-busy');for(const button of content.querySelectorAll('button:disabled'))button.disabled=false;}};
+    const guard=fn=>async()=>{try{await fn();}catch(e){$('workflow-error').textContent=e.message;for(const status of content.querySelectorAll('.loading-state'))status.textContent='Unable to finish: '+e.message;for(const area of content.querySelectorAll('[aria-busy]'))area.removeAttribute('aria-busy');for(const button of content.querySelectorAll('button[data-guided-pending]')){button.disabled=false;delete button.dataset.guidedPending;}}};
+    let materialInput,materialMessage,materialRetry;
+    const selectedMaterial=()=>materials.find(row=>row.id===materialId);
+    const updateMaterial=()=>{
+      if(!materialInput?.isConnected)return;
+      materialInput.replaceChildren();
+      for(const [id,label]of [['','Select engineering material'],...materials.map(row=>[row.id,row.display_name])]){const option=element('option',label);option.value=id;materialInput.append(option);}
+      materialInput.value=selectedMaterial()?.id||'';
+      materialInput.disabled=materialStatus!=='ready'||!materials.length;
+      materialMessage.textContent=materialStatus==='error'?'Engineering material library is unavailable.':materialStatus==='loading'?'Loading engineering materials…':materials.length?'':'No active engineering materials are available.';
+      materialRetry.hidden=materialStatus!=='error';
+    };
+    const loadMaterials=async()=>{
+      materialStatus='loading';updateMaterial();
+      try{const result=await api('/api/materials');materials=(result.items||[]).filter(row=>row.active);materialStatus='ready';if(materialId&&!selectedMaterial())materialId='';}
+      catch{materials=[];materialStatus='error';}
+      updateMaterial();
+    };
+    const navRow=()=>{const row=element('div',null,'action-row guided-actions');content.append(row);return row;};
     const block=()=>{
       open('New Manifold · 1 / 5 · Block');
       field(content,'Project name',name,v=>name=v);
       field(content,'Project context',context,v=>{const scale=v==='inch'?1/25.4:25.4;length*=scale;width*=scale;height*=scale;context=v;block();},{metric:'Metric',inch:'Inch'});
-      const materialInput=field(content,'Block material / grade',material,v=>{
-        material=v;
-        if(materialInput.dataset.materialId&&v===materialInput.dataset.materialName)materialSelection={id:materialInput.dataset.materialId,name:v};
-        else if(v!==materialSelection?.name)materialSelection=null;
-      });
+      materialInput=field(content,'Material',materialId,v=>{materialId=materialInput.dataset.prefillMaterialId||v;delete materialInput.dataset.prefillMaterialId;if(materialStatus==='ready'&&!selectedMaterial())materialId='';updateMaterial();},{'':'Select engineering material'});
+      materialMessage=element('p',null,'guided-material-status');content.append(materialMessage);
+      materialRetry=action(content,'Retry engineering materials',loadMaterials);
+      updateMaterial();
       for(const [label,value,assign]of [['Length',length,v=>length=v],['Width',width,v=>width=v],['Height',height,v=>height=v]])field(content,label+' / '+(context==='inch'?'in':'mm'),value,assign,null,true);
-      action(content,'Next · Nets and ports',()=>{if(!name.trim()||[length,width,height].some(x=>!Number.isFinite(x)||x<=0||x*(context==='inch'?25.4:1)>2000)){$('workflow-error').textContent='Enter a name and block dimensions between 0 and 2000 mm.';return;}connections();});
+      action(navRow(),'Next · Nets and ports',()=>{if(!name.trim()||[length,width,height].some(x=>!Number.isFinite(x)||x<=0||x*(context==='inch'?25.4:1)>2000)){$('workflow-error').textContent='Enter a name and block dimensions between 0 and 2000 mm.';return;}if(!selectedMaterial()){$('workflow-error').textContent=materialStatus==='error'?'Engineering material library is unavailable.':'Select an active engineering material before continuing.';return;}connections();});
     };
     const connections=()=>{
       ++generation;open('New Manifold · 2 / 5 · Nets and ports');
@@ -32,29 +49,29 @@ export function guided(ctx,open){
         field(group,n+' · External port quantity',ports.length,v=>{if(!Number.isInteger(v)||v<0||v>8){$('workflow-error').textContent='Use 0–8 external ports per net.';return;}while(ports.length<v)ports.push(customPort());ports.length=v;connections();},null,true);
         ports.forEach((p,i)=>portSetup(ctx,group,p,ports.length===1?n:n+(i+1),connections,context));
       }
-      action(content,'Back · Block',block);action(content,'Next · Cartridges and cavities',()=>{
+      const nav=navRow();action(nav,'Back · Block',block);action(nav,'Next · Cartridges and cavities',()=>{
         if(!names.length||new Set(names).size!==names.length||names.some(x=>!/^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(x))){$('workflow-error').textContent='Use unique hydraulic net IDs.';return;}
-        for(const n of names)for(const p of portConfig[n]){if(p.mode!=='oneoff'&&!p.definition){$('workflow-error').textContent='Select a machining definition for every configured port.';return;}if(p.mode==='oneoff'&&(!(p.diameter>0)||!(p.depth>0)||p.clearance<p.diameter)){ $('workflow-error').textContent='Port bore dimensions must be positive and fitting clearance must cover its diameter.';return;}}
+        for(const n of names)for(const p of portConfig[n]){if(p.mode!=='oneoff'&&!p.definition){$('workflow-error').textContent='Select a machining definition for every configured port.';return;}if(p.definition&&!p.definition.usable){$('workflow-error').textContent='Selected external port machining definition is unusable.';return;}if(p.mode==='oneoff'&&(!(p.diameter>0)||!(p.depth>0)||p.clearance<p.diameter)){ $('workflow-error').textContent='Port bore dimensions must be positive and fitting clearance must cover its diameter.';return;}}
         choose();
       });
     };
-    const add=(def,cartridge=null)=>{if(!isCavity(def))throw Error('Select a cavity definition.');selected.push({def,quantity:1,face:'top',cartridge_id:cartridge?.id||null,cartridge,mapping:Object.fromEntries(def.zones.map((z,i)=>[z.id,names[i%names.length]]))});choose();};
+    const add=(def,cartridge=null)=>{if(!isCavity(def))throw Error('Select a cavity definition.');if(!def.usable)throw Error('Cavity is unusable: '+(def.unusable_reason||def.label));selected.push({def,quantity:1,face:'top',cartridge_id:cartridge?.id||null,cartridge,mapping:Object.fromEntries(def.zones.map((z,i)=>[z.id,names[i%names.length]]))});choose();};
     const choose=()=>{
       open('New Manifold · 3 / 5 · Cartridges and cavities');const token=++generation;
       content.append(element('p','Select components before placement. Only selected definitions enter this project. Compatibility is listed only with an explicit source; cavity-only selection remains available.'));
       const basket=element('section',null,'library-card');content.append(basket);basket.append(element('h3','Selected · '+selected.length));
       selected.forEach((s,i)=>{const row=element('div',null,'action-row');row.append(element('span',s.def.label+(s.cartridge?' · '+s.cartridge.model:' · cavity only')));action(row,'Remove '+(i+1),()=>{selected.splice(i,1);choose();});basket.append(row);});
-      const nav=element('div',null,'action-row');content.append(nav);action(nav,'Back · Nets',connections);action(nav,selected.length?'Next · Placement':'Continue without cavities',placement);
+      const nav=navRow();action(nav,'Back · Nets',connections);action(nav,selected.length?'Next · Placement':'Continue without cavities',placement);
       field(content,'Selection workflow',mode,v=>{mode=v;choose();},{cavity:'Cavity first',cartridge:'Cartridge first · explicit compatibility'});
       const input=field(content,mode==='cartridge'?'Cartridge model or manufacturer':'Search cavity',search,v=>search=v),results=element('div');content.append(results);let timer,request=0;
       const render=guard(async()=>{
         const requestId=++request;let rows;results.replaceChildren(element('p','Loading cavity catalog…','loading-state'));results.setAttribute('aria-busy','true');
-        if(mode==='cavity')rows=(await api('/api/catalog?'+new URLSearchParams({q:search,unit:context,kind:'cavity',limit:30}))).items;
+        if(mode==='cavity')rows=(await api('/api/catalog?'+new URLSearchParams({q:search,unit:context,kind:'cavity',status:'usable',limit:30}))).items;
         else rows=(await api('/api/cartridges?'+new URLSearchParams({q:search,limit:30}))).items;
         if(token!==generation||requestId!==request)return;results.removeAttribute('aria-busy');results.replaceChildren();let count=0;
         for(const row of rows){
-          if(mode==='cavity'){count++;const card=element('section',null,'library-card');card.append(element('h3',row.name),element('p',`${row.manufacturer} · ${row.id}`));action(card,'Select cavity',guard(async()=>{card.append(element('p','Preparing complete cavity geometry and source records…','loading-state'));for(const b of card.querySelectorAll('button'))b.disabled=true;const d=await api('/api/catalog/definition?'+new URLSearchParams({id:row.id}));if(token===generation&&dialog.open&&card.isConnected)add(d);}));results.append(card);continue;}
-          if(mode==='cartridge'){count++;const card=element('section',null,'library-card');card.append(element('h3',row.model),element('p',`${row.manufacturer} · ${row.function||'Function unspecified'}`));action(card,'Choose compatible cavity',guard(async()=>{const cavities=await api('/api/cartridges/'+encodeURIComponent(row.id)+'/cavities');card.querySelectorAll('.compatible-cavity').forEach(node=>node.remove());if(!cavities.length){card.append(element('p','No explicit compatibility relationship exists.','compatible-cavity'));return;}for(const cavity of cavities){const choice=element('div',null,'compatible-cavity');choice.append(element('strong',cavity.label),element('p',`${cavity.unit_system.toUpperCase()} · ${cavity.family||'Type unspecified'} · ${cavity.manufacturer||'Manufacturer unspecified'}`));action(choice,'Select this cavity',()=>add(cavity,row));card.append(choice);}}));results.append(card);}
+          if(mode==='cavity'){count++;const card=element('section',null,'library-card');card.append(element('h3',row.name),element('p',`${row.manufacturer} · ${row.id}`));action(card,'Select cavity',guard(async()=>{card.append(element('p','Preparing complete cavity geometry and source records…','loading-state'));for(const b of card.querySelectorAll('button')){b.disabled=true;b.dataset.guidedPending='true';}const d=await api('/api/catalog/definition?'+new URLSearchParams({id:row.id}));if(token===generation&&dialog.open&&card.isConnected)add(d);}));results.append(card);continue;}
+          if(mode==='cartridge'){count++;const card=element('section',null,'library-card');card.append(element('h3',row.model),element('p',`${row.manufacturer} · ${row.function||'Function unspecified'}`));action(card,'Choose compatible cavity',guard(async()=>{const cavities=await api('/api/cartridges/'+encodeURIComponent(row.id)+'/cavities');card.querySelectorAll('.compatible-cavity').forEach(node=>node.remove());if(!cavities.length){card.append(element('p','No explicit compatibility relationship exists.','compatible-cavity'));return;}for(const cavity of cavities){const choice=element('div',null,'compatible-cavity');choice.append(element('strong',cavity.label),element('p',`${cavity.unit_system.toUpperCase()} · ${cavity.family||'Type unspecified'} · ${cavity.manufacturer||'Manufacturer unspecified'}`));const use=action(choice,'Select this cavity',()=>add(cavity,row));if(!cavity.usable){use.disabled=true;choice.append(element('p',cavity.unusable_reason||'Cavity geometry is unusable.'));}card.append(choice);}}));results.append(card);}
         }
         if(!count)results.append(element('p',mode==='cartridge'?'No explicit cartridge compatibility is stored in SQLite. Continue with Cavity first and leave Cartridge unassigned.':'No matches. Refine your search.'));
         if(mode==='cavity'&&rows.length===30)results.append(element('p','Showing the first 30 matches. Refine your search to locate a specific cavity.'));
@@ -69,15 +86,16 @@ export function guided(ctx,open){
         card.append(element('p',s.cartridge?`Assigned cartridge: ${s.cartridge.manufacturer} ${s.cartridge.model}`:'Cavity placement only. Cartridge assignment is optional.'));
         for(const z of s.def.zones)field(card,`${i+1} · Interface ${z.id} → Net`,s.mapping[z.id],v=>s.mapping[z.id]=v,Object.fromEntries(names.map(n=>[n,n])));
       }
-      action(content,'Back · Selection',choose);action(content,'Next · Review',()=>{if(selected.some(s=>!Number.isInteger(s.quantity)||s.quantity<1||s.quantity>20)){$('workflow-error').textContent='Each quantity must be 1–20.';return;}review();});
+      const nav=navRow();action(nav,'Back · Selection',choose);action(nav,'Next · Review',()=>{if(selected.some(s=>!Number.isInteger(s.quantity)||s.quantity<1||s.quantity>20)){$('workflow-error').textContent='Each quantity must be 1–20.';return;}if(selected.some(s=>s.def.zones.some(z=>!names.includes(s.mapping[z.id]))||Object.keys(s.mapping).some(id=>!s.def.zones.some(z=>z.id===id)))){$('workflow-error').textContent='Assign a hydraulic net to every cavity interface before review.';return;}review();});
     };
     const review=()=>{
       open('New Manifold · 5 / 5 · Review');
       content.append(element('p',`${name} · ${length.toFixed(2)} × ${width.toFixed(2)} × ${height.toFixed(2)} ${context==='inch'?'in':'mm'} · ${names.join(', ')} · ${selected.reduce((n,s)=>n+s.quantity,0)} cavities`));
       for(const n of names)content.append(element('p',n+': '+(portConfig[n].map(p=>`${p.face.toUpperCase()} · ${p.definition?.label||p.size+' · custom Ø'+p.diameter+' × '+p.depth}`).join('; ')||'No external ports')));
-      action(content,'Back · Placement',placement);
-      action(content,'Create editable draft',guard(async()=>{
-        const scale=context==='inch'?25.4:1,configured=names.flatMap(n=>portConfig[n].map((p,i,rows)=>({p,net:n,label:rows.length===1?n:n.slice(0,37)+(i+1)}))),d=hydrateDesign({schema_version:2,name,units:'mm',project_context:context,block:{length:length*scale,width:width*scale,height:height*scale,material,...(materialSelection?.name===material?{material_id:materialSelection.id}:{})},features:[],schematic_intent:null,nets:names.map((id,i)=>({id,label:id,routing:'automatic',diameter:8,color:['#ef5959','#459cff','#41ca8b','#f2d454','#f79b42','#b08bea'][i%6]})),origin:{method:'manual',notes:'Guided setup'},review_items:[],rules:{minimum_wall:7,minimum_overlap_volume:.1,max_depth_diameter_ratio:20,minimum_access_gap:2},constraints:{preferred_wall_margin:4,preferred_component_faces:['top'],preferred_port_faces:{},priority:'fewer_plugs',standard_drills:[4,5,6,8,10,12,16,20],forbidden_drilling_faces:[],required_feature_faces:{},notes:''}},Object.fromEntries([...selected.map(s=>[s.def.id,s.def]),...configured.filter(x=>x.p.definition).map(x=>[x.p.definition.id,x.p.definition])]));
+      const nav=navRow();action(nav,'Back · Placement',placement);
+      action(nav,'Create editable draft',guard(async()=>{
+        const material=selectedMaterial();if(!material)throw Error('Select an active engineering material before creating a draft.');
+        const scale=context==='inch'?25.4:1,configured=names.flatMap(n=>portConfig[n].map((p,i,rows)=>({p,net:n,label:rows.length===1?n:n.slice(0,37)+(i+1)}))),d=hydrateDesign({schema_version:2,name,units:'mm',project_context:context,block:{length:length*scale,width:width*scale,height:height*scale,material:material.display_name,material_id:material.id},features:[],schematic_intent:null,nets:names.map((id,i)=>({id,label:id,routing:'automatic',diameter:8,color:['#ef5959','#459cff','#41ca8b','#f2d454','#f79b42','#b08bea'][i%6]})),origin:{method:'manual',notes:'Guided setup'},review_items:[],rules:{minimum_wall:7,minimum_overlap_volume:.1,max_depth_diameter_ratio:20,minimum_access_gap:2},constraints:{preferred_wall_margin:4,preferred_component_faces:['top'],preferred_port_faces:{},priority:'fewer_plugs',standard_drills:[4,5,6,8,10,12,16,20],forbidden_drilling_faces:[],required_feature_faces:{},notes:''}},Object.fromEntries([...selected.map(s=>[s.def.id,s.def]),...configured.filter(x=>x.p.definition).map(x=>[x.p.definition.id,x.p.definition])]));
         const dims=sizes(d.block);
         for(const {p,net,label}of configured){const sameFace=configured.filter(x=>x.p.face===p.face),index=sameFace.findIndex(x=>x.p===p),[u,v]=axes[p.face];
           const id='PORT_'+uuidToken().replaceAll('-','');
@@ -91,6 +109,6 @@ export function guided(ctx,open){
         }}
         syncNets(d);const checked=await post('/api/check-design',d);if(newProject(checked,Object.fromEntries(d.library.map(x=>[x.id,x])))){dialog.close();notice('New project ready. Refine placement and routes, then Save Project or Validate.');}
       }));
-    };block();
+    };block();loadMaterials();
   };
 }
