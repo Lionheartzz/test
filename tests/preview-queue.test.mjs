@@ -51,6 +51,20 @@ test('remote cancellation releases hung obsolete request and newest snapshot win
  obsolete.resolve('stale exact');await sleep(5);assert.deepEqual(shown,['new exact']);assert.deepEqual(errors,[]);queue.cancel();
 });
 
+test('cancel captures the old version and ignores its expected 409',async()=>{
+ const calls=[],cancels=[],errors=[];
+ const queue=createPreviewQueue({delay:5,stream:(_design,options)=>new Promise((resolve,reject)=>calls.push({options,resolve,reject})),
+  cancelRemote:(_owner,version)=>{cancels.push(version);return Promise.resolve();},
+  onFast:()=>{},onExact:()=>{},onStatus:()=>{},onError:e=>errors.push(e.message)});
+ queue.schedule({value:1});await sleep(15);
+ await queue.cancel();
+ calls[0].reject(Error('An authoritative engineering calculation is running.'));
+ await sleep(5);
+ assert.deepEqual(cancels,[0,1]);
+ assert.equal(calls[0].options.signal.aborted,true);
+ assert.deepEqual(errors,[]);
+});
+
 test('hung exact request times out visibly, retains usable view, then recovers',async()=>{
  const calls=[],shown=[],errors=[],states=[],cancels=[];
  const queue=createPreviewQueue({delay:5,exactDelay:5,timeout:40,

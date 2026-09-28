@@ -1,4 +1,5 @@
 import {createPreviewQueue} from './preview-queue.js';
+import {createRouteRefineFlight} from './route-refine.js';
 import {streamExactPreview} from './preview-stream.js';
 import {isCavity} from './definition-role.js';
 import './ui-tokens.css';
@@ -66,7 +67,7 @@ async function requestLayer(mode){
   })();token.layerPromises.set(layer,promise);return promise;
 }
 function requestSolid(){
-  if(!draft||dragStart||busy)return;
+  if(!draft||dragStart||busy||routeRefiner?.pending)return;
   if(!dirty&&!state?.stale&&state?.build){exactPreview=null;previews.cancel();if(model){viewer?.load(model,resolved);lastUsablePreview={model,design:resolved,draftSignature:JSON.stringify(draft)};}else{viewer?.preview(resolved);lastUsablePreview={design:resolved,draftSignature:JSON.stringify(draft)};}markDisplayed(draft,'authoritative');viewer?.setDesign(draft);previewState('authoritative','AUTHORITATIVE VALIDATION · '+state.build.status+' · '+(model?'EXACT MACHINED BREP':'EXACT REVIEW UNAVAILABLE · APPROXIMATE VIEW'));return;}
   previews.schedule(draft,String(projectEpoch));
 }
@@ -78,7 +79,7 @@ function refreshPreview(){
   if(dragStart)previews.cancel();else requestSolid();
 }
 function markDirty(){draftCheckedSignature=null;dirty=true;exactPreview=null;viewer?.setIssueMarkers([]);renderHeader();refreshPreview();notice('Draft preview updated. Validate runs exact geometry checks and writes an immutable build.');}
-try{viewer=createViewer($('viewport'),select,(id,u,v,done)=>{if(busy||displayedSource==='retained'&&displayedDraftSignature!==JSON.stringify(draft))return;const f=draft.features.find(f=>f.id===id);if(!f)return;const starting=!dragStart;if(starting){dragStart=cloneDesign(draft);previews.cancel();exactPreview=null;draftCheckedSignature=null;viewer?.setIssueMarkers([]);dirty=true;renderHeader();}f.u=u;f.v=v;$('selection-label').textContent=`${featureLabel(f,draft)} · ${f.face} · U ${u.toFixed(1)} / V ${v.toFixed(1)} mm`;notice('Live position · envelope clamped to face · 1 mm snap · preview is not validated');if(!done){viewer?.updateFeature(draft,id);markDisplayed(draft,'draft');if(starting){renderTree();renderReport();}previewState('approximate','APPROXIMATE LOCAL DRAG · NOT VALIDATED');return;}const baseline=dragStart;history.push(baseline);future=[];dragStart=null;select(id);if(f.frozen_net)refineAfterDrag(baseline,id,u,v);else refreshPreview();},{onHover:id=>{for(const row of document.querySelectorAll('#feature-tree [data-feature]'))row.classList.toggle('hovered',row.dataset.feature===id);},onViewChange:()=>viewCube?.sync(),onMarkerSelect:id=>{select(id);viewer?.focus(id);}});$('viewport').addEventListener('pmc-viewer-timing',event=>previewTiming(event.detail));}catch(e){notice('WebGL: '+e.message,true);}
+try{viewer=createViewer($('viewport'),select,(id,u,v,done)=>{if(busy||routeRefiner?.pending||displayedSource==='retained'&&displayedDraftSignature!==JSON.stringify(draft))return;const f=draft.features.find(f=>f.id===id);if(!f)return;const starting=!dragStart;if(starting){dragStart=cloneDesign(draft);previews.cancel();exactPreview=null;draftCheckedSignature=null;viewer?.setIssueMarkers([]);dirty=true;renderHeader();}f.u=u;f.v=v;$('selection-label').textContent=`${featureLabel(f,draft)} · ${f.face} · U ${u.toFixed(1)} / V ${v.toFixed(1)} mm`;notice('Live position · envelope clamped to face · 1 mm snap · preview is not validated');if(!done){viewer?.updateFeature(draft,id);markDisplayed(draft,'draft');if(starting){renderTree();renderReport();}previewState('approximate','APPROXIMATE LOCAL DRAG · NOT VALIDATED');return;}const baseline=dragStart;history.push(baseline);future=[];dragStart=null;select(id);if(f.frozen_net)refineAfterDrag(baseline,id,u,v);else refreshPreview();},{onHover:id=>{for(const row of document.querySelectorAll('#feature-tree [data-feature]'))row.classList.toggle('hovered',row.dataset.feature===id);},onViewChange:()=>viewCube?.sync(),onMarkerSelect:id=>{select(id);viewer?.focus(id);}});$('viewport').addEventListener('pmc-viewer-timing',event=>previewTiming(event.detail));}catch(e){notice('WebGL: '+e.message,true);}
 
 const toolbar=document.querySelector('.viewport-toolbar');
 const hudTop=element('div',null,'hud-top');
@@ -145,10 +146,21 @@ clipEnable.onchange=()=>{if(clipEnable.checked&&!Number(clipNumber.value)){const
 clipAxis.onchange=()=>{clipNumber.value=String((displayedBlock()?.[{x:'length',y:'width',z:'height'}[clipAxis.value]]||0)/2);syncClip();};
 clipKeep.onchange=syncClip;clipRange.oninput=()=>{clipNumber.value=clipRange.value;syncClip();};clipNumber.onchange=syncClip;
 
-async function refineAfterDrag(baseline,id,u,v){
-  const signature=JSON.stringify(draft);notice('Checking adjusted route and connected branches…');
-  try{const result=await post('/api/refine-route',{design:baseline,feature_id:id,u,v});if(JSON.stringify(draft)!==signature)return;draft=hydrateDesign(result.design,draft.library,draft.threads);refreshPreview();report=result.report;reportDesign=null;reportWasDraft=true;draftCheckedSignature=JSON.stringify(draft);renderTree();select(id);renderReport();renderHeader();notice(`Draft exact checks: ${report.counts.PASS} PASS / ${report.counts.FAIL} FAIL. ${result.adjusted_branches.length} branches extended. ${result.notes.join(' ')} Validate includes STEP round trip.`,report.status==='FAIL');}
-  catch(e){if(JSON.stringify(draft)===signature){refreshPreview();notice('Route remains an unvalidated draft: '+e.message,true);}}
+const routeRefiner=createRouteRefineFlight({
+  snapshot:id=>({epoch:projectEpoch,signature:JSON.stringify(draft),id,owner:draft?.features.find(f=>f.id===id)?.frozen_net}),
+  isCurrent:guard=>guard.epoch===projectEpoch&&JSON.stringify(draft)===guard.signature
+    &&!!guard.owner&&draft?.features.some(f=>f.id===guard.id&&f.frozen_net===guard.owner),
+  cancelPreview:()=>previews.cancel(),
+  submit:({baseline,id,u,v})=>post('/api/refine-route',{design:baseline,feature_id:id,u,v}),
+  setEditing:enabled=>viewer?.editing(enabled),
+  apply:(result,{id})=>{draft=hydrateDesign(result.design,draft.library,draft.threads);report=result.report;reportDesign=null;reportWasDraft=true;draftCheckedSignature=JSON.stringify(draft);renderTree();select(id);renderReport();renderHeader();notice(`Draft exact checks: ${report.counts.PASS} PASS / ${report.counts.FAIL} FAIL. ${result.adjusted_branches.length} branches extended. ${result.notes.join(' ')} Validate includes STEP round trip.`,report.status==='FAIL');},
+  settle:()=>{if(draft&&!document.body.classList.contains('home'))refreshPreview();else solidStatus();},
+  reportError:error=>notice('Route remains an unvalidated draft: '+error.message,true)
+});
+function refineAfterDrag(baseline,id,u,v){
+  notice('Checking adjusted route and connected branches…');
+  solidStatus('Checking adjusted route…');
+  return routeRefiner.run({baseline,id,u,v});
 }
 let adoptingRoute=false;
 async function adoptRoute(netId,id=selection){

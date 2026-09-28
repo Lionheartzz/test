@@ -5,7 +5,12 @@ import {randomOwner} from './crypto-utils.js';
 export function createPreviewQueue({post,stream=null,onFast,onExact,onStatus,onError,onTiming=()=>{},cancelRemote=null,delay=350,exactDelay=450,timeout=20000}) {
   let latest=null,running=false,timer=null,version=0,cache=null,controller=null;
   const owner=randomOwner();
-  function invalidate(){if(cancelRemote){controller?.abort();Promise.resolve(cancelRemote(owner,version)).catch(()=>{});}}
+  function invalidate(){
+    if(!cancelRemote)return Promise.resolve();
+    controller?.abort();
+    const cancelledVersion=version;
+    return Promise.resolve().then(()=>cancelRemote(owner,cancelledVersion)).catch(()=>{});
+  }
   async function request(url,job,send=post){
     const abort=controller=new AbortController();
     let timer;
@@ -44,7 +49,7 @@ export function createPreviewQueue({post,stream=null,onFast,onExact,onStatus,onE
     schedule(design,scope=''){
       const snapshot=structuredClone(design),key=scope+JSON.stringify(snapshot);
       if(latest?.key===key)return;
-      invalidate();++version;clearTimeout(timer);
+      void invalidate();++version;clearTimeout(timer);
       if(cache?.key===key){
         // Repaint the cached exact core immediately, then re-establish the
         // server-owned preview context under this current owner/version.  The
@@ -55,6 +60,6 @@ export function createPreviewQueue({post,stream=null,onFast,onExact,onStatus,onE
       }
       latest={design:snapshot,key,version,stage:'fast',due:Date.now()+delay};onStatus('queued');arm();
     },
-    cancel(){invalidate();++version;latest=null;clearTimeout(timer);onStatus('idle');}
+    cancel(){const cancelled=invalidate();++version;latest=null;clearTimeout(timer);onStatus('idle');return cancelled;}
   };
 }

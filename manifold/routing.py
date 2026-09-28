@@ -315,7 +315,83 @@ def route_cost(design, route):
                  + route_margin(design,route)['margin_penalty'],6)
 
 
-def route_obstructions(design, net, route,thread_definitions=None):
+def _plug_cut_overlap(plug, cut, block):
+    """Return only witnessed finite-volume overlap; a proxy cannot certify clearance.
+
+    Witnesses are strictly inside the plug and the actual axial/radial cut profile.
+    This avoids end-cap and infinite-line false positives while exact BRep remains
+    the authority for narrow intersections missed by this cheap candidate screen.
+    """
+    origin, direction = pose(plug, block)
+    cut_origin, cut_direction = pose(cut['feature'], block)
+    dot = lambda a, b: sum(x*y for x, y in zip(a, b))
+    subtract = lambda a, b: tuple(x-y for x, y in zip(a, b))
+    margin = 0.05
+    if plug.plug_length <= 2*margin or cut['end']-cut['start'] <= 2*margin:
+        return False
+    plug_bounds = cylinder_bounds(plug, block, 0, plug.plug_length, plug.diameter)
+    cut_bounds = cylinder_bounds(cut['feature'], block, cut['start'], cut['end'],
+                                 2*max(cut['radius_start'], cut['radius_end']))
+    if any(min(a[1], b[1])-max(a[0], b[0]) <= margin for a, b in zip(plug_bounds, cut_bounds)):
+        return False
+    projected = [dot(subtract(tuple(cut_origin[i]+cut_direction[i]*depth for i in range(3)), origin), direction)
+                 for depth in (cut['start'], (cut['start']+cut['end'])/2, cut['end'])]
+    positions = {plug.plug_length*i/min(32, max(4, math.ceil(plug.plug_length)))
+                 for i in range(1, min(32, max(4, math.ceil(plug.plug_length))))}
+    positions.update(t+offset for t in projected for offset in (-0.25, 0, 0.25))
+    reference = (1, 0, 0) if abs(direction[0]) < .9 else (0, 1, 0)
+    first = tuple(direction[(i+1)%3]*reference[(i+2)%3]-direction[(i+2)%3]*reference[(i+1)%3] for i in range(3))
+    norm = math.sqrt(dot(first, first))
+    first = tuple(x/norm for x in first)
+    second = tuple(direction[(i+1)%3]*first[(i+2)%3]-direction[(i+2)%3]*first[(i+1)%3] for i in range(3))
+    radial = [(0, 0)] + [(fraction*math.cos(i*math.pi/4), fraction*math.sin(i*math.pi/4))
+                         for fraction in (.5, .9) for i in range(8)]
+    for depth in sorted(t for t in positions if margin < t < plug.plug_length-margin):
+        center = tuple(origin[i]+direction[i]*depth for i in range(3))
+        for x, y in radial:
+            point = tuple(center[i]+plug.diameter/2*(x*first[i]+y*second[i]) for i in range(3))
+            relative = subtract(point, cut_origin)
+            axial = dot(relative, cut_direction)
+            if not cut['start']+margin < axial < cut['end']-margin:
+                continue
+            radius = cut['radius_start']+(cut['radius_end']-cut['radius_start'])*(axial-cut['start'])/(cut['end']-cut['start'])
+            squared = dot(relative, relative)-axial*axial
+            if cut['inner_radius']+margin < math.sqrt(max(0, squared)) < radius-margin or (
+                    cut['inner_radius'] == 0 and squared < (radius-margin)**2):
+                return True
+    return False
+
+
+def _manufacturing_cuts(feature, definitions, thread_definitions, modifier_definitions):
+    if feature.definition:
+        definition = definitions[feature.definition]
+        for primitive in definition.cutting_primitives or definition.stages:
+            angle = math.radians(feature.rotation)
+            offset_u, offset_v = getattr(primitive, 'offset_u', 0), getattr(primitive, 'offset_v', 0)
+            positioned = feature.model_copy(update=dict(
+                u=feature.u+offset_u*math.cos(angle)-offset_v*math.sin(angle),
+                v=feature.v+offset_u*math.sin(angle)+offset_v*math.cos(angle)))
+            yield dict(feature=positioned, start=primitive.start, end=primitive.end,
+                       radius_start=primitive.diameter/2,
+                       radius_end=primitive.end_diameter/2 if getattr(primitive, 'kind', '') == 'cone' else primitive.diameter/2,
+                       inner_radius=primitive.inner_diameter/2 if getattr(primitive, 'kind', '') == 'annulus' else 0)
+    else:
+        diameter = feature_bore_diameter(feature, thread_definitions)
+        yield dict(feature=feature, start=0, end=feature.depth,
+                   radius_start=diameter/2, radius_end=diameter/2, inner_radius=0)
+        if feature.tip_angle != 180 and not feature.through:
+            tip = diameter/2/math.tan(math.radians(feature.tip_angle/2))
+            yield dict(feature=feature, start=feature.depth, end=feature.depth+tip,
+                       radius_start=diameter/2, radius_end=0, inner_radius=0)
+    for placement in feature.machining_modifiers:
+        for primitive in modifier_definitions[placement.modifier_id]['primitives']:
+            yield dict(feature=feature, start=placement.start+primitive['start'],
+                       end=placement.start+primitive['end'], radius_start=primitive['diameter']/2,
+                       radius_end=primitive['diameter']/2,
+                       inner_radius=primitive.get('inner_diameter', 0)/2 if primitive['kind'] == 'annulus' else 0)
+
+
+def route_obstructions(design, net, route,thread_definitions=None,definitions=None,modifier_definitions=None):
     """Cheap, sufficient evidence of hard failure, never a feasibility certificate.
 
     Capsules INSIDE straight cylindrical cuts prove contact/insufficient wall without
@@ -325,11 +401,24 @@ def route_obstructions(design, net, route,thread_definitions=None):
     if thread_definitions is None:
         from .engineering_db import thread_definitions_for_design
         thread_definitions=thread_definitions_for_design(design)
+    if definitions is None:
+        from .engineering_db import definitions_for_design
+        definitions=definitions_for_design(design)
+    if modifier_definitions is None:
+        from .engineering_db import modifier_definitions_for_design
+        modifier_definitions=modifier_definitions_for_design(design) if any(f.machining_modifiers for f in design.features) else {}
     failures = set()
     obstacles=[f for f in design.features if f.route_net!=net.id]+route
     for bore in route:
         if route_margin(design,[bore])['estimated_min_wall_mm'] < design.rules.minimum_wall-1e-6:
             failures.add(('external_wall',bore.id))
+        if bore.plugged:
+            for other in obstacles:
+                if other.suppressed or other.id == bore.id:
+                    continue
+                if any(_plug_cut_overlap(bore, cut, design.block)
+                       for cut in _manufacturing_cuts(other, definitions, thread_definitions, modifier_definitions)):
+                    failures.add(('plug_cut', *sorted((bore.id, other.id))))
         radius=bore.diameter/2
         if bore.depth < 2*radius:continue
         a,b=segment(bore,design.block,radius,bore.depth-radius)
@@ -356,13 +445,16 @@ def route_obstructions(design, net, route,thread_definitions=None):
     return failures
 
 
-def route_options(design, net, *, expanded=False, definitions=None,thread_definitions=None):
+def route_options(design, net, *, expanded=False, definitions=None,thread_definitions=None,modifier_definitions=None):
     if definitions is None:
         from .engineering_db import definitions_for_design
         definitions=definitions_for_design(design)
     if thread_definitions is None:
         from .engineering_db import thread_definitions_for_design
         thread_definitions=thread_definitions_for_design(design)
+    if modifier_definitions is None:
+        from .engineering_db import modifier_definitions_for_design
+        modifier_definitions=modifier_definitions_for_design(design) if any(f.machining_modifiers for f in design.features) else {}
     orders = list(itertools.permutations(range(3)))
     if net.preferred_axis != 'auto':
         orders = [o for o in orders if o[0] == 'xyz'.index(net.preferred_axis)]
@@ -385,18 +477,20 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
     # Keep an explicitly failing proposal if the constraint makes every candidate impossible.
     # The validator reports the conflict; never remove a required connection to hide it.
     for option in options:
-        option['hard_failures']=len(route_obstructions(design,net,option['route'],thread_definitions))
+        option['hard_failures']=len(route_obstructions(design,net,option['route'],thread_definitions,definitions,modifier_definitions))
     if not expanded and all(o['hard_failures'] for o in (permitted or options)):
-        return route_options(design,net,expanded=True,definitions=definitions,thread_definitions=thread_definitions)
+        return route_options(design,net,expanded=True,definitions=definitions,thread_definitions=thread_definitions,
+                             modifier_definitions=modifier_definitions)
     return sorted(permitted or options,key=lambda o:(o['hard_failures'],o['cost']+o['risk'],o['cost'],o['key']))
 
 
 @timed('route.proposal')
 def _resolve_proposals(design):
     resolved = resolve_parents(design)
-    from .engineering_db import definitions_for_design,thread_definitions_for_design,tool_definitions
+    from .engineering_db import definitions_for_design,thread_definitions_for_design,modifier_definitions_for_design,tool_definitions
     definitions=definitions_for_design(resolved)
     thread_definitions=thread_definitions_for_design(resolved)
+    modifier_definitions=modifier_definitions_for_design(resolved) if any(f.machining_modifiers for f in resolved.features) else {}
     from .sizing import route_sizing
     tools=tool_definitions('drill')
     sizing={n.id:route_sizing(n,tools=tools,required_depth=0,preferred_unit=resolved.project_context) for n in resolved.nets}
@@ -420,20 +514,22 @@ def _resolve_proposals(design):
             else:
                 raise ValueError(f'{net.id}: route sizing did not settle on a source-backed drill')
             option['tool_sizing']=actual
-            option['hard_failures']=len(route_obstructions(context,net,option['route'],thread_definitions))
+            option['hard_failures']=len(route_obstructions(context,net,option['route'],thread_definitions,definitions,modifier_definitions))
             option['risk']=proximity_risk(context,net,option['route'],definitions,thread_definitions)
             option['cost']=route_cost(context,option['route'])
             return actual
         # Pinned candidates are materialized directly; enumerating their entire
         # neighbourhood again would multiply the cost of each exact attempt.
-        choices = [] if net.routing_variant else route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions)
+        choices = [] if net.routing_variant else route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions,
+                                                                modifier_definitions=modifier_definitions)
         if net.routing_variant:
             if net.routing_variant.startswith('simple_'):
                 choices=[dict(key=f'simple_{i}',route=r,risk=proximity_risk(resolved,net,r,definitions,thread_definitions),cost=route_cost(resolved,r))
                          for i,r in enumerate(simple_routes(resolved,net,definitions))]
                 selected=next((o for o in choices if o['key']==net.routing_variant),None)
                 if selected is None:
-                    choices=route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions)
+                    choices=route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions,
+                                          modifier_definitions=modifier_definitions)
                     selected=choices[0]  # Moved/reassigned terminals invalidate the old proposal.
                 route=selected['route']
             else:
@@ -471,11 +567,12 @@ def _resolve_proposals(design):
     for net in sorted(resolved.nets,key=lambda n:n.id):
         if net.routing!='automatic' or net.routing_variant:continue
         current=[f for f in resolved.features if f.route_net==net.id]
-        failures=route_obstructions(resolved,net,current,thread_definitions)
+        failures=route_obstructions(resolved,net,current,thread_definitions,definitions,modifier_definitions)
         if not failures:continue
         context=resolved.model_copy(deep=True)
         context.features=[f for f in context.features if f.route_net!=net.id]
-        option=route_options(context,net,definitions=definitions,thread_definitions=thread_definitions)[0]
+        option=route_options(context,net,definitions=definitions,thread_definitions=thread_definitions,
+                             modifier_definitions=modifier_definitions)[0]
         if net.flow_lpm:
             try:
                 actual=tool_size(option,context)
