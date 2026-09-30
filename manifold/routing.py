@@ -746,10 +746,42 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
     return failures
 
 
+class _ProposalSnapshot:
+    """Lazy source BRep and pruning evidence owned by one proposal resolution."""
+    def __init__(self, design, definitions, threads, modifiers):
+        automatic={n.id for n in design.nets if n.routing=='automatic'}
+        self.source=design.model_copy(deep=True)
+        self.source.features=[f for f in self.source.features if f.route_net not in automatic]
+        self.definitions,self.threads,self.modifiers=definitions,threads,modifiers
+        self.geometry=None
+        self.cache={}
+        self.results={}
+
+    def simplify(self, design, net, route, *, known_failures=None):
+        # Generated siblings affect obstruction screening, but not the same-net
+        # fluid graph. Include every explicit outside contact in the cache key:
+        # a later route declaring a required contact must protect that drilling.
+        protected=tuple(sorted({key for f in design.features if f.route_net!=net.id for key in f.connects_to}))
+        key=(net.model_dump_json(exclude={'routing_variant'}),
+             tuple(f.model_dump_json() for f in route),protected)
+        if key not in self.results:
+            if self.geometry is None:
+                from .geometry import build_geometry
+                self.geometry=build_geometry(self.source,self.definitions,self.threads,self.modifiers)
+            result,connected=simplify_generated_route(design,net,route,source_geometry=self.geometry,
+                definitions=self.definitions,thread_definitions=self.threads,modifier_definitions=self.modifiers,
+                cache=self.cache,known_failures=known_failures)
+            self.results[key]=([f.model_copy(deep=True) for f in result],connected)
+        result,connected=self.results[key]
+        # Tool sizing and presentation can mutate a selected proposal afterwards.
+        return [f.model_copy(deep=True) for f in result],connected
+
+
+@timed('route.simplification')
 def simplify_generated_route(design, net, route, *, source_geometry=None, definitions=None,
                              thread_definitions=None, modifier_definitions=None, cache=None, known_failures=None):
     """Prune only proven redundant automatic cuts using exact fluid-node contacts."""
-    from .geometry import build_geometry
+    from .geometry import build_geometry,feature_geometry
     from .flow import required_area, opening_area
     if source_geometry is None:
         source=design.model_copy(update=dict(features=[f for f in design.features if f.route_net!=net.id]))
@@ -832,8 +864,8 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
         signature=feature.model_dump_json(exclude={'id','connects_to','schematic_id','machining_id'})
         if signature not in cuts:
             candidate=design.model_copy(update=dict(features=[feature],engravings=[],block_modifiers=[]))
-            geometry=build_geometry(candidate,definitions,thread_definitions,modifier_definitions)
-            cuts[signature]=(geometry.nodes[feature.id],geometry.placements[feature.id])
+            _,fluid,_,_,_,placements,_=feature_geometry(candidate,definitions,thread_definitions or {},modifier_definitions or {})
+            cuts[signature]=(fluid[feature.id],placements[feature.id])
         nodes[feature.id],directions[feature.id]=cuts[signature]
         signatures[feature.id]=signature
     if not required.issubset(nodes):
@@ -841,7 +873,7 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
     graph={key:set() for key in nodes}
     area=required_area(net.flow_lpm,net.velocity_limit) if net.flow_lpm else None
     for a,b in itertools.combinations(nodes,2):
-        key=tuple(sorted((signatures[a],signatures[b])))
+        key=(tuple(sorted((signatures[a],signatures[b]))),design.rules.minimum_overlap_volume,area)
         if key not in contacts:
             for node in (a,b):
                 signature=signatures[node]
@@ -892,7 +924,8 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
     return remaining,True
 
 
-def route_options(design, net, *, expanded=False, definitions=None,thread_definitions=None,modifier_definitions=None):
+def route_options(design, net, *, expanded=False, definitions=None,thread_definitions=None,modifier_definitions=None,
+                  snapshot=None):
     if definitions is None:
         from .engineering_db import definitions_for_design
         definitions=definitions_for_design(design)
@@ -929,17 +962,18 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
     # The validator reports the conflict; never remove a required connection to hide it.
     for option in options:
         option['hard_failures']=len(route_obstructions(design,net,option['route'],thread_definitions,definitions,modifier_definitions))
-    clear=[option for option in options if not option['hard_failures']]
+    rank=lambda o:(o['hard_failures'],route_objective(design,o['route'],o['risk'],definitions),o['key'])
+    permitted=[o for o in options if all(f.face not in design.constraints.forbidden_drilling_faces for f in o['route'])]
+    options=sorted(permitted or options,key=rank)
+    # Spend exact cleanup on a bounded promising neighbourhood, rather than
+    # every clear candidate. Sixteen retains alternatives for multi-net moves.
+    clear=[option for option in options if not option['hard_failures']][:16]
     if clear:
-        from .geometry import build_geometry
-        source=design.model_copy(update=dict(features=[f for f in design.features if f.route_net!=net.id]))
-        geometry=build_geometry(source,definitions,thread_definitions,modifier_definitions)
-        simplification_cache={}
+        snapshot=snapshot or _ProposalSnapshot(design,definitions,thread_definitions,modifier_definitions)
+        options=clear+[option for option in options if option['hard_failures']]
         for option in clear:
             original=option['route']
-            route,connected=simplify_generated_route(design,net,original,source_geometry=geometry,
-                definitions=definitions,thread_definitions=thread_definitions,modifier_definitions=modifier_definitions,
-                cache=simplification_cache,known_failures=set())
+            route,connected=snapshot.simplify(design,net,original,known_failures=set())
             option['route']=route
             option['pruned_ids']=sorted({f.id for f in original}-{f.id for f in route})
             option['hard_failures']=0 if connected else 1
@@ -949,22 +983,22 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
     permitted = [o for o in options if all(f.face not in design.constraints.forbidden_drilling_faces for f in o['route'])]
     if not expanded and all(o['hard_failures'] for o in (permitted or options)):
         return route_options(design,net,expanded=True,definitions=definitions,thread_definitions=thread_definitions,
-                             modifier_definitions=modifier_definitions)
-    return sorted(permitted or options,key=lambda o:(o['hard_failures'],
-                  route_objective(design,o['route'],o['risk'],definitions),o['key']))
+                             modifier_definitions=modifier_definitions,snapshot=snapshot)
+    return sorted(permitted or options,key=rank)
 
 
-def _complete_route_combination(design, definitions, thread_definitions, modifier_definitions):
+def _complete_route_combination(design, definitions, thread_definitions, modifier_definitions, snapshot=None):
     """Bounded backtracking across individually clear automatic routes."""
     nets = sorted((n for n in design.nets if n.routing == 'automatic'), key=lambda n:n.id)
     if len(nets)<2 or any(n.routing_variant or n.flow_lpm for n in nets):
         return None
     automatic = {n.id for n in nets}
     source = design.model_copy(update=dict(features=[f for f in design.features if f.route_net not in automatic]))
+    snapshot=snapshot or _ProposalSnapshot(source,definitions,thread_definitions,modifier_definitions)
     pools = {}
     for net in nets:
         options = route_options(source, net, definitions=definitions,
-                                thread_definitions=thread_definitions, modifier_definitions=modifier_definitions)
+                                thread_definitions=thread_definitions, modifier_definitions=modifier_definitions,snapshot=snapshot)
         pools[net.id] = [o for o in options if o['hard_failures']==0][:24]
         if not pools[net.id]:
             return None
@@ -1028,7 +1062,8 @@ def _complete_route_combination(design, definitions, thread_definitions, modifie
 
 
 @timed('route.proposal')
-def _resolve_proposals(design):
+def _resolve_proposals(design, *, snapshots=None):
+    signature=design.model_dump_json()
     resolved = resolve_parents(design)
     from .engineering_db import definitions_for_design,thread_definitions_for_design,modifier_definitions_for_design,tool_definitions
     definitions=definitions_for_design(resolved)
@@ -1041,10 +1076,14 @@ def _resolve_proposals(design):
         if net.routing=='automatic':net.diameter=sizing[net.id]['diameter_mm']
     automatic = {n.id for n in resolved.nets if n.routing == 'automatic'}
     resolved.features = [f for f in resolved.features if f.route_net not in automatic]
+    snapshots=snapshots if snapshots is not None else {}
+    if signature not in snapshots:
+        snapshots[signature]=_ProposalSnapshot(resolved,definitions,thread_definitions,modifier_definitions)
+    snapshot=snapshots[signature]
     # Multi-net layouts commonly need a paired move. Build their independent
     # pools once instead of first exhausting a conflicting greedy layout and
     # then rebuilding the same pools for the bounded combination search.
-    combination = (_complete_route_combination(resolved,definitions,thread_definitions,modifier_definitions)
+    combination = (_complete_route_combination(resolved,definitions,thread_definitions,modifier_definitions,snapshot)
                    if len(automatic)>2 else None)
     candidates = []
     for net in sorted(resolved.nets,key=lambda n:n.id):
@@ -1070,7 +1109,7 @@ def _resolve_proposals(design):
         # neighbourhood again would multiply the cost of each exact attempt.
         choices = ([combination[net.id]] if combination else [] if net.routing_variant else
                    route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions,
-                                 modifier_definitions=modifier_definitions))
+                                 modifier_definitions=modifier_definitions,snapshot=snapshot))
         if net.routing_variant:
             if net.routing_variant.startswith('simple_'):
                 choices=[dict(key=f'simple_{i}',route=r,risk=proximity_risk(resolved,net,r,definitions,thread_definitions),cost=route_cost(resolved,r))
@@ -1078,7 +1117,7 @@ def _resolve_proposals(design):
                 selected=next((o for o in choices if o['key']==net.routing_variant),None)
                 if selected is None:
                     choices=route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions,
-                                          modifier_definitions=modifier_definitions)
+                                          modifier_definitions=modifier_definitions,snapshot=snapshot)
                     selected=choices[0]  # Moved/reassigned terminals invalidate the old proposal.
                 route=selected['route']
             else:
@@ -1106,8 +1145,7 @@ def _resolve_proposals(design):
             sizing[net.id]=actual
         if net.routing_variant:
             original=route
-            route,_=simplify_generated_route(resolved,net,route,definitions=definitions,
-                                             thread_definitions=thread_definitions,modifier_definitions=modifier_definitions)
+            route,_=snapshot.simplify(resolved,net,route)
             selected['pruned_ids']=sorted({f.id for f in original}-{f.id for f in route})
             selected['cost']=route_cost(resolved,route)
             selected['risk']=proximity_risk(resolved,net,route,definitions,thread_definitions)
@@ -1124,7 +1162,7 @@ def _resolve_proposals(design):
     if len(automatic)<=2 and any(route_obstructions(resolved,n,[f for f in resolved.features if f.route_net==n.id],
                               thread_definitions,definitions,modifier_definitions)
            for n in resolved.nets if n.routing=='automatic'):
-        combination = _complete_route_combination(resolved,definitions,thread_definitions,modifier_definitions)
+        combination = _complete_route_combination(resolved,definitions,thread_definitions,modifier_definitions,snapshot)
         if combination:
             resolved.features = [f for f in resolved.features if f.route_net not in automatic]
             for net in sorted((n for n in resolved.nets if n.routing=='automatic'),key=lambda n:n.id):
@@ -1138,7 +1176,8 @@ def _resolve_proposals(design):
                                 length_mm=round(sum(f.depth for f in route),2),
                                 **route_margin(design,route))
     # One bounded repair sweep revisits BOTH sides of observed inter-net obstacles.
-    # Explicit variants/frozen geometry are preserved. No CAD or exact search here.
+    # Explicit variants/frozen geometry are preserved. Reuse this snapshot's
+    # pruning evidence; the sweep does not perform authoritative validation.
     for net in sorted(resolved.nets,key=lambda n:n.id):
         if net.routing!='automatic' or net.routing_variant:continue
         current=[f for f in resolved.features if f.route_net==net.id]
@@ -1147,7 +1186,7 @@ def _resolve_proposals(design):
         context=resolved.model_copy(deep=True)
         context.features=[f for f in context.features if f.route_net!=net.id]
         option=route_options(context,net,definitions=definitions,thread_definitions=thread_definitions,
-                             modifier_definitions=modifier_definitions)[0]
+                             modifier_definitions=modifier_definitions,snapshot=snapshot)[0]
         if net.flow_lpm:
             try:
                 actual=tool_size(option,context)
@@ -1244,7 +1283,8 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False):
     Proxy risk schedules proposals only. Exact failures, warnings, then machining
     cost determine selection, with the complete multi-net design as context.
     """
-    target, routes = _resolve_proposals(design)
+    snapshots={}
+    target, routes = _resolve_proposals(design,snapshots=snapshots)
     # A stored automatic variant is a proposal, not a frozen engineering route.
     # Moving terminals can invalidate it; Save & Validate must reconsider it too.
     pending = [n for n in design.nets if n.routing == 'automatic']
@@ -1260,7 +1300,7 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False):
     attempts=[]
     skipped=[]
     def evaluate(candidate, reason):
-        resolved, metadata = _resolve_proposals(candidate)
+        resolved, metadata = _resolve_proposals(candidate,snapshots=snapshots)
         geometry=None
         try:
             geometry=build_geometry(resolved)
@@ -1298,7 +1338,7 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False):
             break
         _,candidate,signature,reason=proposals[0]
         inspected.add(signature)
-        proposal,_=_resolve_proposals(candidate)
+        proposal,_=_resolve_proposals(candidate,snapshots=snapshots)
         cost=route_cost(proposal,[f for f in proposal.features if f.kind=='drilling' and not f.suppressed])
         objective=route_objective(proposal,[f for f in proposal.features if f.kind=='drilling' and not f.suppressed])
         if score[:2]==(0,0) and objective>=score[2]:

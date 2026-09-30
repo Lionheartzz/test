@@ -81,7 +81,9 @@ def test_slow_preview_does_not_block_apis_save_or_exact_build(isolated):
         assert gone(active['busy_pid']) and gone(active['pid'])
         log=worker.status()['recent'][-1]
         operations=log['operations']
-        assert operations['geometry.construction']['count']==1
+        # Unpinned proposal and pinned validation baseline are distinct draft
+        # signatures: one shared source each, plus one final exact build.
+        assert operations['geometry.construction']['count']==3
         assert operations['validation']['count']==1
         assert operations['step.export']['count']==operations['step.round_trip']['count']==1
         assert operations['review.generation']['count']==1
@@ -101,6 +103,7 @@ def test_superseded_preview_cancel_race_and_authoritative_priority(isolated):
     with ThreadPoolExecutor(max_workers=2) as pool:
         old=pool.submit(client.post,'/api/preview-solid',json=design('slow-cad').model_dump(),headers=headers)
         active=started(worker)
+        assert active['limit_s']==30
         cancel=client.post('/api/preview-cancel',json=dict(owner='qa',version=1),headers=HEADERS)
         assert cancel.status_code==200 and old.result(timeout=2).status_code==409
         assert gone(active['busy_pid']) and worker.active is None
@@ -112,6 +115,7 @@ def test_superseded_preview_cancel_race_and_authoritative_priority(isolated):
         assert 'validation' not in worker.history[-1]['operations']
         # A transient request must never evict authoritative work.
         row=worker.start('preview-solid',design('slow-cad').model_dump(),transient=False)
+        assert row['limit']==300
         started(worker)
         assert client.post('/api/preview',json=design().model_dump(),headers=headers).status_code==409
         assert worker.active is row and not row['closed']
@@ -125,7 +129,7 @@ def test_watchdog_kills_orphaned_work_and_recovers_after_native_exit(isolated):
     until=time.monotonic()+6
     while not row['closed'] and time.monotonic()<until:time.sleep(.03)
     assert row['closed'] and gone(active['busy_pid']) and worker.active is None
-    with pytest.raises(engineering.CalculationError,match='exceeded'):worker.poll(row)
+    with pytest.raises(engineering.CalculationError,match='exceeded 4 seconds'):worker.poll(row)
     assert worker.history[-1]['state']=='timeout' and not row['work'].exists()
     crashed=client.post('/api/preview',json=design('crash-cad').model_dump(),headers=HEADERS)
     assert crashed.status_code==422 and 'code 9; result rejected' in crashed.json()['detail']
@@ -241,5 +245,5 @@ def test_streamed_preview_watchdog_returns_explicit_error_event(isolated):
     events=[json.loads(line) for line in response.text.splitlines()]
     assert response.status_code==200 # headers precede computation; error is an event
     assert len(events)==1 and events[0]['type']=='error' and events[0]['status']==504
-    assert 'exceeded 15 seconds' in events[0]['detail']
+    assert 'exceeded 30 seconds' in events[0]['detail']
     assert gone(active['busy_pid']) and worker.active is None

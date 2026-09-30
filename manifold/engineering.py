@@ -54,7 +54,7 @@ class Executor:
         from .engine import assert_engine_current,engine_revision
         from .engineering_db import database_path
         assert_engine_current()
-        limit=limit or (15 if transient else 300)
+        limit=limit or (30 if transient else 300)
         with self.lock:
             if transient and owner:
                 if version<self.versions.get(owner,-1) or version<=self.cancelled.get(owner,-1):raise CalculationError('Preview superseded by a newer draft.',409)

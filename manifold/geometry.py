@@ -61,30 +61,10 @@ def tip_depth(f):
     return 0 if f.tip_angle == 180 else f.diameter / 2 / math.tan(math.radians(f.tip_angle / 2))
 
 
-@timed('geometry.construction')
-def build_geometry(design: Design, definitions=None, thread_definitions=None, modifier_definitions=None):
+@timed('geometry.feature_shapes')
+def feature_geometry(design, definitions, thread_definitions, modifier_definitions):
+    """Exact individual cuts and hydraulic nodes, without a stock Boolean."""
     b = design.block
-    block = cq.Solid.makeBox(b.length, b.width, b.height)
-    stock=block
-    manufacturing_features={}
-    face_selectors={'top':'>Z','bottom':'<Z','front':'<Y','back':'>Y','left':'<X','right':'>X'}
-    for row in design.block_modifiers:
-        if row.kind=='chamfer':
-            stock=cq.Workplane(obj=stock).faces(face_selectors[row.face]).edges().chamfer(row.size).val()
-            manufacturing_features[row.id]=block.cut(stock)
-        else:
-            manufacturing_features[row.id]=rectangular_cut(row,b)
-    for row in design.engravings:
-        manufacturing_features[row.id]=engraving_cut(row,b)
-    if definitions is None:
-        from .engineering_db import definitions_for_design
-        definitions=definitions_for_design(design)
-    if thread_definitions is None:
-        from .engineering_db import thread_definitions_for_design
-        thread_definitions=thread_definitions_for_design(design)
-    if modifier_definitions is None:
-        from .engineering_db import modifier_definitions_for_design
-        modifier_definitions=modifier_definitions_for_design(design)
     lib = definitions
     cuts, nodes, circuits, envelopes, plugs, placements = {}, {}, {}, {}, {}, {}
     boundaries = {}
@@ -179,6 +159,35 @@ def build_geometry(design: Design, definitions=None, thread_definitions=None, mo
             if pieces:
                 modifier_cut=pieces[0].fuse(*pieces[1:]) if len(pieces)>1 else pieces[0]
                 cuts[f.id]=cuts[f.id].fuse(modifier_cut)
+    return cuts,nodes,circuits,envelopes,plugs,placements,boundaries
+
+
+@timed('geometry.construction')
+def build_geometry(design: Design, definitions=None, thread_definitions=None, modifier_definitions=None):
+    b = design.block
+    block = cq.Solid.makeBox(b.length, b.width, b.height)
+    stock=block
+    manufacturing_features={}
+    face_selectors={'top':'>Z','bottom':'<Z','front':'<Y','back':'>Y','left':'<X','right':'>X'}
+    for row in design.block_modifiers:
+        if row.kind=='chamfer':
+            stock=cq.Workplane(obj=stock).faces(face_selectors[row.face]).edges().chamfer(row.size).val()
+            manufacturing_features[row.id]=block.cut(stock)
+        else:
+            manufacturing_features[row.id]=rectangular_cut(row,b)
+    for row in design.engravings:
+        manufacturing_features[row.id]=engraving_cut(row,b)
+    if definitions is None:
+        from .engineering_db import definitions_for_design
+        definitions=definitions_for_design(design)
+    if thread_definitions is None:
+        from .engineering_db import thread_definitions_for_design
+        thread_definitions=thread_definitions_for_design(design)
+    if modifier_definitions is None:
+        from .engineering_db import modifier_definitions_for_design
+        modifier_definitions=modifier_definitions_for_design(design)
+    cuts,nodes,circuits,envelopes,plugs,placements,boundaries = feature_geometry(
+        design,definitions,thread_definitions,modifier_definitions)
     with phase('geometry.production_boolean'):
         all_cuts=[*cuts.values(),*(shape for key,shape in manufacturing_features.items()
                                    if not any(item.id==key and item.kind=='chamfer' for item in design.block_modifiers))]
