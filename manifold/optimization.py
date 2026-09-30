@@ -3,7 +3,7 @@ import uuid
 from . import store
 from .geometry import build_geometry
 from .validation import validate
-from .routing import resolve_design, route_cost, authorize_generated_contacts, alternative_proposals
+from .routing import resolve_design, route_cost, route_objective, exact_route_score, authorize_generated_contacts, alternative_proposals
 
 
 def optimize_routes(design, expected_revision, max_attempts=6, project_id=None):
@@ -45,9 +45,10 @@ def search_routes(design,max_attempts=6):
             report=dict(status='FAIL',counts=dict(FAIL=1,WARNING=0,PASS=0),
                         checks=[dict(rule='cad_candidate_error',status='FAIL',error=type(exc).__name__)])
         cost = route_cost(candidate,[f for f in target.features if f.kind == 'drilling' and not f.suppressed])
-        score = (1_000_000 if cad_error else report['counts']['FAIL'],report['counts']['WARNING'],cost)
+        objective=route_objective(target,[f for f in target.features if f.kind=='drilling' and not f.suppressed])
+        score = exact_route_score(target,report,[f for f in target.features if f.kind=='drilling' and not f.suppressed],cad_error=cad_error)
         record = dict(index=index,reason=reason,status=report['status'],counts=report['counts'],cost=cost,
-                      design_revision=store.revision(candidate),routes=routes)
+                      objective=objective,design_revision=store.revision(candidate),routes=routes)
         store.atomic_json(attempt/'resolved_design.json',target.model_dump())
         store.atomic_json(attempt/'validation.json',report)
         attempts.append(record)

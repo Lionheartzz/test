@@ -8,6 +8,7 @@ import {clamp,syncNets,featureLabel,returnNetToAutomatic} from './kinematics.js'
 import {hydrateDesign} from './domain.js';
 import {displayMemberName,displayNetName} from './presentation.js';
 import {uuidToken} from './crypto-utils.js';
+import {customPortDescription} from './engineering-inputs.js';
 
 function flowSizing(net,tools,requiredDepth,unit){
   if(!net.flow_lpm)return {required:null,selected:null};
@@ -109,7 +110,7 @@ export function workflows(ctx){
     const p=customPort();let net=get().nets[0]?.id||'P';
     const render=()=>{open('Add external port');field(content,'Hydraulic net',net,v=>{net=v;render();},Object.fromEntries(get().nets.map(n=>[n.id,n.label||n.id])));portSetup(ctx,content,p,net,render);
       action(content,'Add port to draft',guard(async()=>{if(p.mode!=='oneoff'&&!p.definition)throw Error('Select a machining definition first.');const baseline=JSON.stringify(get()),d=structuredClone(get()),id='PORT_'+uuidToken().replaceAll('-','');
-        const f={id,kind:'port',face:p.face,u:0,v:0,circuit:net,diameter:p.diameter,depth:p.depth,clearance_diameter:p.clearance,size:p.size.slice(0,80),port_type:p.definition?p.definition.label:'Custom straight bore'};
+        const f={id,kind:'port',face:p.face,u:0,v:0,circuit:net,diameter:p.diameter,depth:p.depth,clearance_diameter:p.clearance,size:p.definition?(p.definition.thread_note||p.definition.label).slice(0,80):customPortDescription(p.diameter,p.depth),port_type:p.definition?p.definition.label:'Custom straight bore'};
         if(p.definition){remember(p.definition);f.port_definition_id=p.definition.id;f.diameter=Math.min(...p.definition.stages.map(x=>x.diameter));f.depth=p.definition.zones[0].end;f.clearance_diameter=p.definition.clearance_diameter;f.clearance_height=p.definition.clearance_height;f.tip_angle=180;}
         const axes={top:['length','width'],bottom:['length','width'],left:['width','height'],right:['width','height'],front:['length','height'],back:['length','height']}[p.face];[f.u,f.v]=clamp(f,get(),get().block[axes[0]]/2,get().block[axes[1]]/2);d.features.push(f);if(!p.definition){let n=1;while(d.review_items.some(item=>item.id==='PORT_SPEC_'+n))n++;d.review_items.push({id:'PORT_SPEC_'+n,kind:'component',subject:id,description:'Resolve thread/fitting installation and machining specification for this one-off custom straight bore.',status:'open'});}syncNets(d);
         const checked=await post('/api/check-design',d);if(JSON.stringify(get())!==baseline)throw Error('Draft changed while preparing the port. Retry.');if(change(()=>set(hydrateDesign(checked,definitions(),Object.fromEntries((get().threads||[]).map(row=>[row.id,row])))))){select(id);dialog.close();notice('External port added. Review position and fitting installation.');}

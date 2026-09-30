@@ -1,4 +1,5 @@
 import {isPort as suitable} from './definition-role.js';
+import {customPortDescription} from './engineering-inputs.js';
 export const customPort=()=>({face:'front',size:'Custom',diameter:12,depth:16,clearance:20,mode:'oneoff',definition:null,search:'',unit:'',standard:'',standardOptions:null});
 
 export function portSetup(ctx,parent,port,label,redraw,context=ctx.get?.().project_context||'metric'){
@@ -7,11 +8,12 @@ export function portSetup(ctx,parent,port,label,redraw,context=ctx.get?.().proje
   field(card,label+' · Face',port.face,v=>port.face=v,Object.fromEntries(['left','right','front','back','bottom','top'].map(f=>[f,f.toUpperCase()])));
   field(card,label+' · Port source',port.mode,v=>{port.mode=v;port.definition=null;redraw();},{standard:'Standard Hydraulic Port',reusable:'Reusable Custom SQLite Port',oneoff:'One-off Custom Straight Bore'});
   if(port.mode==='oneoff'){
-    field(card,label+' · Specification / note',port.size,v=>port.size=v);
-    for(const [key,title]of [['diameter','Diameter'],['depth','Cylinder depth'],['clearance','Fitting / tool clearance diameter']])field(card,label+' · '+title+' / mm',port[key],v=>port[key]=v,null,true);
+    const description=element('p',customPortDescription(port.diameter,port.depth));
+    for(const [key,title]of [['diameter','Diameter'],['depth','Cylinder depth'],['clearance','Fitting / tool clearance diameter']])field(card,label+' · '+title+' / mm',port[key],v=>{port[key]=v;description.textContent=customPortDescription(port.diameter,port.depth);},null,true);
+    card.append(description);
     return;
   }
-  if(port.definition){card.append(element('p',port.definition.label+' · '+port.definition.id),element('p',(port.definition.thread_note||'Thread specification not recorded')+' · SQLite source-backed machining definition.'));action(card,'Change '+label+' definition',()=>{port.definition=null;redraw();});return;}
+  if(port.definition){card.append(element('p',port.definition.label+' · '+port.definition.id),element('p',(port.definition.family||'Family unspecified')+' · '+(port.definition.thread_note||'Thread specification not recorded')+' · SQLite source-backed machining definition.'));action(card,'Change '+label+' definition',()=>{port.definition=null;redraw();});return;}
   const scope=port.mode==='reusable'?'custom':'master';
   if(port.mode==='standard'){
     if(port.standardOptions===null){port.standardOptions=[];api('/api/catalog/standards?kind=port').then(result=>{port.standardOptions=result.items||[];if(card.isConnected)redraw();}).catch(()=>{});}

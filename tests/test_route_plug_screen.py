@@ -42,6 +42,9 @@ def test_bad_plug_is_hard_failure_and_clean_higher_cost_candidate_wins(monkeypat
     assert not plug_failures(design, [clean], definitions)
     monkeypatch.setattr(routing, 'simple_routes', lambda *_: [[bad], [clean]])
     monkeypatch.setattr(routing, 'propose', lambda *_: [bad])
+    # This test supplies isolated candidate stubs to test plug ranking; real
+    # connectivity/pruning is exercised by the exact routing fixtures.
+    monkeypatch.setattr(routing, 'simplify_generated_route', lambda d,n,r,**kw: (r,True))
     choices = route_options(design, design.nets[0], definitions=definitions, thread_definitions={})
     assert choices[0]['route'][0].id == 'CLEAN'
     assert choices[0]['hard_failures'] == 0

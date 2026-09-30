@@ -3,6 +3,7 @@ import {customPort,portSetup} from './port-setup.js';
 import {syncNets,clamp,axes,sizes} from './kinematics.js';
 import {hydrateDesign} from './domain.js';
 import {uuidToken} from './crypto-utils.js';
+import {customPortDescription} from './engineering-inputs.js';
 
 export function guided(ctx,open){
   const {$,element,field,action,post,api,notice,newProject}=ctx;
@@ -91,7 +92,7 @@ export function guided(ctx,open){
     const review=()=>{
       open('New Manifold · 5 / 5 · Review');
       content.append(element('p',`${name} · ${length.toFixed(2)} × ${width.toFixed(2)} × ${height.toFixed(2)} ${context==='inch'?'in':'mm'} · ${names.join(', ')} · ${selected.reduce((n,s)=>n+s.quantity,0)} cavities`));
-      for(const n of names)content.append(element('p',n+': '+(portConfig[n].map(p=>`${p.face.toUpperCase()} · ${p.definition?.label||p.size+' · custom Ø'+p.diameter+' × '+p.depth}`).join('; ')||'No external ports')));
+      for(const n of names)content.append(element('p',n+': '+(portConfig[n].map(p=>`${p.face.toUpperCase()} · ${p.definition?.label||customPortDescription(p.diameter,p.depth)}`).join('; ')||'No external ports')));
       const nav=navRow();action(nav,'Back · Placement',placement);
       action(nav,'Create editable draft',guard(async()=>{
         const material=selectedMaterial();if(!material)throw Error('Select an active engineering material before creating a draft.');
@@ -99,7 +100,7 @@ export function guided(ctx,open){
         const dims=sizes(d.block);
         for(const {p,net,label}of configured){const sameFace=configured.filter(x=>x.p.face===p.face),index=sameFace.findIndex(x=>x.p===p),[u,v]=axes[p.face];
           const id='PORT_'+uuidToken().replaceAll('-','');
-          const f={id:id.slice(0,40),kind:'port',face:p.face,u:dims[u]*(index+1)/(sameFace.length+1),v:dims[v]/2,circuit:net,size:p.size.slice(0,80),port_type:p.definition?p.definition.label:'Custom straight bore',diameter:p.diameter,depth:p.depth,clearance_diameter:p.clearance};
+          const f={id:id.slice(0,40),kind:'port',face:p.face,u:dims[u]*(index+1)/(sameFace.length+1),v:dims[v]/2,circuit:net,size:p.definition?(p.definition.thread_note||p.definition.label).slice(0,80):customPortDescription(p.diameter,p.depth),port_type:p.definition?p.definition.label:'Custom straight bore',diameter:p.diameter,depth:p.depth,clearance_diameter:p.clearance};
           if(p.definition){f.port_definition_id=p.definition.id;f.diameter=Math.min(...p.definition.stages.map(s=>s.diameter));f.depth=p.definition.zones[0].end;f.clearance_diameter=p.definition.clearance_diameter;f.clearance_height=p.definition.clearance_height;f.tip_angle=180;}
           [f.u,f.v]=clamp(f,d,f.u,f.v);d.features.push(f);if(!p.definition){const n=d.review_items.length+1;d.review_items.push({id:'PORT_SPEC_'+n,kind:'component',subject:f.id,description:`${label}: resolve thread/fitting installation and machining specification for this one-off custom straight bore.`,status:'open'});}
         }

@@ -126,7 +126,7 @@ def test_source_modifier_and_limited_block_machining_are_exact():
     assert len(checks)==3 and all(row['status']=='PASS' for row in checks)
 
 
-def test_material_stock_remains_separate_from_finished_geometry():
+def test_material_stock_remains_separate_from_finished_geometry(tmp_path):
     material=next(row for row in materials() if row['stock'])
     stock=max(material['stock'],key=lambda row:row['size_1_mm']*row['size_2_mm'])
     width=min(stock['size_1_mm'],stock['size_2_mm'])-2
@@ -140,6 +140,11 @@ def test_material_stock_remains_separate_from_finished_geometry():
     assert geometry.block.BoundingBox().xlen==pytest.approx(100)
     assert design.block.stock_dimensions[0]==110
     assert design.block.machining_allowance != design.block.stock_excess
+    manufacturing_outputs(design,geometry,tmp_path,definitions={})
+    report=json.loads((tmp_path/'manufacturing.json').read_text(encoding='utf-8'))
+    assert report['stock']['stock_dimensions_mm']==list(design.block.stock_dimensions)
+    assert report['stock']['finished_dimensions_mm']==[100,width,height]
+    assert report['stock']['required_machining_allowance_mm']==list(design.block.machining_allowance)
 
 
 def test_mixed_standard_catalog_and_cross_native_tool_resolution():
