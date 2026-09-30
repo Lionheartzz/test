@@ -1,9 +1,9 @@
 // The server emits one early route proposal and one exact result for the same
 // immutable draft. An error after headers is explicit, never a partial success.
-export async function streamExactPreview(design,{onProposal,onTiming=()=>{},signal,headers}) {
+export async function streamExactPreview(design,{onProposal,onTiming=()=>{},signal,headers,preview=null}) {
   const started=performance.now();let parseMs=0,proposalMs=null;
   const response=await fetch('/api/preview-solid',{method:'POST',signal,
-    headers:{'Content-Type':'application/json','X-PMC-Request':'local-console','Accept':'application/x-ndjson',...headers},body:JSON.stringify(design)});
+    headers:{'Content-Type':'application/json','X-PMC-Request':'local-console','Accept':'application/x-ndjson',...headers},body:JSON.stringify(preview?{design,...preview}:design)});
   const fetchMs=performance.now()-started;
   if(!response.ok){const body=await response.json();throw Error(typeof body.detail==='string'?body.detail:JSON.stringify(body.detail));}
   const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',exact;

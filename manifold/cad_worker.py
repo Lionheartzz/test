@@ -9,7 +9,7 @@ _preview_state=None
 _process_started=time.monotonic()
 
 
-def dispatch(operation,payload,engineering_complete=None,proposal_ready=None):
+def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,exact_not_before=None):
     global _preview_state
     from .schema import Design
     from .routing import resolve_design,authorize_generated_contacts
@@ -18,10 +18,17 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None):
     from . import store
     if operation in ('preview','preview-solid'):
         _preview_state=None
-        design=Design.model_validate(payload)
-        resolved,routes=resolve_design(design,exact=False)
-        if operation=='preview':return dict(design=resolved.model_dump(),routes=routes,status='UNVALIDATED_PREVIEW')
-        if proposal_ready:proposal_ready(dict(design=resolved.model_dump(),routes=routes,status='UNVALIDATED_PREVIEW'))
+        from .preview_routing import PreviewRequest,resolve_preview
+        request=PreviewRequest.model_validate(payload) if 'design' in payload else PreviewRequest(design=Design.model_validate(payload))
+        design=request.design
+        resolved,routes,update=resolve_preview(request)
+        proposal=dict(design=resolved.model_dump(),routes=routes,routing_update=update,
+                      source_revision=store.revision(design),status='UNVALIDATED_PREVIEW')
+        if operation=='preview':return proposal
+        if proposal_ready:proposal_ready(proposal)
+        if exact_not_before is not None:
+            with timing.phase('preview.exact_idle'):
+                time.sleep(max(0,exact_not_before-time.monotonic()))
         geometry=build_geometry(resolved)
         # Presentation may identify terminal route branches from exact contacts.
         # This mutates only the worker's resolved preview copy; it is never saved
@@ -31,7 +38,7 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None):
         except Exception as exc:raise RuntimeError('Exact BRep construction completed; display review unavailable: '+(str(exc) or type(exc).__name__)) from exc
         design_revision=store.revision(design)
         _preview_state=dict(design_revision=design_revision,design=resolved,geometry=geometry)
-        return dict(model=model,features=[f.model_dump() for f in resolved.features],
+        return dict(model=model,features=[f.model_dump() for f in resolved.features],routing_update=update,
                     design_revision=design_revision,status='UNVALIDATED_EXACT_GEOMETRY',route_selection='CURRENT_PROPOSAL_NOT_OPTIMIZED')
     if operation=='preview-layer':
         if _preview_state is None or _preview_state['design_revision']!=payload['design_revision']:
@@ -82,7 +89,7 @@ def run(work,bootstrap_s=None):
         def proposal(result):
             temp=work/'proposal.tmp'
             temp.write_text(json.dumps(result),encoding='utf-8');temp.replace(work/'proposal.json')
-        with timing.phase('operation.'+request['operation']):result=dispatch(request['operation'],request['payload'],completed,proposal)
+        with timing.phase('operation.'+request['operation']):result=dispatch(request['operation'],request['payload'],completed,proposal,exact_not_before=request.get('exact_not_before'))
     except Exception as exc:
         result=dict(error=str(exc)[:2000] or type(exc).__name__,status=422)
     with timing.phase('result.serialization'):

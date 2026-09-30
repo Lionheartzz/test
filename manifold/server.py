@@ -142,13 +142,16 @@ def export_project(design: Design):
     return design.model_dump()
 
 
+from .preview_routing import PreviewRequest
+
+
 @app.post('/api/preview')
-async def preview(design: Design,request:Request):
+async def preview(design: Design|PreviewRequest,request:Request):
     return Response(await calculate('preview',design.model_dump(),request,transient=True,raw=True),media_type='application/json')
 
 
 @app.post('/api/preview-solid')
-async def preview_solid(design: Design,request:Request):
+async def preview_solid(design: Design|PreviewRequest,request:Request):
     if request.headers.get('accept')=='application/x-ndjson':
         return StreamingResponse(await preview_stream(design.model_dump(),request),media_type='application/x-ndjson')
     return Response(await calculate('preview-solid',design.model_dump(),request,transient=True,raw=True),media_type='application/json')

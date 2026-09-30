@@ -756,6 +756,7 @@ class _ProposalSnapshot:
         self.geometry=None
         self.cache={}
         self.results={}
+        self.options={}
 
     def simplify(self, design, net, route, *, known_failures=None):
         # Generated siblings affect obstruction screening, but not the same-net
@@ -926,6 +927,10 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
 
 def route_options(design, net, *, expanded=False, definitions=None,thread_definitions=None,modifier_definitions=None,
                   snapshot=None):
+    from copy import deepcopy
+    cache_key=(design.model_dump_json(),net.model_dump_json(),tuple(net.members),expanded)
+    if snapshot is not None and cache_key in snapshot.options:
+        return deepcopy(snapshot.options[cache_key])
     if definitions is None:
         from .engineering_db import definitions_for_design
         definitions=definitions_for_design(design)
@@ -982,14 +987,16 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
                 option['cost']=route_cost(design,route)
     permitted = [o for o in options if all(f.face not in design.constraints.forbidden_drilling_faces for f in o['route'])]
     if not expanded and all(o['hard_failures'] for o in (permitted or options)):
-        return route_options(design,net,expanded=True,definitions=definitions,thread_definitions=thread_definitions,
+        result=route_options(design,net,expanded=True,definitions=definitions,thread_definitions=thread_definitions,
                              modifier_definitions=modifier_definitions,snapshot=snapshot)
-    return sorted(permitted or options,key=rank)
+    else:result=sorted(permitted or options,key=rank)
+    if snapshot is not None:snapshot.options[cache_key]=deepcopy(result)
+    return result
 
 
-def _complete_route_combination(design, definitions, thread_definitions, modifier_definitions, snapshot=None):
+def _complete_route_combination(design, definitions, thread_definitions, modifier_definitions, snapshot=None, net_ids=None, deadline=None):
     """Bounded backtracking across individually clear automatic routes."""
-    nets = sorted((n for n in design.nets if n.routing == 'automatic'), key=lambda n:n.id)
+    nets = sorted((n for n in design.nets if n.routing == 'automatic' and (net_ids is None or n.id in net_ids)), key=lambda n:n.id)
     if len(nets)<2 or any(n.routing_variant or n.flow_lpm for n in nets):
         return None
     automatic = {n.id for n in nets}
@@ -997,6 +1004,9 @@ def _complete_route_combination(design, definitions, thread_definitions, modifie
     snapshot=snapshot or _ProposalSnapshot(source,definitions,thread_definitions,modifier_definitions)
     pools = {}
     for net in nets:
+        if deadline is not None:
+            import time
+            if time.monotonic()>=deadline:return None
         options = route_options(source, net, definitions=definitions,
                                 thread_definitions=thread_definitions, modifier_definitions=modifier_definitions,snapshot=snapshot)
         pools[net.id] = [o for o in options if o['hard_failures']==0][:24]
@@ -1037,6 +1047,9 @@ def _complete_route_combination(design, definitions, thread_definitions, modifie
 
     def search(index, chosen):
         nonlocal best,best_key,states
+        if deadline is not None:
+            import time
+            if time.monotonic()>=deadline:return None
         states+=1
         if inspected > 4000 or states>1000:
             return None
@@ -1276,14 +1289,14 @@ def alternative_proposals(best, target, routes, report, eligible, inspected, *, 
 
 
 @timed('route.resolution')
-def resolve_design(design, *, exact=True, persist=False, prepared=False):
+def resolve_design(design, *, exact=True, persist=False, prepared=False, snapshot_cache=None):
     """Check a bounded set of distinct clear proposals, preserving frozen/manual cuts.
 
     Exact selection is pure unless an explicit build/engineering decision opts into evidence.
     Proxy risk schedules proposals only. Exact failures, warnings, then machining
     cost determine selection, with the complete multi-net design as context.
     """
-    snapshots={}
+    snapshots=snapshot_cache if snapshot_cache is not None else {}
     target, routes = _resolve_proposals(design,snapshots=snapshots)
     # A stored automatic variant is a proposal, not a frozen engineering route.
     # Moving terminals can invalidate it; Save & Validate must reconsider it too.

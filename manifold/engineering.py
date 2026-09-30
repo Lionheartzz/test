@@ -71,6 +71,8 @@ class Executor:
             trace=traces/(key+'.json')
             request=dict(operation=operation,payload=payload,output=str(store.OUTPUT.resolve()),project=str(store.PROJECT.resolve()),
                          engine_revision=engine_revision(),trace=str(trace.resolve()))
+            if transient and operation=='preview-solid' and 'design' in payload:
+                request['exact_not_before']=time.monotonic()+min(2000,max(0,payload.get('exact_idle_ms',0)))/1000
             (work/'request.json').write_text(json.dumps(request),encoding='utf-8')
             env={**os.environ,'OMP_NUM_THREADS':'1','OPENBLAS_NUM_THREADS':'1','MKL_NUM_THREADS':'1',
                  'PMC_ENGINEERING_DB':str(database_path())}
