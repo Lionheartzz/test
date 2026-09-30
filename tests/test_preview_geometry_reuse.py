@@ -20,19 +20,19 @@ def test_real_preview_has_one_shared_source_and_one_final_build_including_stored
     proposals=[]
     before=design.model_dump()
     result=dispatch('preview-solid',design.model_dump(),proposal_ready=proposals.append)
-    assert builds==[0,16]
+    assert builds==[0,14]
     assert result['status']=='UNVALIDATED_EXACT_GEOMETRY'
     routes=proposals[0]['routes']
     assert [(r['net'],r['variant'],r['pruned_drillings']) for r in routes]==[
         ('A','yzx:nearest:offset_y_m',['R-559aead0-3']),
         ('B','xzy:nearest:offset_x_p',['R-df7e70e5-1']),
-        ('P','simple_46',['R-5c62e091-1']),
-        ('T','yzx:nearest:offset_y_p',[])]
+        ('P','yzx:nearest:offset_y_p',[]),
+        ('T','axial_1_0:yxz:nearest',[])]
     resolved=proposals[0]['design']
     for net in design.nets:
         net.routing_variant=next(r['variant'] for r in routes if r['net']==net.id)
     pinned=dispatch('preview-solid',design.model_dump())
-    assert builds==[0,16,0,16]  # New snapshot; no cross-request CAD cache.
+    assert builds==[0,14,0,14]  # New snapshot; no cross-request CAD cache.
     from manifold.schema import Design
     assert signature(Design.model_validate({**resolved,'features':pinned['features']}))==signature(Design.model_validate(resolved))
     for net in design.nets:net.routing_variant=None

@@ -18,7 +18,7 @@ class PreviewContext(Strict):
     source_revision:str=Field(pattern=r'^[0-9a-f]{64}$')
     proposal:Design
     edit:PreviewEdit
-    variants:dict[Circuit,Annotated[str,Field(max_length=80,pattern=r'^(simple_\d+|[xyz]{3}:(nearest|negative|positive):(direct|offset_[xyz]_[pm]2?))$')]]=Field(default_factory=dict,max_length=24)
+    variants:dict[Circuit,Annotated[str,Field(max_length=80,pattern=r'^(simple_\d+|[xyz]{3}:(nearest|negative|positive):(direct|offset_[xyz]_[pm]2?)|axial_\d+_[01]:[xyz]{3}:(nearest|negative|positive))$')]]=Field(default_factory=dict,max_length=24)
 
 
 class PreviewRequest(Strict):
@@ -86,7 +86,7 @@ def resolve_preview(request):
     local_deadline=time.monotonic()+8
     snapshot=None
     from .routing import (resolve_design,route_options,route_obstructions,route_objective,
-                          proximity_risk,simple_routes,propose,_ProposalSnapshot,_complete_route_combination)
+                          proximity_risk,route_from_variant,resize_route,_ProposalSnapshot,_complete_route_combination)
     def full(reason):
         cache={request.design.model_dump_json():snapshot} if snapshot is not None else None
         target,routes=resolve_design(request.design,exact=False,snapshot_cache=cache)
@@ -144,18 +144,35 @@ def resolve_preview(request):
             # a neighbourhood. This preview remains explicitly NOT OPTIMIZED;
             # hard screening and exact pruning still decide its admissibility.
             if variant and not net.flow_lpm:
-                if variant.startswith('simple_'):
-                    templates=simple_routes(target,net,definitions)
-                    index=int(variant.split('_')[1]);route=templates[index] if index<len(templates) else None
-                else:
-                    order,entry,detour=variant.split(':')
-                    route=propose(target,net,tuple('xyz'.index(axis) for axis in order),entry,detour,definitions) if sorted(order)==list('xyz') else None
+                route=route_from_variant(target,net,variant,definitions,threads,modifiers)
                 if (route is not None and all(f.face not in target.constraints.forbidden_drilling_faces for f in route)
                         and not route_obstructions(target,net,route,threads,definitions,modifiers)):
                     original=route
                     route,connected=snapshot.simplify(target,net,route,known_failures=set())
                     if connected:options=[dict(key=variant,route=route,hard_failures=0,
                         risk=proximity_risk(target,net,route,definitions,threads),pruned_ids=sorted({f.id for f in original}-{f.id for f in route}))]
+                # A current side template must not hide a newly available basic
+                # deep-end strategy. Compare only improving clear axial routes;
+                # retain the fast template path and the local dependency set.
+                if options:
+                    from .cavity_access import axial_route_candidates
+                    current_rank=route_objective(target,options[0]['route'],options[0]['risk'],definitions)
+                    seen=set()
+                    for key,candidate in axial_route_candidates(target,net,definitions,threads,modifiers):
+                        signature=tuple(f.model_dump_json(exclude={'id'}) for f in candidate)
+                        if signature in seen:continue
+                        seen.add(signature)
+                        risk=proximity_risk(target,net,candidate,definitions,threads)
+                        if (route_objective(target,candidate,risk,definitions) >= current_rank
+                                or route_obstructions(target,net,candidate,threads,definitions,modifiers)):continue
+                        original=candidate
+                        candidate,connected=snapshot.simplify(target,net,candidate,known_failures=set())
+                        if connected:
+                            rank=route_objective(target,candidate,risk,definitions)
+                            if rank < current_rank:
+                                options=[dict(key=key,route=candidate,hard_failures=0,risk=risk,
+                                              pruned_ids=sorted({f.id for f in original}-{f.id for f in candidate}))]
+                                current_rank=rank
             if not options:
                 options=route_options(target,net,definitions=definitions,thread_definitions=threads,
                                       modifier_definitions=modifiers,snapshot=snapshot)
@@ -170,7 +187,8 @@ def resolve_preview(request):
                             option['hard_failures']=len(route_obstructions(target,net,option['route'],threads,definitions,modifiers))
                             option['tool_sizing']=sizing
                             sized.append(option);break
-                        for feature in option['route']:feature.diameter=sizing['diameter_mm']
+                        try:resize_route(target,net,option,sizing['diameter_mm'],definitions,threads,modifiers)
+                        except ValueError:break
                 for option in sized:
                     if option['hard_failures']:continue
                     option['route'],connected=snapshot.simplify(target,net,option['route'],known_failures=set())

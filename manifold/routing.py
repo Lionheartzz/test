@@ -45,11 +45,12 @@ def spanning_pairs(points):
     return pairs
 
 
-def propose(design, net, order, entry=None, detour='direct', definitions=None, safe_planes=None):
+def propose(design, net, order, entry=None, detour='direct', definitions=None, safe_planes=None, *, terminal_overrides=None):
     if definitions is None:
         from .engineering_db import definitions_for_design
         definitions=definitions_for_design(design)
     points = terminal_points(design,definitions)
+    points.update(terminal_overrides or {})
     pairs = spanning_pairs(sorted(set(points[m] for m in net.members if m in points)))
     ports_at = {points[f.id]:f for f in design.features if f.kind=='port' and not f.suppressed
                 and f.id in net.members and f.id in points and f.circuit==net.id}
@@ -139,6 +140,8 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None, s
         for zone in definition.zones:
             if f'{source.id}:{zone.id}' not in net.members or source.circuits.get(zone.id) != net.id:
                 continue
+            if terminal_overrides and f'{source.id}:{zone.id}' in terminal_overrides:
+                continue
             if zone.end-zone.start >= net.diameter + .2:
                 continue
             center = points[f'{source.id}:{zone.id}']
@@ -160,6 +163,14 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None, s
                 first_contact = along-math.sqrt(cut_radius*cut_radius-sideways*sideways)
                 if 9 < first_contact < feature.depth-1:
                     feature.depth = round(first_contact-1, 6)
+    return add_construction_access(design,net,features)
+
+
+def add_construction_access(design, net, features):
+    """Materialize authored accesses on the final manufacturing trunk, preserving their IDs."""
+    access_ids={access.id for access in net.construction_access}
+    features=[f for f in features if f.id not in access_ids]
+    sizes=dimensions(design.block)
     for access in net.construction_access:
         if not features:
             continue
@@ -351,7 +362,7 @@ def proximity_risk(design, net, route, definitions=None,thread_definitions=None)
             if other.definition:
                 definition = definitions[other.definition]
                 allowed = [z for z in definition.zones
-                           if (other.circuits[z.id] if other.kind=='cavity' else other.circuit) == net.id
+                           if (other.circuits.get(z.id) if other.kind=='cavity' else other.circuit) == net.id
                            and (f'{other.id}:{z.id}' if other.kind=='cavity' else other.id) in net.members]
                 # Rank complete mapped machining, not the port's hydraulic summary.
                 # Cones/annuli use conservative outer cylinders in this proxy only.
@@ -945,6 +956,12 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
         orders = [o for o in orders if o[0] == 'xyz'.index(net.preferred_axis)]
     entries = ['nearest','negative','positive'] if net.entry_preference == 'nearest' else [net.entry_preference]
     options, seen = [],set()
+    from .cavity_access import axial_route_candidates
+    for key,route in axial_route_candidates(design,net,definitions,thread_definitions,modifier_definitions):
+        signature = tuple((f.face,round(f.u,5),round(f.v,5),round(f.depth,5),f.plugged) for f in route)
+        if signature in seen:continue
+        seen.add(signature)
+        options.append(dict(key=key,route=route,risk=proximity_risk(design,net,route,definitions,thread_definitions),cost=route_cost(design,route)))
     for i,route in enumerate(simple_routes(design,net,definitions)):
         signature = tuple((f.face,round(f.u,5),round(f.v,5),round(f.depth,5),f.plugged) for f in route)
         if signature in seen:
@@ -992,6 +1009,33 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
     else:result=sorted(permitted or options,key=rank)
     if snapshot is not None:snapshot.options[cache_key]=deepcopy(result)
     return result
+
+
+def route_from_variant(design, net, variant, definitions, threads=None, modifiers=None):
+    """Shared regeneration for global selection and incremental current templates."""
+    if variant.startswith('axial_'):
+        from .cavity_access import axial_route
+        return axial_route(design,net,definitions,variant,threads=threads,modifiers=modifiers)
+    if variant.startswith('simple_'):
+        templates = simple_routes(design,net,definitions)
+        index = int(variant.split('_')[1])
+        return templates[index] if index < len(templates) else None
+    order,entry,detour = variant.split(':')
+    if sorted(order) != ['x','y','z']:
+        raise ValueError('Routing variant must use each axis once')
+    return propose(design,net,tuple('xyz'.index(i) for i in order),entry,detour,definitions)
+
+
+def resize_route(design, net, option, diameter, definitions, threads=None, modifiers=None):
+    # Axial stop depth includes the real radius/tip/contact requirement. A larger
+    # selected tool must regenerate it; changing only diameter could cut a seat.
+    if option['key'].startswith('axial_'):
+        sized = net.model_copy(update=dict(diameter=diameter))
+        route = route_from_variant(design,sized,option['key'],definitions,threads,modifiers)
+        if route is None:raise ValueError(f'{net.id}: selected drill has no safe deep-end corridor')
+        option['route'] = route
+    else:
+        for feature in option['route']:feature.diameter=diameter
 
 
 def _complete_route_combination(design, definitions, thread_definitions, modifier_definitions, snapshot=None, net_ids=None, deadline=None):
@@ -1110,7 +1154,7 @@ def _resolve_proposals(design, *, snapshots=None):
                                     for f in option['route']),default=0)
                 actual=route_sizing(net,tools=tools,required_depth=required_depth,preferred_unit=resolved.project_context)
                 if all(abs(f.diameter-actual['diameter_mm'])<=1e-9 for f in option['route']):break
-                for feature in option['route']:feature.diameter=actual['diameter_mm']
+                resize_route(context,net,option,actual['diameter_mm'],definitions,thread_definitions,modifier_definitions)
             else:
                 raise ValueError(f'{net.id}: route sizing did not settle on a source-backed drill')
             option['tool_sizing']=actual
@@ -1124,7 +1168,16 @@ def _resolve_proposals(design, *, snapshots=None):
                    route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions,
                                  modifier_definitions=modifier_definitions,snapshot=snapshot))
         if net.routing_variant:
-            if net.routing_variant.startswith('simple_'):
+            if net.routing_variant.startswith('axial_'):
+                route=route_from_variant(resolved,net,net.routing_variant,definitions,thread_definitions,modifier_definitions)
+                if route is None:
+                    choices=route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions,
+                                          modifier_definitions=modifier_definitions,snapshot=snapshot)
+                    selected=choices[0]
+                    route=selected['route']
+                else:
+                    selected=dict(key=net.routing_variant,route=route,risk=proximity_risk(resolved,net,route,definitions,thread_definitions),cost=route_cost(resolved,route))
+            elif net.routing_variant.startswith('simple_'):
                 choices=[dict(key=f'simple_{i}',route=r,risk=proximity_risk(resolved,net,r,definitions,thread_definitions),cost=route_cost(resolved,r))
                          for i,r in enumerate(simple_routes(resolved,net,definitions))]
                 selected=next((o for o in choices if o['key']==net.routing_variant),None)
@@ -1156,6 +1209,7 @@ def _resolve_proposals(design, *, snapshots=None):
             actual=selected.get('tool_sizing') or tool_size(selected)
             net.diameter=actual['diameter_mm']
             sizing[net.id]=actual
+            route=selected['route']
         if net.routing_variant:
             original=route
             route,_=snapshot.simplify(resolved,net,route)
