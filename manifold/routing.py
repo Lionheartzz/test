@@ -339,7 +339,7 @@ def simple_routes(design,net,definitions=None):
     return routes
 
 
-def proximity_risk(design, net, route, definitions=None,thread_definitions=None):
+def proximity_risk(design, net, route, definitions=None,thread_definitions=None,cache=None):
     """Conservative cylinder/centerline screen. This is a ranking estimate, never validation."""
     risk = 0.0
     if definitions is None:
@@ -349,10 +349,33 @@ def proximity_risk(design, net, route, definitions=None,thread_definitions=None)
         from .engineering_db import thread_definitions_for_design
         thread_definitions=thread_definitions_for_design(design)
     dims = dimensions(design.block)
+    cache=cache if cache is not None else {}
+    if cache.get('block') not in (None,dimensions(design.block)):cache.clear()
+    cache['block']=dimensions(design.block)
+    regions_cache=cache.setdefault('risk_regions',{})
+    def regions(other,definition,allowed):
+        key=(other.model_dump_json(exclude={'connects_to'}),net.id,tuple(net.members))
+        if key not in regions_cache:
+            result=[]
+            for stage in definition.cutting_primitives or definition.stages:
+                offset_u,offset_v=getattr(stage,'offset_u',0),getattr(stage,'offset_v',0)
+                angle=math.radians(other.rotation)
+                positioned=other.model_copy(update=dict(u=other.u+offset_u*math.cos(angle)-offset_v*math.sin(angle),
+                                                       v=other.v+offset_u*math.sin(angle)+offset_v*math.cos(angle)))
+                diameter=max(stage.diameter,getattr(stage,'end_diameter',0))
+                windows=[z for z in allowed if abs(z.offset_u-offset_u)<1e-6 and abs(z.offset_v-offset_v)<1e-6]
+                breaks=sorted({stage.start,stage.end,*[v for z in windows for v in (z.start,z.end) if stage.start<v<stage.end]})
+                for start,end in zip(breaks,breaks[1:]):
+                    if any(z.start<=start and end<=z.end for z in windows):continue
+                    c,d=segment(positioned,design.block,start,end)
+                    result.append((c,d,diameter,bool(windows),cylinder_bounds(positioned,design.block,start,end,diameter)))
+            regions_cache[key]=result
+        return regions_cache[key]
     for bore in route:
         a,b = segment(bore,design.block)
         radius = bore.diameter/2
         u,v,axis,sign = FACE_AXES[bore.face]
+        rb=cylinder_bounds(bore,design.block,0,bore.depth,bore.diameter)
         for i in (u,v):
             risk += max(0,design.rules.minimum_wall-min(a[i],dims[i]-a[i])+radius)*4
         risk += max(0,design.rules.minimum_wall-(dims[axis]-b[axis] if sign>0 else b[axis]))*4
@@ -366,27 +389,14 @@ def proximity_risk(design, net, route, definitions=None,thread_definitions=None)
                            and (f'{other.id}:{z.id}' if other.kind=='cavity' else other.id) in net.members]
                 # Rank complete mapped machining, not the port's hydraulic summary.
                 # Cones/annuli use conservative outer cylinders in this proxy only.
-                for stage in definition.cutting_primitives or definition.stages:
-                    offset_u,offset_v=getattr(stage,'offset_u',0),getattr(stage,'offset_v',0)
-                    angle=math.radians(other.rotation)
-                    positioned=other.model_copy(update=dict(u=other.u+offset_u*math.cos(angle)-offset_v*math.sin(angle),
-                                                           v=other.v+offset_u*math.sin(angle)+offset_v*math.cos(angle)))
-                    diameter=max(stage.diameter,getattr(stage,'end_diameter',0))
-                    windows=[z for z in allowed if abs(z.offset_u-offset_u)<1e-6 and abs(z.offset_v-offset_v)<1e-6]
-                    breaks = sorted({stage.start,stage.end,*[v for z in windows for v in (z.start,z.end) if stage.start < v < stage.end]})
-                    for start,end in zip(breaks,breaks[1:]):
-                        if any(z.start <= start and end <= z.end for z in windows):
-                            continue
-                        c,d = segment(positioned,design.block,start,end)
-                        clearance = segment_distance(a,b,c,d)-radius-diameter/2
-                        if windows:
-                            # Flat axial interval bounds avoid falsely extending a sealing land as a spherical cap.
-                            rb = cylinder_bounds(bore,design.block,0,bore.depth,bore.diameter)
-                            cb = cylinder_bounds(positioned,design.block,start,end,diameter)
-                            penetration = min(min(x[1],y[1])-max(x[0],y[0]) for x,y in zip(rb,cb))
-                            risk += max(0,penetration)*8
-                        else:
-                            risk += max(0,design.rules.minimum_wall-clearance)*(8 if clearance<0 else 1)
+                for c,d,diameter,own,cb in regions(other,definition,allowed):
+                    clearance = segment_distance(a,b,c,d)-radius-diameter/2
+                    if own:
+                        # Same finite interval proxy, cached only within this source snapshot.
+                        penetration = min(min(x[1],y[1])-max(x[0],y[0]) for x,y in zip(rb,cb))
+                        risk += max(0,penetration)*8
+                    else:
+                        risk += max(0,design.rules.minimum_wall-clearance)*(8 if clearance<0 else 1)
             else:
                 if other.circuit == net.id:
                     continue
@@ -464,6 +474,72 @@ def route_objective(design, route, risk=0, definitions=None):
     return (round(excess,6),round(excess_volume,6),operations,plugs,total,quality)
 
 
+def manufacturing_metrics(design, route, risk=0, definitions=None):
+    """Deterministic metrics; the priority objective remains lexicographic."""
+    active=[f for f in route if not f.suppressed]
+    objective=route_objective(design,active,risk,definitions)
+    return dict(plugs=sum(f.plugged for f in active),drillings=len(active),
+                setup_faces=len({f.face for f in active}),
+                max_depth=round(max((f.depth for f in active),default=0),6),
+                total_depth=round(sum(f.depth for f in active),6),
+                compactness=objective[:2] if design.constraints.priority=='compact' else None,
+                quality=objective[-1],objective=objective)
+
+
+def route_dominates(design, better, worse, better_risk=0, worse_risk=0, definitions=None):
+    """Manufacturing Pareto dominance, to be used only after compatibility checks.
+
+    A different cut location is never declared interchangeable just because its
+    cost is close. These metrics order opportunities; they do not grant geometry
+    feasibility or override the exact engineering-facts score.
+    """
+    a=route_objective(design,better,better_risk,definitions)
+    b=route_objective(design,worse,worse_risk,definitions)
+    aa=(*a[:-1],*a[-1]);bb=(*b[:-1],*b[-1])
+    return all(x<=y for x,y in zip(aa,bb)) and any(x<y for x,y in zip(aa,bb))
+
+
+def _strategy_family(key):
+    if key.startswith('axial_'):return 'axial'
+    if key.startswith('simple_'):return 'simple'
+    return 'direct' if key.endswith(':direct') else 'detour'
+
+
+def _strategy_shortlist(design, options, definitions=None, limit=16, eligible=None):
+    """Bounded Pareto layers per family, then round-robin strategy opportunities.
+
+    Raw domination cannot justify removing a geometrically distinct strategy:
+    it may prune better or clear a different sibling route. Keep those as later
+    Pareto layers rather than deleting them before exact connectivity pruning.
+    """
+    buckets={family:[] for family in ('axial','simple','direct','detour')}
+    for option in options:
+        option['metrics']=manufacturing_metrics(design,option['route'],option['risk'],definitions)
+        buckets[_strategy_family(option['key'])].append(option)
+    queues={}
+    for family,group in buckets.items():
+        # Pareto rank by the number of strict dominators, not a scalar score.
+        vectors={o['key']:(*o['metrics']['objective'][:-1],*o['metrics']['quality']) for o in group}
+        domination={o['key']:sum(all(x<=y for x,y in zip(v,vectors[o['key']])) and any(x<y for x,y in zip(v,vectors[o['key']]))
+                                 for key,v in vectors.items() if key!=o['key']) for o in group}
+        ranked=sorted(group,key=lambda o:(domination[o['key']],o['metrics']['objective'],o['key']))
+        # Give different entry faces / detour planes a chance inside a family.
+        seen=set();distinct=[];remaining=[]
+        for option in ranked:
+            key=option['key'];faces=tuple(sorted({f.face for f in option['route']}))
+            strategy=(key.split(':')[0] if family=='axial' else key.split(':')[-1] if family=='detour' else family,faces)
+            (remaining if strategy in seen else distinct).append(option);seen.add(strategy)
+        queues[family]=distinct+remaining
+    selected=[]
+    while len(selected)<limit and any(queues.values()):
+        for family in buckets:
+            while queues[family] and len(selected)<limit:
+                option=queues[family].pop(0)
+                if eligible is None or eligible(option):
+                    selected.append(option);break
+    return selected
+
+
 def segment_depth(feature):
     return feature.depth+(0 if feature.tip_angle==180 else feature.diameter/2/math.tan(math.radians(feature.tip_angle/2)))
 
@@ -488,7 +564,7 @@ def exact_route_score(design, report, route, *, cad_error=False):
     return (1_000_000 if cad_error else report['counts']['FAIL'],len(unresolved),route_objective(design,route))
 
 
-def _plug_cut_overlap(plug, cut, block):
+def _plug_cut_overlap(plug, cut, block, plug_bounds=None):
     """Return only witnessed finite-volume overlap; a proxy cannot certify clearance.
 
     Witnesses are strictly inside the plug and the actual axial/radial cut profile.
@@ -502,9 +578,11 @@ def _plug_cut_overlap(plug, cut, block):
     margin = 0.05
     if plug.plug_length <= 2*margin or cut['end']-cut['start'] <= 2*margin:
         return False
-    plug_bounds = cylinder_bounds(plug, block, 0, plug.plug_length, plug.diameter)
-    cut_bounds = cylinder_bounds(cut['feature'], block, cut['start'], cut['end'],
-                                 2*max(cut['radius_start'], cut['radius_end']))
+    plug_bounds = plug_bounds if plug_bounds is not None else cylinder_bounds(plug, block, 0, plug.plug_length, plug.diameter)
+    if cut.get('_bounds') is None:
+        cut['_bounds'] = cylinder_bounds(cut['feature'], block, cut['start'], cut['end'],
+                                        2*max(cut['radius_start'], cut['radius_end']))
+    cut_bounds = cut['_bounds']
     if any(min(a[1], b[1])-max(a[0], b[0]) <= margin for a, b in zip(plug_bounds, cut_bounds)):
         return False
     projected = [dot(subtract(tuple(cut_origin[i]+cut_direction[i]*depth for i in range(3)), origin), direction)
@@ -655,7 +733,7 @@ def _cuts_too_close(route_cuts, obstacle, block, clearance):
     return False
 
 
-def route_obstructions(design, net, route,thread_definitions=None,definitions=None,modifier_definitions=None):
+def route_obstructions(design, net, route,thread_definitions=None,definitions=None,modifier_definitions=None,cache=None):
     """Conservative finite-cut, wall, plug and access screen; OCCT grants feasibility."""
     if thread_definitions is None:
         from .engineering_db import thread_definitions_for_design
@@ -666,12 +744,30 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
     if modifier_definitions is None:
         from .engineering_db import modifier_definitions_for_design
         modifier_definitions=modifier_definitions_for_design(design) if any(f.machining_modifiers for f in design.features) else {}
+    cache=cache if cache is not None else {}
+    if cache.get('block') not in (None,dimensions(design.block)):cache.clear()
+    cache['block']=dimensions(design.block)
+    cuts_cache=cache.setdefault('cuts',{});protected_cache=cache.setdefault('protected',{})
+    signatures={}
+    def signature(feature):
+        key=id(feature)
+        if key not in signatures:signatures[key]=feature.model_dump_json(exclude={'connects_to'})
+        return signatures[key]
+    def cuts(feature):
+        key=signature(feature)
+        if key not in cuts_cache:cuts_cache[key]=list(_manufacturing_cuts(feature,definitions,thread_definitions,modifier_definitions))
+        return cuts_cache[key]
+    def protected(feature):
+        key=(signature(feature),net.id,tuple(net.members))
+        if key not in protected_cache:protected_cache[key]=list(_protected_source_cuts(feature,net,definitions,thread_definitions,modifier_definitions))
+        return protected_cache[key]
     failures = set()
     obstacles=[f for f in design.features if f.route_net!=net.id]+route
     for bore in route:
         if route_margin(design,[bore])['estimated_min_wall_mm'] < design.rules.minimum_wall-1e-6:
             failures.add(('external_wall',bore.id))
         if bore.plugged:
+            plug_bounds=cylinder_bounds(bore,design.block,0,bore.plug_length,bore.diameter)
             a,b = segment(bore, design.block, -bore.clearance_height, 0)
             for other in obstacles:
                 if other.suppressed or other.id == bore.id or not (other.kind in ('port','cavity') or other.plugged):
@@ -685,11 +781,10 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
             for other in obstacles:
                 if other.suppressed or other.id == bore.id:
                     continue
-                if any(_plug_cut_overlap(bore, cut, design.block)
-                       for cut in _manufacturing_cuts(other, definitions, thread_definitions, modifier_definitions)):
+                if any(_plug_cut_overlap(bore, cut, design.block,plug_bounds) for cut in cuts(other)):
                     failures.add(('plug_cut', *sorted((bore.id, other.id))))
         radius=bore.diameter/2
-        route_cuts = list(_manufacturing_cuts(bore, definitions, thread_definitions, modifier_definitions))
+        route_cuts = cuts(bore)
         for other in obstacles:
             if other.suppressed or other.id == bore.id or not other.definition:
                 continue
@@ -718,8 +813,7 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
                     if segment_distance(a,b,c,d) < max(route_cut['radius_start'],route_cut['radius_end'])+window_radius-1e-6:
                         near_assigned = True
                         break
-            for whole_cut, own_window in _protected_source_cuts(other, net, definitions,
-                                                             thread_definitions, modifier_definitions):
+            for whole_cut, own_window in protected(other):
                 threshold = 0 if own_window and near_assigned else design.rules.minimum_wall
                 if _cuts_too_close(route_cuts, whole_cut, design.block, threshold):
                     failures.add(('source_protected' if threshold==0 else 'source_wall',
@@ -728,7 +822,7 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
         for other in obstacles:
             if other.suppressed or other.id == bore.id or other.definition or other.circuit == net.id:
                 continue
-            for whole_cut in _manufacturing_cuts(other, definitions, thread_definitions, modifier_definitions):
+            for whole_cut in cuts(other):
                 if _cuts_too_close(route_cuts, whole_cut, design.block, design.rules.minimum_wall):
                     failures.add(('cross_net_wall', *sorted((bore.id, other.id))))
                     break
@@ -768,6 +862,8 @@ class _ProposalSnapshot:
         self.cache={}
         self.results={}
         self.options={}
+        self.catalogs={}
+        self.obstructions={}
 
     def simplify(self, design, net, route, *, known_failures=None):
         # Generated siblings affect obstruction screening, but not the same-net
@@ -936,10 +1032,45 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
     return remaining,True
 
 
+def route_candidate_catalog(design, net, definitions, thread_definitions, modifier_definitions, *, expanded=False, cache=None):
+    """Raw source strategies, before any shortlist or simplification."""
+    orders = list(itertools.permutations(range(3)))
+    if net.preferred_axis != 'auto':
+        orders = [o for o in orders if o[0] == 'xyz'.index(net.preferred_axis)]
+    entries = ['nearest','negative','positive'] if net.entry_preference == 'nearest' else [net.entry_preference]
+    options, seen = [],set()
+    from .cavity_access import axial_route_candidates
+    for key,route in axial_route_candidates(design,net,definitions,thread_definitions,modifier_definitions):
+        signature = tuple((f.face,round(f.u,5),round(f.v,5),round(f.depth,5),f.plugged) for f in route)
+        if signature in seen:continue
+        seen.add(signature)
+        options.append(dict(key=key,route=route,risk=proximity_risk(design,net,route,definitions,thread_definitions,cache),cost=route_cost(design,route)))
+    for i,route in enumerate(simple_routes(design,net,definitions)):
+        signature = tuple((f.face,round(f.u,5),round(f.v,5),round(f.depth,5),f.plugged) for f in route)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        options.append(dict(key=f'simple_{i}',route=route,risk=proximity_risk(design,net,route,definitions,thread_definitions,cache),cost=route_cost(design,route)))
+    sides=('p','m','p2','m2') if expanded else ('p','m')
+    detours = ['direct'] + [f'offset_{axis}_{side}' for axis in 'xyz' for side in sides]
+    safe_planes = obstacle_safe_planes(design, net, definitions, thread_definitions, modifier_definitions)
+    for order,entry,detour in itertools.product(orders,entries,detours):
+        key = ''.join('xyz'[i] for i in order)+':'+entry+':'+detour
+        route = propose(design,net,order,entry,detour,definitions,safe_planes)
+        signature = tuple((f.face,round(f.u,5),round(f.v,5),round(f.depth,5),f.plugged) for f in route)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        risk = proximity_risk(design,net,route,definitions,thread_definitions,cache)
+        options.append(dict(key=key,route=route,risk=risk,cost=route_cost(design,route)))
+    return options
+
+
 def route_options(design, net, *, expanded=False, definitions=None,thread_definitions=None,modifier_definitions=None,
-                  snapshot=None):
+                  snapshot=None, seed=None):
     from copy import deepcopy
-    cache_key=(design.model_dump_json(),net.model_dump_json(),tuple(net.members),expanded)
+    cache_key=(design.model_dump_json(),net.model_dump_json(),tuple(net.members),expanded,
+               (seed['key'],tuple(f.model_dump_json() for f in seed['route'])) if seed else None)
     if snapshot is not None and cache_key in snapshot.options:
         return deepcopy(snapshot.options[cache_key])
     if definitions is None:
@@ -951,57 +1082,49 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
     if modifier_definitions is None:
         from .engineering_db import modifier_definitions_for_design
         modifier_definitions=modifier_definitions_for_design(design) if any(f.machining_modifiers for f in design.features) else {}
-    orders = list(itertools.permutations(range(3)))
-    if net.preferred_axis != 'auto':
-        orders = [o for o in orders if o[0] == 'xyz'.index(net.preferred_axis)]
-    entries = ['nearest','negative','positive'] if net.entry_preference == 'nearest' else [net.entry_preference]
-    options, seen = [],set()
-    from .cavity_access import axial_route_candidates
-    for key,route in axial_route_candidates(design,net,definitions,thread_definitions,modifier_definitions):
-        signature = tuple((f.face,round(f.u,5),round(f.v,5),round(f.depth,5),f.plugged) for f in route)
-        if signature in seen:continue
-        seen.add(signature)
-        options.append(dict(key=key,route=route,risk=proximity_risk(design,net,route,definitions,thread_definitions),cost=route_cost(design,route)))
-    for i,route in enumerate(simple_routes(design,net,definitions)):
-        signature = tuple((f.face,round(f.u,5),round(f.v,5),round(f.depth,5),f.plugged) for f in route)
-        if signature in seen:
-            continue
-        seen.add(signature)
-        options.append(dict(key=f'simple_{i}',route=route,risk=proximity_risk(design,net,route,definitions,thread_definitions),cost=route_cost(design,route)))
-    sides=('p','m','p2','m2') if expanded else ('p','m')
-    detours = ['direct'] + [f'offset_{axis}_{side}' for axis in 'xyz' for side in sides]
-    safe_planes = obstacle_safe_planes(design, net, definitions, thread_definitions, modifier_definitions)
-    for order,entry,detour in itertools.product(orders,entries,detours):
-        key = ''.join('xyz'[i] for i in order)+':'+entry+':'+detour
-        route = propose(design,net,order,entry,detour,definitions,safe_planes)
-        signature = tuple((f.face,round(f.u,5),round(f.v,5),round(f.depth,5),f.plugged) for f in route)
-        if signature in seen:
-            continue
-        seen.add(signature)
-        risk = proximity_risk(design,net,route,definitions,thread_definitions)
-        options.append(dict(key=key,route=route,risk=risk,cost=route_cost(design,route)))
+    snapshot=snapshot or _ProposalSnapshot(design,definitions,thread_definitions,modifier_definitions)
+    source=snapshot.source
+    catalog_key=(net.model_dump_json(exclude={'routing_variant'}),tuple(net.members),expanded)
+    if catalog_key not in snapshot.catalogs:
+        snapshot.catalogs[catalog_key]=route_candidate_catalog(source,net,definitions,thread_definitions,modifier_definitions,expanded=expanded,cache=snapshot.obstructions)
+    options=deepcopy(snapshot.catalogs[catalog_key])
     # Keep an explicitly failing proposal if the constraint makes every candidate impossible.
     # The validator reports the conflict; never remove a required connection to hide it.
-    for option in options:
-        option['hard_failures']=len(route_obstructions(design,net,option['route'],thread_definitions,definitions,modifier_definitions))
+    def source_clear(option):
+        option['hard_failures']=len(route_obstructions(source,net,option['route'],thread_definitions,definitions,modifier_definitions,snapshot.obstructions))
+        return not option['hard_failures']
+    if not seed:
+        for option in options:source_clear(option)
+    else:
+        # A valid local seed permits lazy source screening in the SAME family /
+        # Pareto queues. Invalid raw variants do not consume a family's quota.
+        # Every shortlisted candidate is still fully screened before pruning.
+        for option in options:option['hard_failures']=0
     rank=lambda o:(o['hard_failures'],route_objective(design,o['route'],o['risk'],definitions),o['key'])
     permitted=[o for o in options if all(f.face not in design.constraints.forbidden_drilling_faces for f in o['route'])]
     options=sorted(permitted or options,key=rank)
-    # Spend exact cleanup on a bounded promising neighbourhood, rather than
-    # every clear candidate. Sixteen retains alternatives for multi-net moves.
-    clear=[option for option in options if not option['hard_failures']][:16]
+    # Source-safe strategies first, then bounded family/Pareto opportunities.
+    # Sibling construction routes are checked again AFTER redundant cuts have
+    # gone; a temporary connector may disappear, but retained nets never move.
+    clear_options=[option for option in options if not option['hard_failures'] and (not seed or option['key']!=seed['key'])]
+    clear=_strategy_shortlist(source,clear_options,definitions,limit=16-bool(seed),eligible=source_clear if seed else None)
     if clear:
-        snapshot=snapshot or _ProposalSnapshot(design,definitions,thread_definitions,modifier_definitions)
-        options=clear+[option for option in options if option['hard_failures']]
+        options=clear+[option for option in options if option['hard_failures'] and option not in clear]
         for option in clear:
             original=option['route']
             route,connected=snapshot.simplify(design,net,original,known_failures=set())
             option['route']=route
             option['pruned_ids']=sorted({f.id for f in original}-{f.id for f in route})
-            option['hard_failures']=0 if connected else 1
-            if len(route)!=len(original):
-                option['risk']=proximity_risk(design,net,route,definitions,thread_definitions)
-                option['cost']=route_cost(design,route)
+            option['hard_failures']=(len(route_obstructions(design,net,route,thread_definitions,definitions,modifier_definitions,snapshot.obstructions)) if connected else 1)
+            option['risk']=proximity_risk(design,net,route,definitions,thread_definitions,snapshot.obstructions)
+            option['cost']=route_cost(design,route)
+            option['metrics']=manufacturing_metrics(design,route,option['risk'],definitions)
+    if seed:
+        preserved=deepcopy(seed)
+        preserved['risk']=proximity_risk(design,net,preserved['route'],definitions,thread_definitions)
+        preserved['cost']=route_cost(design,preserved['route'])
+        preserved['metrics']=manufacturing_metrics(design,preserved['route'],preserved['risk'],definitions)
+        options.append(preserved)
     permitted = [o for o in options if all(f.face not in design.constraints.forbidden_drilling_faces for f in o['route'])]
     if not expanded and all(o['hard_failures'] for o in (permitted or options)):
         result=route_options(design,net,expanded=True,definitions=definitions,thread_definitions=thread_definitions,
@@ -1059,6 +1182,11 @@ def _complete_route_combination(design, definitions, thread_definitions, modifie
     compatible = {}
     inspected = 0
     best=None;best_key=None;states=0
+    def combination_key(chosen):
+        route=[f for option in chosen.values() for f in option['route']]
+        return (route_objective(source,route,sum(o['risk'] for o in chosen.values()),definitions),
+                tuple(route_objective(source,option['route'],option['risk'],definitions) for _,option in sorted(chosen.items())),
+                tuple((name,option['key']) for name,option in sorted(chosen.items())))
     minimum={net.id:dict(plugs=min(sum(f.plugged for f in o['route']) for o in pools[net.id]),
                         count=min(len(o['route']) for o in pools[net.id]),
                         maximum=min(max((f.depth for f in o['route']),default=0) for o in pools[net.id]),
@@ -1103,8 +1231,7 @@ def _complete_route_combination(design, definitions, thread_definitions, modifie
         if index == len(nets):
             route=[f for option in chosen.values() for f in option['route']]
             if len(source.features)+len(route)>120:return None
-            key=(route_objective(source,route,sum(o['risk'] for o in chosen.values()),definitions),
-                 tuple((name,option['key']) for name,option in sorted(chosen.items())))
+            key=combination_key(chosen)
             if best_key is None or key<best_key:
                 best,best_key=chosen,key
             return None
@@ -1115,12 +1242,35 @@ def _complete_route_combination(design, definitions, thread_definitions, modifie
             if inspected>4000 or states>1000:break
 
     search(0,{})
+    # The search is bounded, but its first complete combination is not a
+    # manufacturing optimum. Remove obvious compatible single-net improvements
+    # from the chosen combination using the same prepared pools/pair cache.
+    if best:
+        for _ in range(len(nets)):
+            improved=False
+            for net in nets:
+                for option in pools[net.id]:
+                    if all(pair_clear(other,best[other.id],net,option) for other in nets if other.id!=net.id):
+                        chosen={**best,net.id:option}
+                        route=[f for value in chosen.values() for f in value['route']]
+                        key=combination_key(chosen)
+                        if key<best_key:best,best_key=chosen,key;improved=True
+                    if inspected>4000:break
+            if not improved or inspected>4000:break
     return best
+
+
+def _proposal_source_key(design):
+    # Variants choose construction proposals; they do not alter source geometry.
+    # Reuse its BRep/catalog/pruning caches across bounded exact attempts.
+    automatic={n.id for n in design.nets if n.routing=='automatic'}
+    source=design.model_copy(update=dict(features=[f for f in design.features if f.route_net not in automatic]))
+    return source.model_dump_json(exclude={'nets':{'__all__':{'routing_variant'}}})
 
 
 @timed('route.proposal')
 def _resolve_proposals(design, *, snapshots=None):
-    signature=design.model_dump_json()
+    signature=_proposal_source_key(design)
     resolved = resolve_parents(design)
     from .engineering_db import definitions_for_design,thread_definitions_for_design,modifier_definitions_for_design,tool_definitions
     definitions=definitions_for_design(resolved)
@@ -1273,13 +1423,19 @@ def _resolve_proposals(design, *, snapshots=None):
     return resolved, candidates
 
 
-def alternative_proposals(best, target, routes, report, eligible, inspected, *, repair_only=True):
+def alternative_proposals(best, target, routes, report, eligible, inspected, *, repair_only=None, snapshot=None):
     """Conflict-directed bounded neighbourhood, shared by save and optimization.
 
     Reconsider either implicated net, plus paired moves to escape a one-net local
     minimum. Screening allocates exact work; only exact FAIL/WARNING/cost selects.
     """
     selected={r['net']:r['variant'] for r in routes}
+    if repair_only is None:repair_only=bool(report['counts']['FAIL'])
+    from .engineering_db import definitions_for_design,thread_definitions_for_design,modifier_definitions_for_design
+    definitions=definitions_for_design(target)
+    threads=thread_definitions_for_design(target)
+    modifiers=modifier_definitions_for_design(target) if any(f.machining_modifiers for f in target.features) else {}
+    snapshot=snapshot or _ProposalSnapshot(target,definitions,threads,modifiers)
     by_id={f.id:f for f in target.features}
     conflicts=set(); affected=set()
     for check in report['checks']:
@@ -1298,19 +1454,29 @@ def alternative_proposals(best, target, routes, report, eligible, inspected, *, 
     if not net_ids:
         return []
     pools={}; moves=[]
+    warning_nets={owner.route_net for check in report['checks'] if check['status']=='WARNING' and check['rule']!='construction_closure'
+                  for item in check.get('items',[]) for owner in [by_id.get(str(item).split(':')[0])]
+                  if owner and owner.kind=='drilling' and owner.route_net in eligible}
     for net_id in net_ids:
         context=target.model_copy(deep=True)
         context.features=[f for f in context.features if f.route_net!=net_id]
         net=next(n for n in context.nets if n.id==net_id)
-        options=[o for o in route_options(context,net,expanded=bool(report['counts']['FAIL'])) if o['key']!=selected[net_id]]
-        screened=sorted(options,key=lambda o:(route_objective(context,o['route'],o['risk']),o['key']))
+        options=[o for o in route_options(context,net,expanded=bool(report['counts']['FAIL']),definitions=definitions,
+                                          thread_definitions=threads,modifier_definitions=modifiers,snapshot=snapshot) if o['key']!=selected[net_id]]
+        screened=sorted(options,key=lambda o:(route_objective(context,o['route'],o['risk'],definitions),o['key']))
         feasible=[o for o in screened if o['hard_failures']==0]
         pool={o['key']:o for o in feasible[:6]}
         pools[net_id]=sorted(options,key=lambda o:(o['hard_failures'],
-                                                  route_objective(context,o['route'],o['risk']),o['key']))[:3]
+                                                  route_objective(context,o['route'],o['risk'],definitions),o['key']))[:3]
         moves.extend({net_id:o} for o in pool.values())
     for a,b in sorted(conflicts):
         moves.extend({a:x,b:y} for x,y in itertools.product(pools[a],pools[b]))
+    if not repair_only and len(net_ids)>1:
+        combination_source=target.model_copy(deep=True)
+        for net in combination_source.nets:
+            if net.id in eligible:net.routing_variant=None
+        combination=_complete_route_combination(combination_source,definitions,threads,modifiers,snapshot,net_ids=eligible)
+        if combination:moves.append(combination)
     proposals=[]
     for move in moves:
         variants=tuple(sorted({**selected,**{n:o['key'] for n,o in move.items()}}.items()))
@@ -1323,8 +1489,8 @@ def alternative_proposals(best, target, routes, report, eligible, inspected, *, 
         for net in proposal.nets:
             if net.routing!='automatic':continue
             route=[f for f in proposal.features if f.route_net==net.id]
-            failures.update(route_obstructions(proposal,net,route))
-            risk+=proximity_risk(proposal,net,route)
+            failures.update(route_obstructions(proposal,net,route,threads,definitions,modifiers))
+            risk+=proximity_risk(proposal,net,route,definitions,threads)
         drillings=[f for f in proposal.features if f.kind=='drilling' and not f.suppressed]
         changed=[f for f in drillings if f.route_net in move]
         cost=route_cost(proposal,drillings)
@@ -1334,7 +1500,14 @@ def alternative_proposals(best, target, routes, report, eligible, inspected, *, 
         # identical.  Exact checks still decide whether the candidate improves.
         if failures:
             continue
-        ranking=(route_objective(proposal,drillings,risk),variants)
+        objective=route_objective(proposal,drillings,definitions=definitions)
+        if not repair_only:
+            current=[f for f in target.features if f.kind=='drilling' and not f.suppressed]
+            current_objective=route_objective(target,current,definitions=definitions)
+            # Only truly better manufacturing moves spend optimization attempts.
+            # Repair mode still considers more expensive routes to cure FAIL.
+            if objective>=current_objective and not set(move)&warning_nets:continue
+        ranking=(objective,variants)
         candidate=best.model_copy(deep=True)
         for net in candidate.nets:
             if net.id in move:net.routing_variant=move[net.id]['key']
@@ -1396,8 +1569,9 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
     eligible={n.id for n in pending}
     # Only untried, analytically clear candidates spend the exact budget. The
     # eight-candidate/240 s ceilings leave the worker's CAD watchdog intact.
-    while not (prepared and score[0]==0):
-        proposals=alternative_proposals(best,target,routes,report,eligible,inspected)
+    while len(attempts)<8 and time.monotonic()-started<240:
+        proposals=alternative_proposals(best,target,routes,report,eligible,inspected,
+                                        repair_only=bool(score[0]),snapshot=snapshots.get(_proposal_source_key(best)))
         if not proposals:break
         attempt_limit=min(8,len(attempts)+len(proposals))
         if len(attempts)>=attempt_limit or time.monotonic()-started>=240:

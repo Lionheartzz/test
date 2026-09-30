@@ -173,16 +173,20 @@ def test_idle_gate_emits_proposal_before_waiting_and_does_not_resolve_again(monk
 
 
 @pytest.mark.parametrize('identifier,expected',[('port',['P']),('CV1',['A','P'])])
-def test_matching_current_templates_do_not_enumerate_candidate_pools(seeded,monkeypatch,identifier,expected):
+def test_matching_current_templates_compete_only_with_local_candidate_pools(seeded,monkeypatch,identifier,expected):
     source,proposal=seeded
     if identifier=='port':identifier=next(f.id for f in source.features if f.kind=='port' and f.circuit=='P')
     req=request(source,proposal,identifier);req.context.variants=VARIANTS
     feature=next(f for f in req.design.features if f.id==identifier)
     feature.u+=1 if feature.kind=='port' else -1
-    def forbidden(*args,**kwargs):raise AssertionError('Valid current template should not enumerate pools')
-    monkeypatch.setattr(routing,'route_options',forbidden)
+    inspected=[];original=routing.route_options
+    def local_options(d,n,**kwargs):inspected.append(n.id);return original(d,n,**kwargs)
+    monkeypatch.setattr(routing,'route_options',local_options)
+    def forbidden(*args,**kwargs):raise AssertionError('Valid local edit must not run global combination search')
+    monkeypatch.setattr(routing,'_complete_route_combination',forbidden)
     target,_,update=resolve_preview(req)
     assert update['recomputed']==expected
+    assert set(inspected)==set(expected)
     for net in set(VARIANTS)-set(expected):assert routes(target,net)==routes(proposal,net)
     verify(target)
 

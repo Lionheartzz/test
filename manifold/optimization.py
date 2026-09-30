@@ -3,7 +3,7 @@ import uuid
 from . import store
 from .geometry import build_geometry
 from .validation import validate
-from .routing import resolve_design, route_cost, route_objective, exact_route_score, authorize_generated_contacts, alternative_proposals
+from .routing import resolve_design, route_cost, route_objective, exact_route_score, authorize_generated_contacts, alternative_proposals, _proposal_source_key
 
 
 def optimize_routes(design, expected_revision, max_attempts=6, project_id=None):
@@ -28,10 +28,11 @@ def search_routes(design,max_attempts=6):
     if not 1 <= max_attempts <= 12:raise ValueError('max_attempts must be between 1 and 12')
     folder = store.OUTPUT/'optimizations'/uuid.uuid4().hex
     attempts = []
+    snapshots = {}
 
     def evaluate(candidate, reason):
         # This outer search owns the exact-attempt budget. Resolve one proposal only.
-        target, routes = resolve_design(candidate,exact=False)
+        target, routes = resolve_design(candidate,exact=False,snapshot_cache=snapshots)
         index = len(attempts)
         attempt = folder/f'attempt-{index:02}'
         store.atomic_json(attempt/'design.json',candidate.model_dump())
@@ -65,7 +66,8 @@ def search_routes(design,max_attempts=6):
     while len(attempts)<max_attempts:
         # This endpoint is an explicit user request to compare route cost, so it
         # may explore every automatic net even when the baseline already passes.
-        proposals=alternative_proposals(best,target,routes,report,eligible,inspected,repair_only=False)
+        proposals=alternative_proposals(best,target,routes,report,eligible,inspected,
+                                       repair_only=bool(report['counts']['FAIL']),snapshot=snapshots.get(_proposal_source_key(best)))
         if not proposals:break
         _,candidate,signature,reason=proposals[0]
         inspected.add(signature)

@@ -198,9 +198,9 @@ def test_incremental_axial_template_recomputes_only_moved_dependencies(monkeypat
     assert checked(req.design,definitions,[f for f in target.features if f.route_net])[2]['counts']['FAIL']==0
 
 
-def test_incremental_old_side_template_can_choose_basic_axial_without_pool_search(monkeypatch):
+def test_incremental_old_side_template_can_choose_axial_from_corrected_local_pool(monkeypatch):
     # This proves the basic terminal strategy is visible even to the incremental
-    # fast path; it is not conditional on failed direct routing or detour search.
+    # local pool; it is not conditional on failed direct routing or detour search.
     source,definitions=source_window()
     source.features.append(Feature(id='PORT',kind='port',face='front',u=30,v=30,
                                    diameter=12,depth=16,circuit='P'))
@@ -216,8 +216,11 @@ def test_incremental_old_side_template_can_choose_basic_axial_without_pool_searc
         source=source,scope='test',source_revision=store.revision(source),proposal=proposal,variants=variants,
         edit=PreviewEdit(kind='local',feature_ids=[identifier])))
     next(f for f in req.design.features if f.id==identifier).u-=1
-    monkeypatch.setattr(routing,'route_options',lambda *a,**k:pytest.fail('No complete neighbourhood needed'))
+    inspected=[];original=routing.route_options
+    def options(d,n,**kwargs):inspected.append(n.id);return original(d,n,**kwargs)
+    monkeypatch.setattr(routing,'route_options',options)
     target,routes,update=resolve_preview(req)
+    assert set(inspected)=={'P'}
     assert update['recomputed']==['P'] and not update['retained']
     assert routes[0]['variant'].startswith('axial_')
     assert routes[0]['plugs'] < sum(f.plugged for f in proposal.features)
