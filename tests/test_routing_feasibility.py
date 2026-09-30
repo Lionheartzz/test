@@ -66,14 +66,14 @@ def test_save_reconsiders_both_conflicting_automatic_variants_deterministically(
     good=assert_feasible(resolved)
     store.atomic_json(tmp_path/'baseline-fail.json',bad)
     store.atomic_json(tmp_path/'selected-pass.json',good)
-    assert any('2' in r['variant'] for r in metadata)
+    assert any(r['variant']!='xyz:nearest:direct' for r in metadata)
     assert route_cost(resolved,[f for f in resolved.features if f.route_net])>route_cost(baseline,[f for f in baseline.features if f.route_net])
     reverse=d.model_copy(deep=True);reverse.nets.reverse()
     repeated,_=resolve_design(reverse)
     assert signature(repeated)==signature(resolved)
     assert_feasible(repeated)
     evidence=json.loads((tmp_path/'route-selections'/metadata[0]['selection_evidence']/'summary.json').read_text())
-    assert 1<len(evidence['attempts'])<=6
+    assert 1<len(evidence['attempts'])<=8
     assert evidence['attempts'][evidence['selected_attempt']]['score'][0]==0
 
 

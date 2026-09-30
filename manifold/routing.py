@@ -45,7 +45,7 @@ def spanning_pairs(points):
     return pairs
 
 
-def propose(design, net, order, entry=None, detour='direct', definitions=None):
+def propose(design, net, order, entry=None, detour='direct', definitions=None, safe_planes=None):
     if definitions is None:
         from .engineering_db import definitions_for_design
         definitions=definitions_for_design(design)
@@ -71,16 +71,23 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None):
         end=port_stem(ports_at[b],b) if b in ports_at else b
         waypoints = [a,start,end,b] if a in ports_at and b in ports_at else [a,start,end] if a in ports_at else [start,end,b] if b in ports_at else [a,b]
         if detour != 'direct':
-            _,name,side = detour.split('_')
-            axis = 'xyz'.index(name)
-            offset = (net.diameter + design.rules.minimum_wall) * (1 if side[0] == 'p' else -1) * (2 if side.endswith('2') else 1)
-            coordinate = (start[axis] + end[axis])/2 + offset
-            margin = max(12, net.diameter/2 + design.rules.minimum_wall)
-            coordinate = max(margin,min(dimensions(design.block)[axis]-margin,coordinate))
+            if safe_planes is None:
+                safe_planes = obstacle_safe_planes(design, net, definitions)
+            if isinstance(detour, str):
+                _,name,side = detour.split('_')
+                axis = 'xyz'.index(name)
+                planes = safe_planes[axis][side[0]]
+                bends = ((axis,planes[min(1 if side.endswith('2') else 0, len(planes)-1)]),)
+            else:
+                bends = detour
             aa,bb = list(start),list(end)
-            aa[axis] = bb[axis] = coordinate
+            outward=[]; inward=[]
+            for axis,coordinate in bends:
+                aa[axis] = bb[axis] = coordinate
+                outward.append(tuple(aa))
+                inward.append(tuple(bb))
             insert=waypoints.index(start)+1
-            waypoints[insert:insert]=[tuple(aa),tuple(bb)]
+            waypoints[insert:insert]=outward+inward[::-1]
         for start,end in zip(waypoints,waypoints[1:]):
             p = list(start)
             for axis in order:
@@ -121,6 +128,38 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None):
         features.append(Feature(id=f'R-{digest}-{len(features)+1}', kind='drilling', face=face, u=p[u], v=p[v],
                                 circuit=net.id, diameter=net.diameter, depth=max(depth,9), plugged=not coaxial,
                                 route_net=net.id, clearance_diameter=max(16,net.diameter+8), clearance_height=15))
+    # A hydraulic window narrower than the drill diameter cannot accept the
+    # full cylinder. Stop that terminal branch before the cavity and let its
+    # conical drill tip make the declared window contact.
+    for source in design.features:
+        if source.suppressed or not source.definition or source.kind != 'cavity':
+            continue
+        definition = definitions[source.definition]
+        _, source_direction = pose(source, design.block)
+        for zone in definition.zones:
+            if f'{source.id}:{zone.id}' not in net.members or source.circuits.get(zone.id) != net.id:
+                continue
+            if zone.end-zone.start >= net.diameter + .2:
+                continue
+            center = points[f'{source.id}:{zone.id}']
+            cut_radius = max((max(stage.diameter, getattr(stage, 'end_diameter', 0))/2
+                              for stage in definition.cutting_primitives or definition.stages
+                              if stage.start <= (zone.start+zone.end)/2 <= stage.end), default=zone.diameter/2)
+            for feature in features:
+                origin, direction = pose(feature, design.block)
+                if abs(sum(a*b for a,b in zip(direction,source_direction))) > 1e-6:
+                    continue
+                axial = sum((center[i]-origin[i])*source_direction[i] for i in range(3))
+                if abs(axial) > (zone.end-zone.start)/2+feature.diameter/2:
+                    continue
+                side = tuple(center[i]-origin[i]-axial*source_direction[i] for i in range(3))
+                along = sum(side[i]*direction[i] for i in range(3))
+                sideways = math.sqrt(max(0,sum(v*v for v in side)-along*along))
+                if sideways >= cut_radius or along <= 0:
+                    continue
+                first_contact = along-math.sqrt(cut_radius*cut_radius-sideways*sideways)
+                if 9 < first_contact < feature.depth-1:
+                    feature.depth = round(first_contact-1, 6)
     for access in net.construction_access:
         if not features:
             continue
@@ -132,6 +171,51 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None):
         features.append(Feature(id=access.id, kind='drilling', face=access.face, u=point[u],v=point[v],
                                 circuit=net.id,diameter=net.diameter,depth=max(9,depth+net.diameter/4),plugged=True,route_net=net.id))
     return features
+
+
+def obstacle_safe_planes(design, net, definitions, thread_definitions=None, modifier_definitions=None):
+    """Finite machining bounds give repeatable, drillable detour planes."""
+    if thread_definitions is None:
+        from .engineering_db import thread_definitions_for_design
+        thread_definitions = thread_definitions_for_design(design)
+    if modifier_definitions is None:
+        from .engineering_db import modifier_definitions_for_design
+        modifier_definitions = modifier_definitions_for_design(design) if any(f.machining_modifiers for f in design.features) else {}
+    points = terminal_points(design, definitions)
+    terminals = [points[m] for m in net.members if m in points]
+    center = [sum(p[i] for p in terminals)/len(terminals) for i in range(3)] if terminals else [v/2 for v in dimensions(design.block)]
+    margin = max(12, net.diameter/2 + design.rules.minimum_wall + .1)
+    limits = dimensions(design.block)
+    planes = [{side: [] for side in 'pm'} for _ in range(3)]
+    automatic = {n.id for n in design.nets if n.routing == 'automatic'}
+    for other in design.features:
+        # Automatic proposals are screened as obstacles below, but must not
+        # change the coordinate meaning of a stored variant during rebuild.
+        if other.suppressed or other.route_net in automatic:
+            continue
+        all_bounds = []
+        for cut in _manufacturing_cuts(other, definitions, thread_definitions, modifier_definitions):
+            all_bounds.append(cylinder_bounds(cut['feature'], design.block, cut['start'], cut['end'],
+                                              2*max(cut['radius_start'], cut['radius_end'])))
+        origin,_ = pose(other,design.block)
+        transverse = FACE_AXES[other.face][:2]
+        for axis in range(3):
+            low = min(b[axis][0] for b in all_bounds)
+            high = max(b[axis][1] for b in all_bounds)
+            if axis in transverse:
+                low = min(low, origin[axis]-other.clearance_diameter/2)
+                high = max(high, origin[axis]+other.clearance_diameter/2)
+            for side, edge in (('m', low), ('p', high)):
+                coordinate = edge + (-1 if side == 'm' else 1)*(net.diameter/2 + design.rules.minimum_wall + .1)
+                if (margin <= coordinate <= limits[axis]-margin and
+                        (coordinate < center[axis] if side == 'm' else coordinate > center[axis])):
+                    planes[axis][side].append(round(coordinate, 6))
+    for axis in range(3):
+        for side in 'pm':
+            values = sorted(set(planes[axis][side]), key=lambda v: (abs(v-center[axis]), v))
+            boundary = margin if side == 'm' else limits[axis]-margin
+            planes[axis][side] = values[:2] or [boundary]
+    return planes
 
 
 def segment_distance(a,b,c,d):
@@ -216,6 +300,31 @@ def simple_routes(design,net,definitions=None):
                     t,face,p=min(entries);u,v,_,_=FACE_AXES[face]
                     routes.append([Feature(id=f'R-{digest}-1',kind='drilling',face=face,u=p[u],v=p[v],direction=direction,
                                            circuit=net.id,diameter=net.diameter,depth=t+length+net.diameter/2,plugged=True,route_net=net.id)])
+    if net.drilling_mode == 'orthogonal':
+        # These bounded two-plane candidates use only authored machining bounds,
+        # so a persisted simple_N variant regenerates identically after other
+        # automatic routes are rebuilt in a different order.
+        automatic = {n.id for n in design.nets if n.routing == 'automatic'}
+        source = design.model_copy(update=dict(features=[f for f in design.features if f.route_net not in automatic]))
+        planes = obstacle_safe_planes(source, net, definitions)
+        seen = {tuple((f.face,round(f.u,5),round(f.v,5),round(f.depth,5),f.plugged) for f in route)
+                for route in routes}
+        orders = [order for order in itertools.permutations(range(3))
+                  if net.preferred_axis == 'auto' or order[0] == 'xyz'.index(net.preferred_axis)]
+        entries = ('nearest','negative','positive') if net.entry_preference == 'nearest' else (net.entry_preference,)
+        for axes in itertools.combinations(range(3),2):
+            for sides in itertools.product('pm',repeat=2):
+                for first in planes[axes[0]][sides[0]]:
+                    for second in planes[axes[1]][sides[1]]:
+                        bends = ((axes[0],first),(axes[1],second))
+                        for order in orders:
+                            for entry in entries:
+                                route = propose(source,net,order,entry,bends,definitions,planes)
+                                signature = tuple((f.face,round(f.u,5),round(f.v,5),round(f.depth,5),f.plugged) for f in route)
+                                if len(route)>8 or signature in seen:
+                                    continue
+                                seen.add(signature)
+                                routes.append(route)
     return routes
 
 
@@ -391,13 +500,86 @@ def _manufacturing_cuts(feature, definitions, thread_definitions, modifier_defin
                        inner_radius=primitive.get('inner_diameter', 0)/2 if primitive['kind'] == 'annulus' else 0)
 
 
-def route_obstructions(design, net, route,thread_definitions=None,definitions=None,modifier_definitions=None):
-    """Cheap, sufficient evidence of hard failure, never a feasibility certificate.
+def _protected_source_cuts(other, net, definitions, thread_definitions, modifier_definitions):
+    """Exclude only the assigned hydraulic window, not the entire source feature."""
+    definition = definitions[other.definition]
+    allowed = [z for z in definition.zones if
+               (other.id if other.kind == 'port' else f'{other.id}:{z.id}') in net.members and
+               (other.circuit if other.kind == 'port' else other.circuits.get(z.id)) == net.id]
+    angle = math.radians(other.rotation)
+    for cut in _manufacturing_cuts(other, definitions, thread_definitions, modifier_definitions):
+        matching = []
+        for zone in allowed:
+            zu = other.u + zone.offset_u*math.cos(angle)-zone.offset_v*math.sin(angle)
+            zv = other.v + zone.offset_u*math.sin(angle)+zone.offset_v*math.cos(angle)
+            if abs(cut['feature'].u-zu)<1e-6 and abs(cut['feature'].v-zv)<1e-6:
+                matching.append(zone)
+        breaks = sorted({cut['start'], cut['end'], *(x for z in matching for x in (z.start, z.end)
+                          if cut['start'] < x < cut['end'])})
+        for start, end in zip(breaks, breaks[1:]):
+            first = (start-cut['start'])/(cut['end']-cut['start'])
+            last = (end-cut['start'])/(cut['end']-cut['start'])
+            part = dict(cut, start=start, end=end,
+                        radius_start=cut['radius_start']+(cut['radius_end']-cut['radius_start'])*first,
+                        radius_end=cut['radius_start']+(cut['radius_end']-cut['radius_start'])*last)
+            windows = [z for z in matching if z.start <= start+1e-6 and end <= z.end+1e-6]
+            if windows:
+                # The window cannot authorize machining outside its radial extent.
+                part['inner_radius'] = max(part['inner_radius'],max(z.diameter/2 for z in windows))
+                if part['inner_radius'] >= max(part['radius_start'],part['radius_end'])-1e-6:
+                    continue
+            yield part, bool(matching)
 
-    Capsules INSIDE straight cylindrical cuts prove contact/insufficient wall without
-    treating the usual outer capsule proxy (especially its end caps) as exact geometry.
-    Source profiles, tips, hydraulic openings and connectivity still need OCCT.
-    """
+
+def _cut_slices(cut):
+    if abs(cut['radius_start']-cut['radius_end']) < 1e-7:
+        yield cut
+        return
+    for index in range(12):
+        a, b = index/12, (index+1)/12
+        yield dict(cut,
+                   start=cut['start']+(cut['end']-cut['start'])*a,
+                   end=cut['start']+(cut['end']-cut['start'])*b,
+                   radius_start=cut['radius_start']+(cut['radius_end']-cut['radius_start'])*a,
+                   radius_end=cut['radius_start']+(cut['radius_end']-cut['radius_start'])*b)
+
+
+def _cuts_too_close(route_cuts, obstacle, block, clearance):
+    """Broad-phase finite bounds, then tapered profile slices only near a cut."""
+    def bounds(cut):
+        return cylinder_bounds(cut['feature'], block, cut['start'], cut['end'],
+                               2*max(cut['radius_start'], cut['radius_end']))
+    def separated(a, b):
+        return any(x[1]+clearance <= y[0]+1e-6 or y[1]+clearance <= x[0]+1e-6
+                   for x,y in zip(a,b))
+    outer_bounds = bounds(obstacle)
+    for route_cut in route_cuts:
+        if separated(bounds(route_cut), outer_bounds):
+            continue
+        if obstacle['inner_radius']:
+            origin,direction = pose(obstacle['feature'],block)
+            radial = []
+            for point in segment(route_cut['feature'],block,route_cut['start'],route_cut['end']):
+                delta = tuple(point[i]-origin[i] for i in range(3))
+                axial = sum(delta[i]*direction[i] for i in range(3))
+                radial.append(math.sqrt(max(0,sum(v*v for v in delta)-axial*axial)))
+            if max(radial)+max(route_cut['radius_start'],route_cut['radius_end'])+clearance <= obstacle['inner_radius']:
+                continue
+        for cut in _cut_slices(obstacle):
+            cut_bounds = bounds(cut)
+            for part in _cut_slices(route_cut):
+                if separated(bounds(part), cut_bounds):
+                    continue
+                a,b = segment(part['feature'], block, part['start'], part['end'])
+                c,d = segment(cut['feature'], block, cut['start'], cut['end'])
+                if (segment_distance(a,b,c,d)-max(part['radius_start'],part['radius_end'])
+                        -max(cut['radius_start'],cut['radius_end']) < clearance-1e-6):
+                    return True
+    return False
+
+
+def route_obstructions(design, net, route,thread_definitions=None,definitions=None,modifier_definitions=None):
+    """Conservative finite-cut, wall, plug and access screen; OCCT grants feasibility."""
     if thread_definitions is None:
         from .engineering_db import thread_definitions_for_design
         thread_definitions=thread_definitions_for_design(design)
@@ -413,6 +595,16 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
         if route_margin(design,[bore])['estimated_min_wall_mm'] < design.rules.minimum_wall-1e-6:
             failures.add(('external_wall',bore.id))
         if bore.plugged:
+            a,b = segment(bore, design.block, -bore.clearance_height, 0)
+            for other in obstacles:
+                if other.suppressed or other.id == bore.id or not (other.kind in ('port','cavity') or other.plugged):
+                    continue
+                definition = definitions[other.definition] if other.definition else None
+                diameter = definition.clearance_diameter if other.kind == 'cavity' and definition else other.clearance_diameter
+                height = definition.clearance_height if other.kind == 'cavity' and definition else other.clearance_height
+                c,d = segment(other, design.block, -height, 0)
+                if segment_distance(a,b,c,d)-(bore.clearance_diameter+diameter)/2 < design.rules.minimum_access_gap-1e-6:
+                    failures.add(('installation_access', *sorted((bore.id, other.id))))
             for other in obstacles:
                 if other.suppressed or other.id == bore.id:
                     continue
@@ -420,6 +612,49 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
                        for cut in _manufacturing_cuts(other, definitions, thread_definitions, modifier_definitions)):
                     failures.add(('plug_cut', *sorted((bore.id, other.id))))
         radius=bore.diameter/2
+        route_cuts = list(_manufacturing_cuts(bore, definitions, thread_definitions, modifier_definitions))
+        for other in obstacles:
+            if other.suppressed or other.id == bore.id or not other.definition:
+                continue
+            # Exact validation permits a coaxial continuation through its inlet.
+            if (other.kind == 'port' and other.id in net.members and other.circuit == net.id
+                    and other.face == bore.face and abs(other.u-bore.u)<1e-6 and abs(other.v-bore.v)<1e-6):
+                continue
+            definition = definitions[other.definition]
+            assigned = [z for z in definition.zones if
+                        (other.id if other.kind == 'port' else f'{other.id}:{z.id}') in net.members and
+                        (other.circuit if other.kind == 'port' else other.circuits.get(z.id)) == net.id]
+            near_assigned = False
+            for zone in assigned:
+                angle = math.radians(other.rotation)
+                placed = other.model_copy(update=dict(
+                    u=other.u+zone.offset_u*math.cos(angle)-zone.offset_v*math.sin(angle),
+                    v=other.v+zone.offset_u*math.sin(angle)+zone.offset_v*math.cos(angle)))
+                c,d = segment(placed, design.block, zone.start, zone.end)
+                window_radius = max((max(stage.diameter,getattr(stage,'end_diameter',0))/2
+                                     for stage in definition.cutting_primitives or definition.stages
+                                     if stage.start <= (zone.start+zone.end)/2 <= stage.end
+                                     and abs(getattr(stage,'offset_u',0)-zone.offset_u)<1e-6
+                                     and abs(getattr(stage,'offset_v',0)-zone.offset_v)<1e-6), default=zone.diameter/2)
+                for route_cut in route_cuts:
+                    a,b = segment(route_cut['feature'], design.block, route_cut['start'], route_cut['end'])
+                    if segment_distance(a,b,c,d) < max(route_cut['radius_start'],route_cut['radius_end'])+window_radius-1e-6:
+                        near_assigned = True
+                        break
+            for whole_cut, own_window in _protected_source_cuts(other, net, definitions,
+                                                             thread_definitions, modifier_definitions):
+                threshold = 0 if own_window and near_assigned else design.rules.minimum_wall
+                if _cuts_too_close(route_cuts, whole_cut, design.block, threshold):
+                    failures.add(('source_protected' if threshold==0 else 'source_wall',
+                                  *sorted((bore.id, other.id))))
+                    break
+        for other in obstacles:
+            if other.suppressed or other.id == bore.id or other.definition or other.circuit == net.id:
+                continue
+            for whole_cut in _manufacturing_cuts(other, definitions, thread_definitions, modifier_definitions):
+                if _cuts_too_close(route_cuts, whole_cut, design.block, design.rules.minimum_wall):
+                    failures.add(('cross_net_wall', *sorted((bore.id, other.id))))
+                    break
         if bore.depth < 2*radius:continue
         a,b=segment(bore,design.block,radius,bore.depth-radius)
         for other in obstacles:
@@ -461,12 +696,17 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
     entries = ['nearest','negative','positive'] if net.entry_preference == 'nearest' else [net.entry_preference]
     options, seen = [],set()
     for i,route in enumerate(simple_routes(design,net,definitions)):
+        signature = tuple((f.face,round(f.u,5),round(f.v,5),round(f.depth,5),f.plugged) for f in route)
+        if signature in seen:
+            continue
+        seen.add(signature)
         options.append(dict(key=f'simple_{i}',route=route,risk=proximity_risk(design,net,route,definitions,thread_definitions),cost=route_cost(design,route)))
     sides=('p','m','p2','m2') if expanded else ('p','m')
     detours = ['direct'] + [f'offset_{axis}_{side}' for axis in 'xyz' for side in sides]
+    safe_planes = obstacle_safe_planes(design, net, definitions, thread_definitions, modifier_definitions)
     for order,entry,detour in itertools.product(orders,entries,detours):
         key = ''.join('xyz'[i] for i in order)+':'+entry+':'+detour
-        route = propose(design,net,order,entry,detour,definitions)
+        route = propose(design,net,order,entry,detour,definitions,safe_planes)
         signature = tuple((f.face,round(f.u,5),round(f.v,5),round(f.depth,5),f.plugged) for f in route)
         if signature in seen:
             continue
@@ -484,6 +724,51 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
     return sorted(permitted or options,key=lambda o:(o['hard_failures'],o['cost']+o['risk'],o['cost'],o['key']))
 
 
+def _complete_route_combination(design, definitions, thread_definitions, modifier_definitions):
+    """Bounded backtracking across individually clear automatic routes."""
+    nets = sorted((n for n in design.nets if n.routing == 'automatic'), key=lambda n:n.id)
+    if len(nets)<2 or any(n.routing_variant or n.flow_lpm for n in nets):
+        return None
+    automatic = {n.id for n in nets}
+    source = design.model_copy(update=dict(features=[f for f in design.features if f.route_net not in automatic]))
+    pools = {}
+    for net in nets:
+        options = route_options(source, net, definitions=definitions,
+                                thread_definitions=thread_definitions, modifier_definitions=modifier_definitions)
+        pools[net.id] = [o for o in options if o['hard_failures']==0][:24]
+        if not pools[net.id]:
+            return None
+    compatible = {}
+    inspected = 0
+
+    def pair_clear(a, ao, b, bo):
+        nonlocal inspected
+        key = (a.id,ao['key'],b.id,bo['key'])
+        if key not in compatible:
+            inspected += 1
+            if inspected > 4000:
+                return False
+            context = source.model_copy(update=dict(features=ao['route']+bo['route']))
+            compatible[key] = (not route_obstructions(context,a,ao['route'],thread_definitions,definitions,modifier_definitions)
+                               and not route_obstructions(context,b,bo['route'],thread_definitions,definitions,modifier_definitions))
+        return compatible[key]
+
+    def search(index, chosen):
+        if inspected > 4000:
+            return None
+        if index == len(nets):
+            return chosen if len(source.features)+sum(len(o['route']) for o in chosen.values())<=120 else None
+        net = nets[index]
+        for option in pools[net.id]:
+            if all(pair_clear(prior, chosen[prior.id], net, option) for prior in nets[:index]):
+                result = search(index+1,{**chosen,net.id:option})
+                if result:
+                    return result
+        return None
+
+    return search(0,{})
+
+
 @timed('route.proposal')
 def _resolve_proposals(design):
     resolved = resolve_parents(design)
@@ -498,6 +783,11 @@ def _resolve_proposals(design):
         if net.routing=='automatic':net.diameter=sizing[net.id]['diameter_mm']
     automatic = {n.id for n in resolved.nets if n.routing == 'automatic'}
     resolved.features = [f for f in resolved.features if f.route_net not in automatic]
+    # Multi-net layouts commonly need a paired move. Build their independent
+    # pools once instead of first exhausting a conflicting greedy layout and
+    # then rebuilding the same pools for the bounded combination search.
+    combination = (_complete_route_combination(resolved,definitions,thread_definitions,modifier_definitions)
+                   if len(automatic)>2 else None)
     candidates = []
     for net in sorted(resolved.nets,key=lambda n:n.id):
         if net.routing != 'automatic':
@@ -520,8 +810,9 @@ def _resolve_proposals(design):
             return actual
         # Pinned candidates are materialized directly; enumerating their entire
         # neighbourhood again would multiply the cost of each exact attempt.
-        choices = [] if net.routing_variant else route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions,
-                                                                modifier_definitions=modifier_definitions)
+        choices = ([combination[net.id]] if combination else [] if net.routing_variant else
+                   route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions,
+                                 modifier_definitions=modifier_definitions))
         if net.routing_variant:
             if net.routing_variant.startswith('simple_'):
                 choices=[dict(key=f'simple_{i}',route=r,risk=proximity_risk(resolved,net,r,definitions,thread_definitions),cost=route_cost(resolved,r))
@@ -562,6 +853,22 @@ def _resolve_proposals(design):
                                **route_margin(design,route),
                                candidates=max(1,len(choices)), drillings=len(route), plugs=sum(f.plugged for f in route),
                                length_mm=round(sum(f.depth for f in route),2), status='PROPOSAL_REQUIRES_EXACT_VALIDATION'))
+    if len(automatic)<=2 and any(route_obstructions(resolved,n,[f for f in resolved.features if f.route_net==n.id],
+                              thread_definitions,definitions,modifier_definitions)
+           for n in resolved.nets if n.routing=='automatic'):
+        combination = _complete_route_combination(resolved,definitions,thread_definitions,modifier_definitions)
+        if combination:
+            resolved.features = [f for f in resolved.features if f.route_net not in automatic]
+            for net in sorted((n for n in resolved.nets if n.routing=='automatic'),key=lambda n:n.id):
+                option = combination[net.id]
+                route = option['route']
+                resolved.features.extend(route)
+                metadata = next(r for r in candidates if r['net']==net.id)
+                metadata.update(variant=option['key'],axis_order=option['key'].split(':')[0],
+                                proximity_risk=option['risk'],drillings=len(route),
+                                plugs=sum(f.plugged for f in route),
+                                length_mm=round(sum(f.depth for f in route),2),
+                                **route_margin(design,route))
     # One bounded repair sweep revisits BOTH sides of observed inter-net obstacles.
     # Explicit variants/frozen geometry are preserved. No CAD or exact search here.
     for net in sorted(resolved.nets,key=lambda n:n.id):
@@ -622,10 +929,13 @@ def alternative_proposals(best, target, routes, report, eligible, inspected, *, 
         context.features=[f for f in context.features if f.route_net!=net_id]
         net=next(n for n in context.nets if n.id==net_id)
         options=[o for o in route_options(context,net,expanded=bool(report['counts']['FAIL'])) if o['key']!=selected[net_id]]
-        screened=sorted(options,key=lambda o:(o['hard_failures'],o['risk'],o['cost'],o['key']))
-        economical=sorted(options,key=lambda o:(o['cost'],o['key']))
-        pool={o['key']:o for o in screened[:3]+economical[:3]}
-        pools[net_id]=screened[:2]
+        screened=sorted(options,
+                        key=lambda o:(len(o['route']),sum(f.plugged for f in o['route']),
+                                      sum(f.depth for f in o['route']),o['risk'],o['key']))
+        feasible=[o for o in screened if o['hard_failures']==0]
+        pool={o['key']:o for o in feasible[:6]}
+        pools[net_id]=sorted(options,key=lambda o:(o['hard_failures'],len(o['route']),
+                                                     o['risk'],o['key']))[:3]
         moves.extend({net_id:o} for o in pool.values())
     for a,b in sorted(conflicts):
         moves.extend({a:x,b:y} for x,y in itertools.product(pools[a],pools[b]))
@@ -651,7 +961,10 @@ def alternative_proposals(best, target, routes, report, eligible, inspected, *, 
         # disproportionately expensive even when the proxy obstruction count is
         # identical.  Exact checks still decide whether the candidate improves.
         complexity=(max((f.depth for f in changed),default=0),len(changed))
-        ranking=(len(failures),risk,*complexity,cost,variants) if report['counts']['FAIL'] else (cost,len(failures),risk,*complexity,variants)
+        if failures:
+            continue
+        ranking=(len(changed),sum(f.plugged for f in changed),sum(f.depth for f in changed),
+                 risk,*complexity,cost,variants) if report['counts']['FAIL'] else (cost,risk,*complexity,variants)
         candidate=best.model_copy(deep=True)
         for net in candidate.nets:
             if net.id in move:net.routing_variant=move[net.id]['key']
@@ -661,7 +974,7 @@ def alternative_proposals(best, target, routes, report, eligible, inspected, *, 
 
 @timed('route.resolution')
 def resolve_design(design, *, exact=True, persist=False, prepared=False):
-    """Compare up to six automatic proposals exactly, preserving frozen/manual cuts.
+    """Check a bounded set of distinct clear proposals, preserving frozen/manual cuts.
 
     Exact selection is pure unless an explicit build/engineering decision opts into evidence.
     Proxy risk schedules proposals only. Exact failures, warnings, then machining
@@ -677,6 +990,8 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False):
     from .validation import validate
     from . import store
     import uuid
+    import time
+    started = time.monotonic()
     folder = store.OUTPUT/'route-selections'/uuid.uuid4().hex if persist else None
     attempts=[]
     skipped=[]
@@ -707,13 +1022,15 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False):
     score,target,routes,chosen,report,geometry=evaluate(best,'Default baseline')
     inspected={tuple(sorted((r['net'],r['variant']) for r in routes))}
     eligible={n.id for n in pending}
-    # Authoritative Validate performs the exact baseline plus one focused repair.
-    # Broader cost/alternative exploration belongs to the explicit Optimize action;
-    # it must not let one pathological OCCT candidate consume the 300 s watchdog.
-    attempt_limit=2 if prepared else 6
-    while len(attempts)<attempt_limit and not (prepared and score[0]==0):
+    # Only untried, analytically clear candidates spend the exact budget. The
+    # eight-candidate/240 s ceilings leave the worker's CAD watchdog intact.
+    while not (prepared and score[0]==0):
         proposals=alternative_proposals(best,target,routes,report,eligible,inspected)
         if not proposals:break
+        attempt_limit=min(8,len(attempts)+len(proposals))
+        if len(attempts)>=attempt_limit or time.monotonic()-started>=240:
+            skipped.append(dict(reason='Distinct candidate/execution budget exhausted'))
+            break
         _,candidate,signature,reason=proposals[0]
         inspected.add(signature)
         proposal,_=_resolve_proposals(candidate)

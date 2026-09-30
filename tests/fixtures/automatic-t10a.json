@@ -1,0 +1,394 @@
+{
+  "provenance": "Observed 160 x 200 x 200 project with corrected MDTools SUN T-10A metric definition, staging-delivery.db from fee1eb4 geometry conversion. Source project unchanged.",
+  "design": {
+    "name": "SUN T-10A four-net routing reproduction",
+    "project_context": "metric",
+    "block": {
+      "length": 160.0,
+      "width": 200.0,
+      "height": 200.0,
+      "material": "Aluminum",
+      "material_id": "material_1"
+    },
+    "rules": {
+      "minimum_wall": 7.0,
+      "minimum_overlap_volume": 0.1,
+      "max_depth_diameter_ratio": 20.0,
+      "minimum_access_gap": 2.0,
+      "allowable_stress_mpa": null,
+      "pressure_safety_factor": 2.0
+    },
+    "features": [
+      {
+        "id": "PORT_29b8bbc796df41b88c32317c4859ed50",
+        "kind": "port",
+        "face": "front",
+        "u": 36.0,
+        "v": 100.0,
+        "cavity_id": null,
+        "interface_nets": {},
+        "circuit": "P",
+        "diameter": 12.0,
+        "depth": 16.0,
+        "clearance_diameter": 20.0,
+        "clearance_height": 20.0
+      },
+      {
+        "id": "PORT_7f782fc3b1ff4cf58d211ec0c8ef2a08",
+        "kind": "port",
+        "face": "front",
+        "u": 64.0,
+        "v": 100.0,
+        "cavity_id": null,
+        "interface_nets": {},
+        "circuit": "T",
+        "diameter": 12.0,
+        "depth": 16.0,
+        "clearance_diameter": 20.0,
+        "clearance_height": 20.0
+      },
+      {
+        "id": "PORT_c2b65a39f1494d02b70f2611b52070cb",
+        "kind": "port",
+        "face": "front",
+        "u": 96.0,
+        "v": 100.0,
+        "cavity_id": null,
+        "interface_nets": {},
+        "circuit": "A",
+        "diameter": 12.0,
+        "depth": 16.0,
+        "clearance_diameter": 20.0,
+        "clearance_height": 20.0
+      },
+      {
+        "id": "PORT_d4c756fecc3d44b2ac699893641a57f7",
+        "kind": "port",
+        "face": "front",
+        "u": 128.0,
+        "v": 100.0,
+        "cavity_id": null,
+        "interface_nets": {},
+        "circuit": "B",
+        "diameter": 12.0,
+        "depth": 16.0,
+        "clearance_diameter": 20.0,
+        "clearance_height": 20.0
+      },
+      {
+        "id": "CV1",
+        "kind": "cavity",
+        "face": "top",
+        "u": 53.0,
+        "v": 100.0,
+        "cavity_id": "cav_550b3810cce6a57d70c0",
+        "interface_nets": {
+          "port1": "P",
+          "port2": "A"
+        },
+        "circuit": null,
+        "diameter": null,
+        "depth": null,
+        "clearance_diameter": 20.0,
+        "clearance_height": 20.0
+      },
+      {
+        "id": "CV2",
+        "kind": "cavity",
+        "face": "top",
+        "u": 107.0,
+        "v": 100.0,
+        "cavity_id": "cav_550b3810cce6a57d70c0",
+        "interface_nets": {
+          "port1": "T",
+          "port2": "B"
+        },
+        "circuit": null,
+        "diameter": null,
+        "depth": null,
+        "clearance_diameter": 20.0,
+        "clearance_height": 20.0
+      }
+    ],
+    "nets": [
+      {
+        "id": "P",
+        "label": "P",
+        "routing": "automatic",
+        "drilling_mode": "orthogonal",
+        "diameter": 8.0,
+        "diameter_mode": "automatic",
+        "color": "#ef5959"
+      },
+      {
+        "id": "T",
+        "label": "T",
+        "routing": "automatic",
+        "drilling_mode": "orthogonal",
+        "diameter": 8.0,
+        "diameter_mode": "automatic",
+        "color": "#459cff"
+      },
+      {
+        "id": "A",
+        "label": "A",
+        "routing": "automatic",
+        "drilling_mode": "orthogonal",
+        "diameter": 8.0,
+        "diameter_mode": "automatic",
+        "color": "#41ca8b"
+      },
+      {
+        "id": "B",
+        "label": "B",
+        "routing": "automatic",
+        "drilling_mode": "orthogonal",
+        "diameter": 8.0,
+        "diameter_mode": "automatic",
+        "color": "#f2d454"
+      }
+    ],
+    "constraints": {
+      "preferred_wall_margin": 4.0,
+      "envelope_max": null,
+      "envelope_min": null,
+      "required_feature_faces": {},
+      "preferred_component_faces": [
+        "top"
+      ],
+      "preferred_port_faces": {},
+      "priority": "fewer_plugs",
+      "standard_drills": [
+        4.0,
+        5.0,
+        6.0,
+        8.0,
+        10.0,
+        12.0,
+        16.0,
+        20.0
+      ],
+      "forbidden_drilling_faces": [],
+      "notes": ""
+    }
+  },
+  "definitions": {
+    "cav_550b3810cce6a57d70c0": {
+      "id": "cav_550b3810cce6a57d70c0",
+      "label": "T-10A",
+      "family": "Sun Hydraulics",
+      "unit_system": "metric",
+      "thread_note": "M20x1.5",
+      "thread_definition_id": null,
+      "stages": [
+        {
+          "start": 0.0,
+          "end": 7.934999999999999,
+          "diameter": 25.4
+        },
+        {
+          "start": 7.934999999999999,
+          "end": 11.930000000000001,
+          "diameter": 21.85
+        },
+        {
+          "start": 11.930000000000001,
+          "end": 12.36301270189222,
+          "diameter": 21.16
+        },
+        {
+          "start": 12.36301270189222,
+          "end": 16.220000000000002,
+          "diameter": 20.66
+        },
+        {
+          "start": 16.220000000000002,
+          "end": 24.63,
+          "diameter": 20.0
+        },
+        {
+          "start": 24.63,
+          "end": 44.644999999999996,
+          "diameter": 18.59
+        },
+        {
+          "start": 44.644999999999996,
+          "end": 51.8,
+          "diameter": 17.48
+        }
+      ],
+      "zones": [
+        {
+          "start": 44.644999999999996,
+          "end": 51.8,
+          "diameter": 25.4,
+          "id": "port1",
+          "offset_u": 0.0,
+          "offset_v": 0.0,
+          "clip_to_cut": true
+        },
+        {
+          "start": 21.445,
+          "end": 43.675000000000004,
+          "diameter": 25.4,
+          "id": "port2",
+          "offset_u": 0.0,
+          "offset_v": 0.0,
+          "clip_to_cut": true
+        }
+      ],
+      "clearance_diameter": 31.75,
+      "clearance_height": 51.8,
+      "manufacturer": "",
+      "cutting_primitives": [
+        {
+          "source_ref": "main:circle1",
+          "start": 0.0,
+          "end": 6.16,
+          "diameter": 25.4,
+          "end_diameter": 0.0,
+          "kind": "cylinder",
+          "inner_diameter": 0.0,
+          "offset_u": 0.0,
+          "offset_v": 0.0
+        },
+        {
+          "source_ref": "main:circle1",
+          "start": 6.16,
+          "end": 7.934999999999999,
+          "diameter": 25.4,
+          "end_diameter": 21.85,
+          "kind": "cone",
+          "inner_diameter": 0.0,
+          "offset_u": 0.0,
+          "offset_v": 0.0
+        },
+        {
+          "source_ref": "main:circle2",
+          "start": 7.934999999999999,
+          "end": 11.930000000000001,
+          "diameter": 21.85,
+          "end_diameter": 0.0,
+          "kind": "cylinder",
+          "inner_diameter": 0.0,
+          "offset_u": 0.0,
+          "offset_v": 0.0
+        },
+        {
+          "source_ref": "main:circle3",
+          "start": 11.930000000000001,
+          "end": 12.36301270189222,
+          "diameter": 21.16,
+          "end_diameter": 20.66,
+          "kind": "cone",
+          "inner_diameter": 0.0,
+          "offset_u": 0.0,
+          "offset_v": 0.0
+        },
+        {
+          "source_ref": "main:circle4",
+          "start": 12.36301270189222,
+          "end": 15.89,
+          "diameter": 20.66,
+          "end_diameter": 0.0,
+          "kind": "cylinder",
+          "inner_diameter": 0.0,
+          "offset_u": 0.0,
+          "offset_v": 0.0
+        },
+        {
+          "source_ref": "main:circle4",
+          "start": 15.89,
+          "end": 16.220000000000002,
+          "diameter": 20.66,
+          "end_diameter": 20.0,
+          "kind": "cone",
+          "inner_diameter": 0.0,
+          "offset_u": 0.0,
+          "offset_v": 0.0
+        },
+        {
+          "source_ref": "main:circle5",
+          "start": 16.220000000000002,
+          "end": 24.63,
+          "diameter": 20.0,
+          "end_diameter": 0.0,
+          "kind": "cylinder",
+          "inner_diameter": 0.0,
+          "offset_u": 0.0,
+          "offset_v": 0.0
+        },
+        {
+          "source_ref": "main:circle6",
+          "start": 24.63,
+          "end": 44.089999999999996,
+          "diameter": 18.59,
+          "end_diameter": 0.0,
+          "kind": "cylinder",
+          "inner_diameter": 0.0,
+          "offset_u": 0.0,
+          "offset_v": 0.0
+        },
+        {
+          "source_ref": "main:circle6",
+          "start": 44.089999999999996,
+          "end": 44.644999999999996,
+          "diameter": 18.59,
+          "end_diameter": 17.48,
+          "kind": "cone",
+          "inner_diameter": 0.0,
+          "offset_u": 0.0,
+          "offset_v": 0.0
+        },
+        {
+          "source_ref": "main:circle7",
+          "start": 44.644999999999996,
+          "end": 51.8,
+          "diameter": 17.48,
+          "end_diameter": 0.0,
+          "kind": "cylinder",
+          "inner_diameter": 0.0,
+          "offset_u": 0.0,
+          "offset_v": 0.0
+        }
+      ],
+      "boundaries": [],
+      "machining": [
+        {
+          "operation": "DRILL",
+          "tool": null,
+          "diameter": "$STEP12",
+          "depth": "$STEP12",
+          "tool_type": "drill",
+          "diameter_mm": 13.0,
+          "depth_mm": 127.0,
+          "geometry_role": "pilot_reference"
+        },
+        {
+          "operation": "SUN CAVITY",
+          "tool": "DEPTH IS L.S DEPTH",
+          "diameter": "T-10A",
+          "depth": "$STEP2",
+          "tool_type": null,
+          "diameter_mm": null,
+          "depth_mm": 11.930000000000001,
+          "geometry_role": "cut"
+        },
+        {
+          "operation": "DRILL",
+          "tool": null,
+          "diameter": "$STEP0",
+          "depth": "$STEP0",
+          "tool_type": "drill",
+          "diameter_mm": 31.75,
+          "depth_mm": 33.32,
+          "geometry_role": "tool_clearance"
+        }
+      ],
+      "usable": true,
+      "unusable_reason": "",
+      "active": true,
+      "kind": "cavity"
+    }
+  }
+}
