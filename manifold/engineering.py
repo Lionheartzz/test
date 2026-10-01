@@ -7,6 +7,7 @@ import asyncio
 import atexit
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -40,6 +41,8 @@ class Executor:
         metrics=row['process'].metrics();baseline=row.get('baseline_metrics',{})
         if 'cpu_s' in metrics and 'cpu_s' in baseline:metrics['cpu_s']=round(max(0,metrics['cpu_s']-baseline['cpu_s']),4)
         return {**detail,**metrics,'id':row['id'],'operation':row['operation'],'pid':row['process'].process.pid,
+                'project_id':row.get('project_id'),'engine_revision':row.get('engine_revision'),
+                'trace_elapsed_s':detail.get('elapsed_s',0),
                 'warm_reused':row.get('warm_reused',False),
                 'elapsed_s':round(time.monotonic()-row['start'],3),'limit_s':row['limit'],'exit_code':row['process'].process.poll()}
 
@@ -49,13 +52,18 @@ class Executor:
             if process.process.poll() is None:process.stop()
             process.close()
 
-    def start(self,operation,payload,*,transient=False,owner='',version=0,limit=None):
+    def start(self,operation,payload,*,transient=False,owner='',version=0,limit=None,operation_id=None,project_id=None):
         from . import store
         from .engine import assert_engine_current,engine_revision
         from .engineering_db import database_path
         assert_engine_current()
         limit=limit or (30 if transient else 300)
         with self.lock:
+            if operation_id:
+                if operation!='build' or transient or not re.fullmatch(r'[0-9a-f]{32}',operation_id):
+                    raise CalculationError('Invalid authoritative operation ID.',422)
+                if any(r['id']==operation_id for r in self.history) or self.active and self.active['id']==operation_id:
+                    raise CalculationError('Operation ID already used. Start a new Validate operation.',409)
             if transient and owner:
                 if version<self.versions.get(owner,-1) or version<=self.cancelled.get(owner,-1):raise CalculationError('Preview superseded by a newer draft.',409)
                 self.versions[owner]=version
@@ -66,7 +74,7 @@ class Executor:
                 else:raise CalculationError('An authoritative engineering calculation is running. Try again when it finishes.',409)
             use_warm=self.warm_preview and transient and operation in ('preview','preview-solid','preview-layer')
             if not use_warm:self.destroy_warm()
-            key=uuid.uuid4().hex;work=Path(tempfile.mkdtemp(prefix='pmc-cad-'))
+            key=operation_id or uuid.uuid4().hex;work=Path(tempfile.mkdtemp(prefix='pmc-cad-'))
             traces=store.OUTPUT/'cad-diagnostics';traces.mkdir(parents=True,exist_ok=True)
             trace=traces/(key+'.json')
             request=dict(operation=operation,payload=payload,output=str(store.OUTPUT.resolve()),project=str(store.PROJECT.resolve()),
@@ -103,11 +111,29 @@ class Executor:
                 if use_warm:self.destroy_warm()
                 shutil.rmtree(work);raise
             row=dict(id=key,operation=operation,process=process,work=work,trace=trace,start=time.monotonic(),limit=limit,
+                     project_id=project_id,engine_revision=engine_revision(),
                      transient=transient,owner=owner,version=version,error=None,closed=False,warm=use_warm,
                      warm_reused=warm_reused,baseline_metrics=process.metrics())
             self.active=row
             row['timer']=threading.Timer(limit,self.expire,args=(row,));row['timer'].daemon=True;row['timer'].start()
             return row
+
+    def progress(self,operation_id,project_id=None):
+        from .validation_progress import public_progress
+        with self.lock:
+            row=self.active if self.active and self.active['id']==operation_id else None
+            if row:
+                if row['operation']!='build' or row.get('project_id')!=project_id:return None
+                return public_progress(self.describe(row))
+            record=next((r for r in reversed(self.history) if r['id']==operation_id),None)
+            if not record or record['operation']!='build' or record.get('project_id')!=project_id:return None
+            return public_progress(record)
+
+    def authoritative_result(self,operation_id,state):
+        # A completed worker is not a committed, available project result yet.
+        with self.lock:
+            record=next((r for r in reversed(self.history) if r['id']==operation_id and r['operation']=='build'),None)
+            if record:record['result_state']=state
 
     def expire(self,row):
         with self.lock:
@@ -205,11 +231,12 @@ class Executor:
 executor=Executor();atexit.register(executor.close)
 
 
-async def calculate(operation,payload,request=None,*,transient=False,limit=None,raw=False):
+async def calculate(operation,payload,request=None,*,transient=False,limit=None,raw=False,operation_id=None,project_id=None):
     owner=request.headers.get('x-pmc-preview-owner','')[:80] if request else ''
     try:version=int(request.headers.get('x-pmc-preview-version','0')) if request else 0
     except ValueError:raise CalculationError('Invalid preview version',422)
-    row=await asyncio.to_thread(executor.start,operation,payload,transient=transient,owner=owner,version=version,limit=limit)
+    row=await asyncio.to_thread(executor.start,operation,payload,transient=transient,owner=owner,version=version,limit=limit,
+                                operation_id=operation_id,project_id=project_id)
     try:
         while True:
             result=await asyncio.to_thread(executor.poll,row,raw=raw)

@@ -11,17 +11,40 @@ _counts={}
 _stack=[]
 _last_write=0
 _write_errors=0
+_progress={}
 
 
 def configure(path):
-    global _path,_started,_counts,_stack,_last_write,_write_errors
+    global _path,_started,_counts,_stack,_last_write,_write_errors,_progress
     _path=Path(path);_started=time.monotonic();_counts={};_stack=[];_last_write=0;_write_errors=0
+    _progress={}
     publish(force=True)
 
 
 def summary():
     return dict(elapsed_s=round(time.monotonic()-_started,4),phase=' / '.join(_stack) or 'completed',
-                diagnostic_write_errors=_write_errors,operations={k:dict(count=v[0],seconds=round(v[1],6)) for k,v in sorted(_counts.items())})
+                diagnostic_write_errors=_write_errors,operations={k:dict(count=v[0],seconds=round(v[1],6)) for k,v in sorted(_counts.items())},
+                progress={**_progress,'events':list(_progress.get('events',[]))})
+
+
+def progress(stage, percent, *, candidate=None, candidate_limit=None):
+    """Coarse actual milestones in the existing trace; never a wall-time percent.
+
+    Reserve completion for the API's authoritative commit. Retries retain the
+    high-water mark; these few events do not instrument individual Booleans.
+    """
+    global _progress
+    previous=_progress.get('percent',0)
+    value=min(99,max(previous,float(percent)))
+    if _progress and stage!=_progress.get('stage') and value==previous:
+        value=min(99,value+.25)
+    events=_progress.get('events',[])
+    if candidate is not None:_progress['candidate']=candidate
+    if candidate_limit is not None:_progress['candidate_limit']=candidate_limit
+    event=dict(stage=stage,percent=value,elapsed_s=round(time.monotonic()-_started,3),
+               candidate=_progress.get('candidate'))
+    _progress.update(stage=stage,percent=value,events=(events+[event])[-32:])
+    publish()  # Same 150 ms publisher; no extra per-Boolean writes.
 
 
 def publish(force=False):

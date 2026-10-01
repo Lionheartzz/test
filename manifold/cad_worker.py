@@ -76,6 +76,7 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
 def run(work,bootstrap_s=None):
     work=Path(work);request=json.loads((work/'request.json').read_text(encoding='utf-8'))
     timing.configure(request['trace'])
+    if request['operation']=='build':timing.progress('preparing',2)
     if bootstrap_s is not None:timing.record('worker.startup',bootstrap_s)
     try:
         with timing.phase('worker.request_setup' if bootstrap_s is not None else 'worker.startup'):
@@ -92,6 +93,7 @@ def run(work,bootstrap_s=None):
         with timing.phase('operation.'+request['operation']):result=dispatch(request['operation'],request['payload'],completed,proposal,exact_not_before=request.get('exact_not_before'))
     except Exception as exc:
         result=dict(error=str(exc)[:2000] or type(exc).__name__,status=422)
+    if request['operation']=='build':timing.progress('finalizing',99)
     with timing.phase('result.serialization'):
         temp=work/'result.tmp';temp.write_text(json.dumps(result),encoding='utf-8');temp.replace(work/'result.json')
         # Small, separate protocol status lets the API return large preview JSON

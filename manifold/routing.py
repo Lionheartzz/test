@@ -1594,6 +1594,8 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
     cost determine selection, with the complete multi-net design as context.
     """
     snapshots=snapshot_cache if snapshot_cache is not None else {}
+    from .timing import progress
+    if exact:progress('routes' if any(n.routing=='automatic' for n in design.nets) else 'preparing',8)
     target, routes = _resolve_proposals(design,snapshots=snapshots)
     # A stored automatic variant is a proposal, not a frozen engineering route.
     # Moving terminals can invalidate it; Save & Validate must reconsider it too.
@@ -1616,17 +1618,24 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
     optimization_done=False
     if not 1<=max_attempts<=12:raise ValueError('max_attempts must be between 1 and 12')
     def evaluate(candidate, reason):
+        index=len(attempts)
+        base=15+60*index/max_attempts
+        if pending:
+            if index:progress('alternate',base,candidate=index+1,candidate_limit=max_attempts)
+            progress('candidate',base,candidate=index+1,candidate_limit=max_attempts)
         resolved, metadata = _resolve_proposals(candidate,snapshots=snapshots)
         geometry=None
         try:
+            progress('geometry',base+2)
             geometry=build_geometry(resolved)
+            progress('rules',base+4)
             authorize_generated_contacts(resolved,geometry)
             report=validate(resolved,geometry)
         except Exception as exc:
             geometry=None
             report=dict(status='FAIL',counts=dict(FAIL=1,WARNING=0,PASS=0),checks=[dict(rule='cad_candidate_error',status='FAIL',error=type(exc).__name__,message=str(exc)[:2000])])
         cost=route_cost(resolved,[f for f in resolved.features if f.kind=='drilling' and not f.suppressed])
-        index=len(attempts)
+        progress('topology',base+6)
         score=exact_route_score(resolved,report,
                [f for f in resolved.features if f.kind=='drilling' and not f.suppressed],
                cad_error=geometry is None or not topology_clear(geometry))
@@ -1667,6 +1676,7 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
             skipped.append(dict(reason='Production topology already fails without automatic generated routes',production=fixed_topology))
             proposals=[]
         elif (cad_fallback or not optimization_done) and len(attempts)<max_attempts and time.monotonic()-started<240:
+            if pending:progress('alternate' if score[0] else 'comparison',15+60*len(attempts)/max_attempts)
             kwargs=dict(repair_only=bool(score[0]),snapshot=snapshot)
             if cad_fallback:kwargs['cad_fallback']=True
             proposals=alternative_proposals(best,target,routes,report,eligible,inspected,**kwargs)
@@ -1678,7 +1688,9 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
             # Failed serializations remain rejected in the same bounded pool.
             step_check=next((c for c in report['checks'] if c['rule']=='step_round_trip'),None)
             if geometry is not None and (step_check is None or step_path and step_exported!=chosen):
+                progress('step',85)
                 check=step_round_trip(geometry,step_path)
+                if check['status']=='PASS':progress('step_verified',93)
                 step_exported=chosen
                 add_step_check(report,check)
                 score=exact_route_score(target,report,[f for f in target.features if f.kind=='drilling' and not f.suppressed],

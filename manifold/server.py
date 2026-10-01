@@ -41,6 +41,14 @@ async def calculation_failure(request,exc):
 async def engineering_status():return await asyncio.to_thread(executor.status)
 
 
+@app.get('/api/engineering/progress/{operation_id}')
+async def engineering_progress(operation_id:str,project_id:str|None=Query(default=None,pattern=r'^[0-9a-f]{32}$')):
+    if not re.fullmatch(r'[0-9a-f]{32}',operation_id):raise HTTPException(404,'Validate operation not found.')
+    progress=await asyncio.to_thread(executor.progress,operation_id,project_id)
+    if progress is None:raise HTTPException(404,'Validate operation not found.')
+    return progress
+
+
 class CancelPreview(Strict):
     owner:str=Field(min_length=1,max_length=80)
     version:int=Field(ge=0)
@@ -84,6 +92,7 @@ class BuildRequest(Strict):
     expected_revision: str = Field(pattern=r'^[0-9a-f]{64}$')
     design: Design | None = None
     project_id: str | None = Field(default=None,pattern=r'^[0-9a-f]{32}$')
+    operation_id: str | None = Field(default=None,pattern=r'^[0-9a-f]{32}$')
 
 
 @app.get('/api/health')
@@ -106,13 +115,25 @@ def state():
 @app.post('/api/build')
 async def build(payload: BuildRequest):
     from . import store,projects
+    calculated=False
     try:
         plan=projects.prepare_build(payload.project_id,payload.expected_revision,payload.design) if payload.project_id else store.prepare_rebuild(payload.design,payload.expected_revision)
-        report=await calculate('build',dict(design=plan['target'].model_dump(),build_id=plan['build_id']))
-        return projects.finish_build(plan,report) if payload.project_id else store.finish_rebuild(plan,report)
-    except CalculationError:raise
-    except FileNotFoundError:raise HTTPException(404,'Project no longer exists; build evidence retained.')
-    except (ValueError,RuntimeError) as exc:raise HTTPException(409,str(exc))
+        report=await calculate('build',dict(design=plan['target'].model_dump(),build_id=plan['build_id']),
+                               operation_id=payload.operation_id,project_id=payload.project_id)
+        calculated=True
+        result=projects.finish_build(plan,report) if payload.project_id else store.finish_rebuild(plan,report)
+        if payload.operation_id:
+            await asyncio.to_thread(executor.authoritative_result,payload.operation_id,'complete')
+            result['operation_id']=payload.operation_id
+        return result
+    except CalculationError:
+        raise
+    except FileNotFoundError:
+        if calculated and payload.operation_id:await asyncio.to_thread(executor.authoritative_result,payload.operation_id,'failed')
+        raise HTTPException(404,'Project no longer exists; build evidence retained.')
+    except (ValueError,RuntimeError) as exc:
+        if calculated and payload.operation_id:await asyncio.to_thread(executor.authoritative_result,payload.operation_id,'failed')
+        raise HTTPException(409,str(exc))
 
 
 @app.post('/api/check-design')

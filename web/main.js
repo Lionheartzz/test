@@ -17,6 +17,8 @@ import {engineeringFactsUI} from './engineering-facts-ui.js';
 import {createStudioShell} from './studio-shell.js';
 import {createViewCube} from './viewcube.js';
 import {reportSource,resolveCheckTargets,issueReferences} from './validation-view.js';
+import {createValidationProgress,validationProgressUI} from './validate-progress.js';
+import './validate-progress.css';
 import './studio.css';
 import './home.css';
 const $=id=>document.getElementById(id),colors={P:'#ef5959',T:'#459cff',A:'#41ca8b',B:'#f2d454'},faces=Object.fromEntries(['top','bottom','front','back','left','right'].map(f=>[f,f]));
@@ -42,6 +44,12 @@ async function api(url,options={}){
   }catch(error){if(error.name==='TimeoutError')throw Error('Request timed out. Draft and last usable view retained. Refresh project status before retrying a save or build.');throw error;}
 }
 const post=(url,body,options={})=>api(url,{...options,method:'POST',headers:{'Content-Type':'application/json','X-PMC-Request':'local-console',...options.headers},body:JSON.stringify(body)});
+const validationScope=()=>projectEpoch+':'+(state?.project_id||'');
+let validationHistoryStorage;try{validationHistoryStorage=sessionStorage;}catch{}
+const validationProgress=createValidationProgress({getScope:validationScope,storage:validationHistoryStorage,
+  render:validationProgressUI($('validate-progress')),
+  fetchStatus:(id,projectId,{signal})=>api('/api/engineering/progress/'+id+'?'+new URLSearchParams({project_id:projectId}),
+    {signal:AbortSignal.any([signal,AbortSignal.timeout(2000)])})});
 api('/api/materials?include_legacy=true').then(result=>materialCatalog=result.items||[]).catch(()=>{});
 api('/api/machining-modifiers').then(result=>modifierCatalog=result.items||[]).catch(()=>{});
 function change(fn,edit={kind:'global'}){if(busy)return false;const before=cloneDesign(draft);try{fn();syncNets(draft);history.push(before);if(history.length>40)history.shift();future=[];markDirty(edit,before);return true;}catch(e){draft=before;notice(e.message,true);select(selection);return false;}}
@@ -497,11 +505,14 @@ async function build(){
   const busyObserver=new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes){if(node.nodeType!==1)continue;if(node.matches?.('button,input,select,textarea'))lockControl(node);node.querySelectorAll?.('button,input,select,textarea').forEach(lockControl);}});
   busyObserver.observe(document.body,{childList:true,subtree:true});
   renderHeader();notice('Running exact cuts, connectivity, wall checks and STEP round trip…');
+  const epoch=projectEpoch,key=state.project_id,revision=state.revision;
   try{
-    await post('/api/build',{expected_revision:state.revision,design:dirty?draft:null,project_id:state.project_id});
-    await load();history=[];future=[];
+    await validationProgress.run({projectId:key,scope:validationScope(),key:key+':'+revision,
+      execute:operation_id=>post('/api/build',{expected_revision:revision,design:dirty?draft:null,project_id:key,operation_id})});
+    if(projectEpoch!==epoch||state?.project_id!==key)return;
+    await load(key);history=[];future=[];
     shell.validationCompleted(report);
-  }catch(error){notice(error.message,true);}
+  }catch(error){if(projectEpoch===epoch&&state?.project_id===key)notice(error.message,true);}
   finally{
     busy=false;viewer?.editing(true);document.body.classList.remove('busy');
     busyObserver.disconnect();

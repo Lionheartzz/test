@@ -1,4 +1,4 @@
-from .timing import timed,phase
+from .timing import timed,phase,progress
 import hashlib
 import json
 import os
@@ -72,11 +72,13 @@ def build_outputs(design, folder, *, engineering_complete=None):
     assert_engine_current()
     folder.mkdir(parents=True, exist_ok=False)
     authored = design
+    progress('preparing',5)
     design, routes, g, report = resolve_design(authored,persist=True,prepared=True,step_path=folder/'production.step')
     rev = revision(authored)
     report['route_proposals'] = routes
     report.update(design_revision=rev, generated_at=datetime.now(timezone.utc).isoformat(),
                   cadquery_version=cq.__version__, rules_version='pmc-intent-2', engine_revision=engine_revision(), engine=engine_evidence())
+    progress('finalizing',95)
     with phase('step.export'):
         from .presentation import feature_name
         import re
@@ -115,6 +117,7 @@ def build_outputs(design, folder, *, engineering_complete=None):
                      design_revision=rev,engine_revision=engine_revision())
     atomic_json(folder / 'review.json', unavailable)
     if engineering_complete:engineering_complete(report)
+    progress('finalizing',97)
     from .geometry import review_model
     try:
         review=review_model(design,g)
@@ -124,6 +127,7 @@ def build_outputs(design, folder, *, engineering_complete=None):
         unavailable['review_error']='Review unavailable: '+(str(exc) or type(exc).__name__)[:2000]
         atomic_json(folder / 'review.json',unavailable)
     assert_engine_current()
+    progress('finalizing',98)
     return report
 
 
