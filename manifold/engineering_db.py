@@ -17,7 +17,7 @@ from .schema import CavityDefinition
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB = ROOT / "data" / "pmc_engineering.db"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def database_path() -> Path:
@@ -71,6 +71,8 @@ def validate_database(path: Path | None = None) -> dict:
                 "machining_modifiers",
                 "manufacturing_policy",
             }
+            from .technical_schema import TABLES
+            required.update(TABLES)
             if version != SCHEMA_VERSION or not required <= tables:
                 raise RuntimeError(
                     f"Engineering database schema is invalid (version {version}); "
@@ -82,6 +84,7 @@ def validate_database(path: Path | None = None) -> dict:
                                                 "resolution_status", "resolution_detail_json", "execution_eligible"},
                 "cartridge_cavity_evidence_links": {"relation_id", "cavity_id"},
             }
+            expected_columns.update(TABLES)
             for table, names in expected_columns.items():
                 actual = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
                 if not names <= actual:
@@ -92,7 +95,7 @@ def validate_database(path: Path | None = None) -> dict:
         raise RuntimeError(f"Engineering database is invalid: {exc}") from exc
 
 
-def initialize_schema(connection: sqlite3.Connection) -> None:
+def _initialize_base_schema(connection: sqlite3.Connection) -> None:
     """Create a new import target.  Never called by application startup."""
     connection.executescript(
         """
@@ -291,6 +294,13 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
         PRAGMA user_version = 3;
         """
     )
+
+
+def initialize_schema(connection: sqlite3.Connection) -> None:
+    """Explicit new target initialization; runtime validation never calls this."""
+    _initialize_base_schema(connection)
+    from .technical_schema import initialize
+    initialize(connection)
 
 
 def _definition(row: sqlite3.Row, interfaces: list[sqlite3.Row], *, kind: str) -> CavityDefinition:
@@ -575,19 +585,31 @@ def set_custom_active(identifier: str, active: bool) -> CavityDefinition:
         return _get_definition(connection, identifier, include_inactive=True)
 
 
-def search_cartridges(query="", offset=0, limit=40):
-    where = ["active=1"]
+def search_cartridges(query="", offset=0, limit=40, *, technical=False):
+    where = ["c.active=1"]
     values: list[object] = []
     for token in query.lower().split():
-        where.append("lower(manufacturer || ' ' || model || ' ' || function) LIKE ?")
-        values.append(f"%{token}%")
+        if technical:
+            where.append("(lower(c.manufacturer || ' ' || c.model || ' ' || c.function || ' ' || "
+                         "COALESCE(t.base_model,'') || ' ' || COALESCE(t.product_family,'') || ' ' || COALESCE(t.disposition,'')) LIKE ? "
+                         "OR EXISTS(SELECT 1 FROM technical_values v JOIN technical_evidence e ON e.domain=v.domain AND e.id=v.evidence_id "
+                         "WHERE v.domain='cartridge' AND v.identity_id=c.id AND e.property IN ('function_primary','function_original','product_description') AND lower(e.raw_value) LIKE ?))")
+            values.extend([f"%{token}%",f"%{token}%"])
+        else:
+            where.append("lower(c.manufacturer || ' ' || c.model || ' ' || c.function) LIKE ?")
+            values.append(f"%{token}%")
+    source = "cartridges c LEFT JOIN technical_identities t ON t.domain='cartridge' AND t.id=c.id"
     with _connect() as connection:
         total = connection.execute(
-            f"SELECT count(*) FROM cartridges WHERE {' AND '.join(where)}", values
+            f"SELECT count(*) FROM {source} WHERE {' AND '.join(where)}", values
         ).fetchone()[0]
         rows = connection.execute(
-            f"SELECT id,manufacturer,model,function,ratings_json FROM cartridges "
-            f"WHERE {' AND '.join(where)} ORDER BY manufacturer,model LIMIT ? OFFSET ?",
+            f"SELECT c.id,c.manufacturer,c.model,c.function,c.ratings_json,t.base_model,t.product_family,t.disposition,"
+            "(SELECT count(*) FROM technical_identity_evidence l WHERE l.domain='cartridge' AND l.identity_id=c.id) AS technical_evidence_count,"
+            "(SELECT CASE WHEN count(*)=0 THEN NULL WHEN count(DISTINCT e.raw_value)=1 THEN min(e.raw_value) ELSE 'Multiple source descriptions' END "
+            "FROM technical_values v JOIN technical_evidence e ON e.domain=v.domain AND e.id=v.evidence_id "
+            "WHERE v.domain='cartridge' AND v.identity_id=c.id AND e.property='function_primary') AS primary_function "
+            f"FROM {source} WHERE {' AND '.join(where)} ORDER BY c.manufacturer,c.model LIMIT ? OFFSET ?",
             [*values, limit, offset],
         ).fetchall()
     return {"total": total, "offset": offset, "limit": limit, "items": [dict(row) for row in rows]}

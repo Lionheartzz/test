@@ -21,7 +21,8 @@ def blank(name='Empty project'):
 
 def test_project_library_empty_start_and_independent_reopen(isolated):
     assert isolated.get('/api/health').json()['service']=='pmc-manifold'
-    assert isolated.get('/api/catalog/manifest').json()['schema_version']==3
+    from manifold.engineering_db import SCHEMA_VERSION
+    assert isolated.get('/api/catalog/manifest').json()['schema_version']==SCHEMA_VERSION
     assert isolated.get('/api/projects').json()==[]
     first=isolated.post('/api/projects',json=dict(design=blank().model_dump()),headers=HEADERS).json()
     second=isolated.post('/api/projects',json=dict(design=blank('Second').model_dump()),headers=HEADERS).json()

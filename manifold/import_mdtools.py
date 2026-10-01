@@ -715,7 +715,7 @@ def preserve_custom_definitions(connection,existing_path: Path):
     old=sqlite3.connect(existing_path.as_uri()+"?mode=ro",uri=True);old.row_factory=sqlite3.Row
     try:
         version=old.execute('PRAGMA user_version').fetchone()[0]
-        if version not in (2,3):raise ValueError(f'Unsupported custom-definition source schema: {version}')
+        if version not in (2,3,4):raise ValueError(f'Unsupported custom-definition source schema: {version}')
         required={'cavities','cavity_interfaces','external_port_definitions','thread_definitions'}
         present={row[0] for row in old.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not required <= present:raise ValueError('Custom-definition source lacks required tables')

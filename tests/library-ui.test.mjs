@@ -127,7 +127,7 @@ test('Cartridge evidence remains grouped without executable actions for evidence
     throw Error('Unexpected '+url);
   });
   await h.ui({entryCategory:'cartridges'});
-  await button(h.nodes.content,'Review cavity evidence').onclick();
+  await button(h.nodes.content,'View Cartridge').onclick();
   assert.match(words(h.nodes.content),/EXECUTION SAFE/);
   assert.match(words(h.nodes.content),/EVIDENCE ONLY/);
   assert.equal(button(h.nodes.content,'Place Cavity'),undefined);

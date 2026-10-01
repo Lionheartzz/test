@@ -360,13 +360,70 @@ def catalog_definition(id: str):
 @app.get('/api/cartridges')
 def cartridge_search(q: str = '',offset: int = Query(0,ge=0),limit: int = Query(40,ge=1,le=100)):
     from .engineering_db import search_cartridges
-    return search_cartridges(q,offset,limit)
+    return search_cartridges(q,offset,limit,technical=True)
 
 
 @app.get('/api/compatibility')
 def compatibility(cartridge_id: str,cavity_id: str):
     from .engineering_db import compatible
     return dict(cartridge_id=cartridge_id,cavity_id=cavity_id,compatible=compatible(cartridge_id,cavity_id))
+
+
+def _technical_query(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@app.get('/api/cartridges/{cartridge_id}/technical')
+def cartridge_technical(cartridge_id: str):
+    from .technical_knowledge import summary
+    return _technical_query(summary, 'cartridge', cartridge_id)
+
+
+@app.get('/api/cartridges/{cartridge_id}/technical/evidence')
+def cartridge_technical_evidence(cartridge_id: str, property: str = Query('', max_length=150),
+                                offset: int = Query(0, ge=0), limit: int = Query(40, ge=1, le=100)):
+    from .technical_knowledge import evidence
+    return _technical_query(evidence, 'cartridge', cartridge_id, property=property, offset=offset, limit=limit)
+
+
+@app.get('/api/cartridges/{cartridge_id}/technical/conflicts')
+def cartridge_technical_conflicts(cartridge_id: str, offset: int = Query(0, ge=0), limit: int = Query(10, ge=1, le=20)):
+    from .technical_knowledge import conflicts
+    return _technical_query(conflicts, 'cartridge', cartridge_id, offset=offset, limit=limit)
+
+
+@app.get('/api/materials/technical')
+def material_technical_browse():
+    from .technical_knowledge import materials
+    return materials()
+
+
+@app.get('/api/materials/technical/{material_id}')
+def material_technical(material_id: str):
+    from .technical_knowledge import summary
+    return _technical_query(summary, 'material', material_id)
+
+
+@app.get('/api/materials/technical/{material_id}/evidence')
+def material_technical_evidence(material_id: str, property: str = Query('', max_length=150),
+                               offset: int = Query(0, ge=0), limit: int = Query(40, ge=1, le=100)):
+    from .technical_knowledge import evidence
+    return _technical_query(evidence, 'material', material_id, property=property, offset=offset, limit=limit)
+
+
+@app.get('/api/materials/technical/{material_id}/conflicts')
+def material_technical_conflicts(material_id: str, offset: int = Query(0, ge=0), limit: int = Query(10, ge=1, le=20)):
+    from .technical_knowledge import conflicts
+    return _technical_query(conflicts, 'material', material_id, offset=offset, limit=limit)
+
+
+@app.get('/api/materials/technical/{material_id}/stock')
+def material_supplier_stock(material_id: str, offset: int = Query(0, ge=0), limit: int = Query(30, ge=1, le=100)):
+    from .technical_knowledge import supplier_stock
+    return _technical_query(supplier_stock, material_id, offset=offset, limit=limit)
 
 
 @app.get('/api/cartridges/{cartridge_id}/cavities')

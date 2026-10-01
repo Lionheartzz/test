@@ -105,7 +105,7 @@ def test_rebuild_evidence_policy_and_v2_preservation(tmp_path,monkeypatch):
                           ('cartridge_cavities','cartridge_id,cavity_id')]:
         assert keys(first,table,columns)==keys(second,table,columns)
     with sqlite3.connect(first) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==3
+        assert db.execute('PRAGMA user_version').fetchone()[0]==engineering_db.SCHEMA_VERSION
         assert db.execute('SELECT count(*) FROM cavity_interfaces WHERE cavity_id="legacy_1"').fetchone()[0]==1
         assert db.execute("SELECT thread_definition_id FROM external_port_definitions WHERE id='custom_port_1'").fetchone()[0]=='custom_thread_1'
         assert db.execute("SELECT display_name FROM thread_definitions WHERE id='custom_thread_1'").fetchone()[0]=='Local thread'
