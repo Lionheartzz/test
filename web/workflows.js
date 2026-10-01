@@ -3,6 +3,7 @@ import {isCavity} from './definition-role.js';
 import {customPort,portSetup} from './port-setup.js';
 import {guided} from './guided.js';
 import {libraryUI} from './library-ui.js';
+import {engineeringFactsUI} from './engineering-facts-ui.js';
 import {projectUI} from './project-ui.js';
 import {clamp,syncNets,featureLabel,returnNetToAutomatic} from './kinematics.js';
 import {hydrateDesign} from './domain.js';
@@ -153,6 +154,8 @@ export function workflows(ctx){
         field(row,'Implemented by placement · '+c.id,c.placement_id||'',v=>rerender(()=>{const placement=d.features.find(f=>f.id===v);c.placement_id=v||null;c.cavity_id=placement?.cavity_id||null;c.cartridge_id=placement?.cartridge_id||null;}),{'':'Not implemented',...Object.fromEntries(d.features.filter(f=>f.kind==='cavity').map(f=>[f.id,featureLabel(f,d)]))});
         const placement=d.features.find(f=>f.kind==='cavity'&&f.id===c.placement_id),actualInterfaces=Object.keys(placement?.interface_nets||{});
         row.append(element('p',c.placement_id?`Explicit binding: cavity ${c.cavity_id||'unset'} · cartridge ${c.cartridge_id||'none'}`:'No placement binding.','property-note'));
+        if(c.cartridge_id){const host=element('div');row.append(host);const owner=d,cartridge=c.cartridge_id;
+          api('/api/cartridges/'+encodeURIComponent(cartridge)+'/engineering-facts').then(data=>{if(get()!==owner||!host.isConnected||c.cartridge_id!==cartridge)return;engineeringFactsUI(ctx,host,data,{title:'Cartridge engineering data',evidence:()=>library({entryCategory:'cartridges',recordId:cartridge,readOnly:true})});}).catch(()=>{if(host.isConnected)host.append(element('p','Technical facts unavailable.'));});}
         for(const port of c.expected_interfaces){const portRow=element('div',null,'port-row'),interfaceOptions=actualInterfaces.length?{'':'Select cavity interface',...Object.fromEntries(actualInterfaces.map(id=>[id,id]))}:null;
           field(portRow,'Expected interface ID · '+c.id,port,v=>{try{rerender(()=>renameExpectedInterface(c,port,v));}catch(error){$('workflow-error').textContent=error.message;}},interfaceOptions);
           field(portRow,port+' disposition',c.interface_dispositions[port]||'unknown',v=>rerender(()=>{c.interface_dispositions[port]=v;if(v!=='connected')delete c.interface_nets[port];}),{connected:'Connected',blocked:'Blocked',terminated:'Terminated',unknown:'Unknown / review'});
@@ -168,6 +171,7 @@ export function workflows(ctx){
   }
   const ai=aiDesign(ctx,open);$('schematic-open').onclick=schematic;
   return {
+    openEngineeringEvidence(options){return library({...options,readOnly:true});},
     changeCavityDefinition(feature){
       const owner=get();let query='',request=0,timer;
       open('Change cavity definition · '+feature.id);

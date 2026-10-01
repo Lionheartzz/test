@@ -133,7 +133,9 @@ def analyze(key,expected,provider_key):
     if provider_key not in providers:raise ValueError('Provider is not available')
     provider=providers[provider_key]
     documents=verified_documents(inputs)
-    request=AnalysisRequest(inputs=inputs.model_copy(deep=True),documents=documents,result_schema=HydraulicRepresentation.model_json_schema())
+    from ..engineering_facts import ai_context
+    request=AnalysisRequest(inputs=inputs.model_copy(deep=True),documents=documents,result_schema=HydraulicRepresentation.model_json_schema(),
+                            engineering_facts_context=ai_context(inputs.engineering_requirements))
     run_id=uuid.uuid4().hex
     run=dict(schema_version=1,id=run_id,task_id=key,created_at=now(),input_revision=digest(record['inputs']),inputs=record['inputs'],
              provider=dict(id=provider.id,model=provider.model,is_mock=provider.is_mock,contract_version=1),status='failed',result=None,error=None)

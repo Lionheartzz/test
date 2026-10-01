@@ -376,6 +376,18 @@ def _technical_query(fn, *args, **kwargs):
         raise HTTPException(404, str(exc)) from exc
 
 
+@app.get('/api/cartridges/{cartridge_id}/engineering-facts')
+def cartridge_engineering_facts(cartridge_id: str):
+    from .engineering_facts import resolved_engineering_facts
+    return _technical_query(resolved_engineering_facts, 'cartridge', cartridge_id)
+
+
+@app.post('/api/engineering-facts/review')
+def engineering_facts_review(design: Design):
+    from .engineering_facts import engineering_review
+    return engineering_review(design)
+
+
 @app.get('/api/cartridges/{cartridge_id}/technical')
 def cartridge_technical(cartridge_id: str):
     from .technical_knowledge import summary

@@ -1,4 +1,4 @@
-"""Read-only REV2 queries. This module is never consulted by design/AI resolution."""
+"""REV2 browsing and evidence. Engineering consumption uses engineering_facts."""
 import json
 
 from .engineering_db import _connect
@@ -71,6 +71,8 @@ def summary(domain, identifier):
             row.pop('original_json')
         result = dict(identity=identity, values=values, values_total=values_total, counts=counts,
                       field_status=fields, execution_permission=False)
+        from .engineering_facts import resolved_engineering_facts
+        result['engineering_facts'] = resolved_engineering_facts(domain, identifier, connection=db)
         if domain == 'material':
             result['surface_treatments'] = [json.loads(row[0]) for row in db.execute('''
                 SELECT t.original_json FROM material_research_links l JOIN material_surface_treatments t ON t.id=l.record_id
@@ -116,9 +118,18 @@ def conflicts(domain, identifier, *, offset=0, limit=10):
 
 def materials():
     with _connect() as db:
-        rows = [dict(row) for row in db.execute("SELECT id,full_part_number,series,product_family,disposition FROM technical_identities WHERE domain='material' ORDER BY full_part_number,id")]
-    return dict(items=[row | dict(display_name=(row['full_part_number'] + ' ' + row['series']).strip(),
-                                 material_type=row['product_family'], active=True, research_only=True) for row in rows], total=len(rows))
+        from .engineering_facts import material_actionability
+        rows=[]
+        for row in db.execute("""SELECT i.*,EXISTS(SELECT 1 FROM technical_identity_evidence l
+            JOIN technical_evidence_sources s ON s.domain=l.domain AND s.evidence_id=l.evidence_id
+            WHERE l.domain=i.domain AND l.identity_id=i.id) AS source_supported
+            FROM technical_identities i WHERE domain='material' ORDER BY full_part_number,id"""):
+            item=dict(row);item['original']=json.loads(item.pop('original_json'))
+            decision=material_actionability(item)
+            rows.append(dict(id=item['id'],runtime_id=item['material_id'],display_name=decision['display_name'],
+                material_type=item['product_family'],disposition=item['disposition'],active=True,
+                research_only=not bool(item['material_id']),research_reason=decision['reason']))
+    return dict(items=rows, total=len(rows))
 
 
 def supplier_stock(identifier, offset=0, limit=30):

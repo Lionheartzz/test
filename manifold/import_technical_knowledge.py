@@ -254,16 +254,15 @@ def integrate(source: Path, package: Path, rev1: Path, output: Path | None = Non
     with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as original:
         source_version = original.execute('PRAGMA user_version').fetchone()[0]
         if source_version not in (3, 4):
-            raise ValueError('Explicit technical integration requires a schema v3 or empty-knowledge v4 source')
+            raise ValueError('Explicit technical integration requires a schema v3/v4 source')
         if source_version == 4:
             engineering_db.validate_database(source)
-            if any(original.execute(f'SELECT count(*) FROM {table}').fetchone()[0] for table in technical_schema.TABLES):
-                raise ValueError('Source already contains technical knowledge; rebuild from the unchanged engineering baseline')
         targets = {(norm(m), norm(code)): cid for cid, m, code in original.execute('SELECT id,manufacturer,model FROM cartridges')}
         package_targets = {(norm(row['manufacturer']), norm(row['cartridge_part_number'])) for row in research.get('normalized/GLOBAL_CARTRIDGE_TARGET_DISPOSITION.csv')}
         if set(targets) != package_targets:
             raise ValueError('Technical targets do not match the existing Cartridge identity set')
         before = preserved_tables(original)
+        old_materials = original.execute('SELECT * FROM materials ORDER BY id').fetchall()
         report = dict(source_path=str(source), source_sha256=source_hash, source_schema=source_version,
                       package_path=str(research.path), package_sha256=research.sha256,
                       rev1_path=str(rev1), rev1_sha256=hashlib.sha256(rev1.read_bytes()).hexdigest(),
@@ -285,10 +284,20 @@ def integrate(source: Path, package: Path, rev1: Path, output: Path | None = Non
                 db.execute('PRAGMA foreign_keys=ON')
                 if source_version == 3:
                     technical_schema.initialize(db)
+                else:
+                    # Rebuild the knowledge layer in the NEW clone only. Keep the
+                    # current corrected MDTools/REV1 engineering definitions intact.
+                    for table in reversed(technical_schema.TABLES):
+                        db.execute(f'DELETE FROM {table}')
                 _import(db, research, targets)
+                from .engineering_facts import promote_materials
+                report['material_promotion'] = promote_materials(db)
                 after = preserved_tables(db)
-                if after != before:
+                if {k:v for k,v in after.items() if k!='materials'} != {k:v for k,v in before.items() if k!='materials'}:
                     raise ValueError('Technical import changed existing engineering domain data')
+                for row in old_materials:
+                    if db.execute('SELECT * FROM materials WHERE id=?', (row[0],)).fetchone() != row:
+                        raise ValueError('Existing runtime material changed during promotion')
                 if db.execute('PRAGMA integrity_check').fetchall() != [('ok',)] or db.execute('PRAGMA foreign_key_check').fetchall():
                     raise ValueError('Staging integrity/foreign-key check failed')
                 if source_hash != hashlib.sha256(source.read_bytes()).hexdigest():

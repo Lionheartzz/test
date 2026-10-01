@@ -70,7 +70,7 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{}}){
   const scroll={};
   function rememberScroll(category){scroll[category]=$('workflow-dialog')?.scrollTop||0;}
   function restoreScroll(category){const dialog=$('workflow-dialog');if(dialog)dialog.scrollTop=scroll[category]||0;}
-  function backToCategory(category,options={}){return library({...options,entryCategory:category});}
+  function backToCategory(category,options={}){const next={...options,entryCategory:category};delete next.recordId;return library(next);}
   function selectionCallback(port,options){
     if(port)return options.selectionMode==='external-port'?options.onSelect:null;
     if(options.selectionMode==='cavity')return options.onSelect||null;
@@ -87,7 +87,7 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{}}){
       ['cartridges','Valve identities, compatibility and source evidence',async()=>(await api('/api/cartridges?limit=1')).total,'cartridges'],
       ['external-ports','Reusable hydraulic port machining definitions',async()=>(await api('/api/catalog?kind=port_definition&limit=1')).total,'definitions'],
       ['threads','Reusable thread and tap definitions',async()=>(await api('/api/threads?usable_only=false&limit=1')).total,'definitions'],
-      ['materials','Engineering stock and sourced material knowledge',async()=>{const rows=await Promise.all([api('/api/materials'),api('/api/materials/technical')]);return rows.reduce((n,row)=>n+row.items.length,0);},'materials'],
+      ['materials','Engineering stock and sourced material knowledge',async()=>{const rows=await Promise.all([api('/api/materials'),api('/api/materials/technical')]);return rows[0].items.length+rows[1].items.filter(r=>r.research_only).length;},'materials'],
       ['tooling','Drill, flat-bottom-drill and spotface tools',async()=>{const rows=await Promise.all(['drill','flat-bottom-drill','spotface'].map(type=>api('/api/tools?'+new URLSearchParams({type,usable_only:false}))));return rows.reduce((sum,row)=>sum+(row.total??row.items.length),0);},'tools'],
       ['closures','Construction closures and plugs',async()=>(await api('/api/closures')).total,'definitions'],
       ['modifiers','O-ring grooves, counterbores and undercuts',async()=>(await api('/api/machining-modifiers?usable_only=false')).total,'definitions'],
@@ -172,7 +172,7 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{}}){
   async function readonlyDetail(category,row,options={}){
     rememberScroll(category);const token=++generation;open(labels[category]+' · '+(category==='tooling'?`${row.tool_type} · Ø${displayMm(row.diameter_mm)} mm`:(row.display_name||row.name||row.model||row.id)));
     action(content,'Back to '+labels[category],()=>backToCategory(category,options));
-    if(category==='materials'&&row.research_only){const host=element('section');content.append(host);try{const base='/api/materials/technical/'+encodeURIComponent(row.id),data=await api(base);if(token!==generation)return;technicalKnowledgeUI(ctx,host,data,base,()=>token===generation,{material:true});}catch(error){if(token===generation)host.append(element('p','Material knowledge unavailable: '+error.message,'error'));}return;}
+    if(category==='materials'&&(row.research_only||row.technical_identity_id)){const host=element('section');content.append(host);try{const base='/api/materials/technical/'+encodeURIComponent(row.technical_identity_id||row.id),data=await api(base);if(token!==generation)return;technicalKnowledgeUI(ctx,host,data,base,()=>token===generation,{material:true});}catch(error){if(token===generation)host.append(element('p','Material knowledge unavailable: '+error.message,'error'));}return;}
     const card=element('section',null,'library-card');content.append(card);
     const line=(label,value)=>card.append(element('p',`${label}: ${value===null||value===undefined||value===''?'Not collected':value}`));
     line('Engineering ID',row.id);line('Active',row.active?'Yes':'No');
@@ -197,7 +197,7 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{}}){
     const filters=element('div',null,'editor-grid'),list=element('div',null,'library-list'),pager=element('div',null,'action-row');content.append(filters,list,pager);
     let request=0,timer;
     const fetchRows=async()=>{
-      if(category==='materials'){const results=await Promise.all([api('/api/materials'),api('/api/materials/technical')]);return results.flatMap(row=>row.items);}
+      if(category==='materials'){const results=await Promise.all([api('/api/materials'),api('/api/materials/technical')]);return [...results[0].items,...results[1].items.filter(row=>row.research_only)];}
       if(category==='tooling'){const results=await Promise.all(['drill','flat-bottom-drill','spotface'].map(type=>api('/api/tools?'+new URLSearchParams({type,usable_only:false}))));return results.flatMap(result=>result.items);}
       if(category==='closures')return (await api('/api/closures')).items;
       return (await api('/api/machining-modifiers?usable_only=false')).items;
@@ -232,6 +232,8 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{}}){
 
   function library(options={}){
     const category=options.entryCategory||'home';
+    if(category==='materials'&&options.recordId)return readonlyDetail(category,{id:options.recordId,display_name:options.recordId,research_only:true},options);
+    if(category==='cartridges'&&options.recordId)return cartridgeDetail({id:options.recordId,model:options.recordId,manufacturer:''},options);
     if(category==='home')return home();
     if(category==='cavities')return cavities(options);
     if(category==='external-ports')return externalPorts(options);

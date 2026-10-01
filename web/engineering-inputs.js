@@ -9,12 +9,14 @@ export function clearStock(block){
 }
 
 export function selectEngineeringMaterial(design,material){
+  if(design.block.material_id===(material?.id||null))return;
   clearStock(design.block);
   design.block.material_id=material?.id||null;
   if(material)design.block.material=material.display_name;
-  // The inspected MDTools material tables contain identity and size only.
-  // These are project policy defaults, never inferred material strength.
-  design.rules.allowable_stress_mpa=null;
+  // Only a resolved directly sourced allowable can initialize this field.
+  // Yield/tensile reference values never become allowable stress.
+  const stress=material?.engineering_facts_summary?.facts?.allowable_stress_mpa;
+  design.rules.allowable_stress_mpa=stress?.status==='SOURCE_BACKED'?stress.value:null;
   design.rules.pressure_safety_factor=2;
   design.rules.minimum_wall=7;
   design.constraints.preferred_wall_margin=4;

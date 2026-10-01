@@ -1,4 +1,5 @@
 import {displayIdentity,displayReviewName} from './presentation.js';
+import {engineeringFactsUI} from './engineering-facts-ui.js';
 
 export function projectUI(ctx){
   const {$,element,field,action,post,get,change,select,notice,openSchematic}=ctx;
@@ -27,6 +28,13 @@ export function projectUI(ctx){
     content.append(element('p',`Origin: ${d.origin?.method||'unknown'} · ${d.origin?.provider||'No provider specified'} · ${d.origin?.model||'No model specified'}.`));
     const openItems=(d.review_items||[]).filter(x=>x.status==='open');content.append(element('h3',`${openItems.length} open project decisions · ${intent?.components.length||0} schematic components`));
     action(content,'Add review item',()=>{change(()=>{d.review_items??=[];let i=1;while(d.review_items.some(r=>r.id==='REVIEW_'+i))i++;d.review_items.push({id:'REVIEW_'+i,kind:'assumption',subject:'project',description:'Describe the engineering assumption to review',proposed_value:'',severity:'review',status:'open',resolution:''});});reviews();});
+    const technical=element('section',null,'library-card');content.append(technical);
+    post('/api/engineering-facts/review',d).then(data=>{if(get()!==d||!technical.isConnected)return;
+      technical.append(element('h3','Source-backed cartridge engineering review'));
+      for(const check of data.checks)technical.append(element('p',`${check.status} · ${displayIdentity(d,check.subject)} · ${check.net_id} · ${check.message}`));
+      for(const facts of Object.values(data.cartridges))engineeringFactsUI(ctx,technical,facts,{title:facts.identity_id});
+      if(!data.checks.length)technical.append(element('p','No selected-cartridge flow or pressure requirement to compare.'));
+    }).catch(()=>{if(technical.isConnected)technical.append(element('p','Technical engineering review unavailable.'));});
     for(const r of d.review_items||[]){
       const card=element('section',null,'library-card');card.append(element('h3',`${displayReviewName(r.id)} · ${r.status}`),element('p',`Subject: ${displayIdentity(d,r.subject||'project')}`));content.append(card);
       for(const [key,label]of [['description','Decision needed'],['proposed_value','Proposed value']])field(card,label,r[key],v=>change(()=>r[key]=v));

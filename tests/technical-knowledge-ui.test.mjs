@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {technicalKnowledgeUI,sourceLink,propertyLabel} from '../web/technical-knowledge-ui.js';
+import {engineeringFactsUI} from '../web/engineering-facts-ui.js';
 
 class Node{
   constructor(tag,text=''){this.tag=tag;this.textContent=text||'';this.children=[];}
@@ -16,6 +17,18 @@ function setup(api=async()=>({items:[],total:0})){const root=new Node('div'),ctx
 const evidence=(id,property,value)=>({id,property,raw_value:value,raw_unit:'L/min',normalized_value:value,normalized_unit:'L/min',scope:'BASE_MODEL',scope_original:'BASE_MODEL',condition:'Nominal model condition',status:'EVIDENCE_PRESENT',evidence_class:'parameter',original:{evidence_id:id,source_title:'Official sheet',source_url:'https://example.test/source',page_number:'2',revision:'R2',confidence:.95,evidence_text:'Exact quotation'}});
 const data=()=>({identity:{id:'C',full_part_number:'MODEL',base_model:'BASE',disposition:'PARTIAL_CONFIRMED',original:{}},
   values:[evidence('MAX','maximum_flow','30'),evidence('CAP','capacity','20')],values_total:2,counts:{evidence:21,sources:2,conflicts:0},field_status:[{field_group:'coil',status:'NOT_APPLICABLE'},{field_group:'seal',status:'NOT_REPORTED'}]});
+
+test('resolved runtime facts and conditional references remain visibly different and read-only',()=>{
+  const h=setup();let opened=0;
+  engineeringFactsUI(h.ctx,h.root,{runtime_linked:true,facts:{
+    maximum_working_pressure:{property:'maximum_working_pressure',value:350,unit:'bar',status:'SOURCE_BACKED'},
+    rated_flow:{property:'rated_flow',value:null,status:'UNRESOLVED'}},
+    references:[{property:'yield_strength',value:276,unit:'MPa',condition:'T6; Extrusion',status:'UNRESOLVED'}]},
+    {evidence:()=>opened++});
+  assert.match(words(h.root),/350 bar · Source-backed/);assert.match(words(h.root),/276 MPa · Reference only · T6; Extrusion/);
+  assert.equal(all(h.root).some(n=>n.tag==='button'&&/Place|Bind|Use/.test(n.textContent)),false);
+  button(h.root,'View technical evidence').onclick();assert.equal(opened,1);
+});
 
 test('Maximum Flow, Capacity, scopes and field gaps stay distinct; evidence is lazy and paginated',async()=>{
   const calls=[],h=setup(async url=>{calls.push(url);return {items:[evidence('EV','maximum_flow','30')],total:2};});

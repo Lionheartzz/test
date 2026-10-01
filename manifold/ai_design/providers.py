@@ -17,6 +17,7 @@ class AnalysisRequest:
     inputs: TaskInput
     documents: tuple[DocumentContent,...] = field(repr=False)
     result_schema: dict = field(repr=False)
+    engineering_facts_context: dict = field(default_factory=dict, repr=False)
     contract_version: int = 1
     operation: str = 'hydraulic_understanding'
     timeout_seconds: int = 60

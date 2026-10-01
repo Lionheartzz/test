@@ -843,10 +843,32 @@ def browse_closures(*, include_inactive=False):
 def materials(*, connection: sqlite3.Connection | None = None):
     if connection is None:
         with _connect() as opened:return materials(connection=opened)
+    from .engineering_facts import facts_batch
+    links = {row['material_id']: row['id'] for row in connection.execute(
+        "SELECT id,material_id FROM technical_identities WHERE domain='material' AND material_id IS NOT NULL")}
+    summaries = facts_batch('material', list(links.values()), connection=connection)
+    stock = {}
+    for row in connection.execute('SELECT * FROM material_stock WHERE active=1 ORDER BY unit_system,size_1_mm,size_2_mm,id'):
+        stock.setdefault(row['material_id'], []).append(dict(row))
+    supplier_counts = {row[0]:row[1] for row in connection.execute(
+        "SELECT material_id,count(*) FROM material_research_links WHERE kind='stock' GROUP BY material_id")}
+    treatments = {}
+    for row in connection.execute("""SELECT l.material_id,t.id,t.original_json FROM material_research_links l
+        JOIN material_surface_treatments t ON t.id=l.record_id WHERE l.kind='treatment' ORDER BY t.id"""):
+        raw = json.loads(row['original_json'])
+        treatments.setdefault(row['material_id'], []).append(dict(id=row['id'], treatment=raw.get('treatment',''),
+            status=raw.get('status','REFERENCE_ONLY')))
     result=[]
     for row in connection.execute("SELECT * FROM materials WHERE active=1 ORDER BY display_name"):
-        value=dict(row);value["stock"]=[dict(item) for item in connection.execute(
-            "SELECT * FROM material_stock WHERE material_id=? AND active=1 ORDER BY unit_system,size_1_mm,size_2_mm",(row["id"],))]
+        value=dict(row);value['stock']=stock.get(row['id'], [])
+        research_id = links.get(row['id'])
+        facts = summaries.get(research_id)
+        stress = facts['facts']['allowable_stress_mpa'] if facts else {}
+        value.update(technical_identity_id=research_id, source_backed=bool(research_id),
+            engineering_defaults=dict(allowable_stress_mpa=stress.get('value') if stress.get('status')=='SOURCE_BACKED' else None,
+                pressure_safety_factor=2, minimum_wall=7, preferred_wall_margin=4),
+            engineering_facts_summary=facts, supplier_stock_count=supplier_counts.get(research_id,0),
+            surface_treatments=treatments.get(research_id,[])[:6], surface_treatments_total=len(treatments.get(research_id,[])))
         result.append(value)
     return result
 

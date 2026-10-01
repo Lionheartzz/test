@@ -35,6 +35,9 @@ class MultimodalProvider:
             content = [dict(type='text', text='Original engineering requirements (verbatim):\n' +
                             request.inputs.engineering_requirements + '\nEngineering unit context: ' + request.inputs.project_context)]
             pages_by_doc, manifest = {}, []
+            if request.engineering_facts_context:
+                content.append(dict(type='text',text='PMC engineering reference facts (separate from schematic evidence):\n'+
+                    json.dumps(request.engineering_facts_context,ensure_ascii=False)))
             for number, document in enumerate(request.documents, 1):
                 pages = render(document, max_pages=settings.max_pages, max_side=settings.image_max_side)
                 if len(manifest) + len(pages) > settings.max_pages:

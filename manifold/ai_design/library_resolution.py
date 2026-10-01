@@ -96,12 +96,14 @@ def candidates(inputs,result,component):
     cartridges=search_cartridges(' '.join(x for x in (maker,model) if x),0,20)['items']
     matches=[row for row in cartridges if norm(row['model'])==norm(model) and (not maker or norm(maker) in norm(row['manufacturer']))]
     found=[]
+    from ..engineering_facts import facts_batch
+    facts=facts_batch('cartridge',[row['id'] for row in matches])
     for cartridge in matches:
         for candidate in compatible_logical_cavities(cartridge['id']):
             cavity_id = candidate['cavity_id']
             definition=get_definition(cavity_id)
             found.append(dict(**summary('db:'+cavity_id,definition),cartridge_id=cartridge['id'],
-                              logical_id=candidate['logical_id'],reason='Explicit SQLite cartridge-cavity relationship'))
+                              logical_id=candidate['logical_id'],engineering_facts=facts[cartridge['id']],reason='Explicit SQLite cartridge-cavity relationship'))
     return found
 
 

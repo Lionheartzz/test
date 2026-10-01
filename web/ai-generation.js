@@ -1,4 +1,5 @@
 // Local settings and engineering handoff reuse the normal Studio draft workflow.
+import {engineeringFactsUI} from './engineering-facts-ui.js';
 export async function inspectGeneratedDraft(packet,post){
   const inspection=await post('/api/import-project',packet.design);
   return {design:inspection.design,definitions:inspection.engineering?.definitions||{},threads:inspection.engineering?.threads||{}};
@@ -75,10 +76,13 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
       if(attempted){summary.focus();summary.scrollIntoView({block:'start'});}
     }
     content.append(element('h3','Cartridges and hydraulic windows'));
+    if(plan.material_engineering_facts)engineeringFactsUI(ctx,content,plan.material_engineering_facts,{title:'Proposed material engineering data'});
     if(!plan.components.length)content.append(element('p','No cartridges in this circuit. A port/distribution block can be generated if the net topology is usable.'));
     for(const component of plan.components){
       const card=element('section',null,'library-card');content.append(card);card.append(element('h4',component.label+(component.model?' · '+component.model:'')));
       const binding=options.bindings[component.id],definition=component.definition;
+      const choice=component.choices.find(row=>row.cartridge_id===component.cartridge_id);
+      if(choice?.engineering_facts)engineeringFactsUI(ctx,card,choice.engineering_facts,{title:'Cartridge engineering data'});
       if(component.resolution&&!binding){card.append(element('p',component.resolution.message),element('p',component.resolution.action,'property-note'));}
       if(definition){
         card.append(element('p',`${definition.label} · ${definition.unit} · ${definition.geometry_status}`));

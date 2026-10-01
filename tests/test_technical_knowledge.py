@@ -195,11 +195,15 @@ def test_ambiguous_stock_reference_is_rejected_instead_of_selecting_a_thickness(
     assert not output.exists()
 
 
-def test_empty_v4_baseline_can_be_integrated_but_populated_source_is_refused(inputs,tmp_path):
+def test_v4_rebuild_uses_new_output_and_preserves_populated_source(inputs,tmp_path):
     source,package,rev1=inputs
     with sqlite3.connect(source) as db:technical_schema.initialize(db)
     output=tmp_path/'v4-import.db';report=integrate(source,package,rev1,output)
     assert report['source_schema']==4
-    with pytest.raises(ValueError,match='already contains technical knowledge'):
-        integrate(output,package,rev1,tmp_path/'refused.db')
-    assert not (tmp_path/'refused.db').exists()
+    before=output.read_bytes();rebuilt=tmp_path/'rebuilt.db'
+    integrate(output,package,rev1,rebuilt)
+    assert output.read_bytes()==before
+    with sqlite3.connect(output) as first,sqlite3.connect(rebuilt) as second:
+        for table in technical_schema.TABLES:
+            if table=='technical_import_batches':continue
+            assert first.execute(f'SELECT * FROM {table} ORDER BY 1,2').fetchall()==second.execute(f'SELECT * FROM {table} ORDER BY 1,2').fetchall()

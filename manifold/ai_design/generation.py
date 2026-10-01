@@ -69,8 +69,14 @@ def prepare(inputs, result, options):
     result = topology(result, options)
     settings = interpret(result, options)
     from ..engineering_db import materials
-    material_matches=[row for row in materials() if library.norm(row['display_name'])==library.norm(settings['material'])]
+    def material_names(row):
+        identity=(row.get('engineering_facts_summary') or {}).get('identity') or {}
+        return [row['display_name'], ' '.join([identity.get('grade',''),identity.get('state','')]),
+                identity.get('grade','')+'-'+identity.get('state','')]
+    material_matches=[row for row in materials() if any(library.norm(name)==library.norm(settings['material']) for name in material_names(row) if name)]
     settings['material_id']=material_matches[0]['id'] if len(material_matches)==1 else None
+    settings['engineering_facts']=material_matches[0].get('engineering_facts_summary') if len(material_matches)==1 else None
+    if len(material_matches)==1:settings['material']=material_matches[0]['display_name']
     blocked = list(settings['conflicts'])
     if len(result['components']) > 4 or len(result['ports']) > 40 or len(result['nets']) > 16:
         blocked.append('First-generation scope is at most 4 cartridges, 40 hydraulic terminals and 16 nets.')
@@ -204,7 +210,8 @@ def preflight(key, request):
                 mounting_requirements=plan['settings']['mounting_requirements'],mounting_holes=[dict(hole=row['hole'].model_dump(),thread=row['thread']) for row in plan['mounting']],
                 ports=[dict(id=p['id'], component_id=p['component_id'], label=library.value(result,p['id'],'label') or p['id'],
                             net=plan['port_net'].get(p['id']),disposition=p.get('disposition','unknown')) for p in result['ports']],
-                nets=[dict(id=n['id'],label=library.value(result,n['id'],'label') or n['id']) for n in result['nets']])
+                nets=[dict(id=n['id'],label=library.value(result,n['id'],'label') or n['id']) for n in result['nets']],
+                material_engineering_facts=plan['settings']['engineering_facts'])
 
 
 def fid(generation_id, key, prefix):
@@ -246,6 +253,8 @@ def candidate(plan, generation_id, variant):
                    forbidden_drilling_faces=settings['forbidden'],priority=settings['priority'],
                    notes='AI-generated draft from the current normalized schematic intent.'))
     design = Design.model_validate(raw)
+    stress=(settings.get('engineering_facts') or {}).get('facts',{}).get('allowable_stress_mpa',{})
+    if stress.get('status')=='SOURCE_BACKED':design.rules.allowable_stress_mpa=stress['value']
     if settings['material']!='Unspecified - review required' and not settings.get('material_id'):
         from ..schema import EngineeringReview
         design.review_items.append(EngineeringReview(id='AI_MATERIAL_REVIEW',kind='component',subject='block',

@@ -1,4 +1,5 @@
 // Read-only research presentation. No placement, binding or design-state hooks.
+import {engineeringFactsUI} from './engineering-facts-ui.js';
 export function sourceLink(ctx,parent,value){
   if(typeof value!=='string'||!/^[Hh][Tt][Tt][Pp][Ss]?:\/\/[^/\s]/.test(value)||/\s/.test(value))return;
   try{const url=new URL(value);if(!['http:','https:'].includes(url.protocol)||!url.hostname||url.username||url.password)return;
@@ -33,6 +34,9 @@ export function technicalKnowledgeUI(ctx,parent,data,base,isCurrent,{material=fa
   if(record.disposition==='PARTIAL_CONFIRMED'&&data.counts.evidence===0)identity.append(element('p','Research disposition is preserved, but no evidence is explicitly attributed to this stored manufacturer and code. Similar manufacturer records have not been inherited.','warning'));
   identity.append(element('p',`${data.counts.evidence} evidence records · ${data.counts.sources} sources · ${data.counts.conflicts} conflicts. Research knowledge does not grant execution permission.`));
   if(material){const original=record.original;identity.append(element('p',`Standard: ${original.standard||'Not reported'} · Condition: ${original.temper_condition||'Not reported'} · Form: ${original.product_form||'Not reported'}`),element('p',`Aliases: ${(original.aliases||[]).join(', ')||'None established'}`));}
+  if(material)identity.append(element('p',record.material_id?'Engineering material · Available in Model material selector':`Research-only material · ${data.engineering_facts?.identity?.reason||'Runtime identity not admitted'}`));
+  else identity.append(element('p',data.engineering_facts?.runtime_linked?'Runtime-linked cartridge · Compatibility remains governed by explicit admitted relations.':'Ambiguous / relation-only / unresearched technical identity · Parameters unavailable for engineering execution.'));
+  if(data.engineering_facts)engineeringFactsUI(ctx,parent,data.engineering_facts,{title:'Resolved engineering facts'});
   const sections=new Map(),seen=new Set();
   const normalized=row=>row.normalized_value!==null&&row.normalized_value!==undefined&&row.normalized_value!==''?`${typeof row.normalized_value==='string'?row.normalized_value:JSON.stringify(row.normalized_value)} ${row.normalized_unit||''}`:'';
   for(const row of data.values){
