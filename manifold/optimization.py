@@ -1,9 +1,7 @@
 """Bounded exact search over deterministic route alternatives. Does not save the project."""
 import uuid
 from . import store
-from .geometry import build_geometry
-from .validation import validate
-from .routing import resolve_design, route_cost, route_objective, exact_route_score, authorize_generated_contacts, alternative_proposals, _proposal_source_key
+from .routing import resolve_design, route_objective
 
 
 def optimize_routes(design, expected_revision, max_attempts=6, project_id=None):
@@ -26,56 +24,24 @@ def optimize_routes(design, expected_revision, max_attempts=6, project_id=None):
 
 def search_routes(design,max_attempts=6):
     if not 1 <= max_attempts <= 12:raise ValueError('max_attempts must be between 1 and 12')
-    folder = store.OUTPUT/'optimizations'/uuid.uuid4().hex
-    attempts = []
-    snapshots = {}
-
-    def evaluate(candidate, reason):
-        # This outer search owns the exact-attempt budget. Resolve one proposal only.
-        target, routes = resolve_design(candidate,exact=False,snapshot_cache=snapshots)
-        index = len(attempts)
-        attempt = folder/f'attempt-{index:02}'
-        store.atomic_json(attempt/'design.json',candidate.model_dump())
-        cad_error=False
-        try:
-            geometry = build_geometry(target)
-            authorize_generated_contacts(target,geometry)
-            report = validate(target,geometry)
-        except Exception as exc:
-            cad_error=True
-            report=dict(status='FAIL',counts=dict(FAIL=1,WARNING=0,PASS=0),
-                        checks=[dict(rule='cad_candidate_error',status='FAIL',error=type(exc).__name__)])
-        cost = route_cost(candidate,[f for f in target.features if f.kind == 'drilling' and not f.suppressed])
-        objective=route_objective(target,[f for f in target.features if f.kind=='drilling' and not f.suppressed])
-        score = exact_route_score(target,report,[f for f in target.features if f.kind=='drilling' and not f.suppressed],cad_error=cad_error)
-        record = dict(index=index,reason=reason,status=report['status'],counts=report['counts'],cost=cost,
-                      objective=objective,design_revision=store.revision(candidate),routes=routes)
-        store.atomic_json(attempt/'resolved_design.json',target.model_dump())
-        store.atomic_json(attempt/'validation.json',report)
-        attempts.append(record)
-        return score, target, routes, index, report
-
-    best = design.model_copy(deep=True)
-    score,target,routes,index,report = evaluate(best,'Baseline')
+    # Optimize, Validate and Build use the same authoritative CAD/STEP gates.
+    # This request owns one bounded search, never a nested resolver per trial.
+    target,routes,_,report=resolve_design(design,prepared=True,persist=True,max_attempts=max_attempts)
+    best=design.model_copy(deep=True)
     for net in best.nets:
-        if net.routing == 'automatic':
-            net.routing_variant = next(r['variant'] for r in routes if r['net'] == net.id)
-    chosen = index
-    eligible={n.id for n in best.nets if n.routing=='automatic'}
-    inspected={tuple(sorted((r['net'],r['variant']) for r in routes))}
-    while len(attempts)<max_attempts:
-        # This endpoint is an explicit user request to compare route cost, so it
-        # may explore every automatic net even when the baseline already passes.
-        proposals=alternative_proposals(best,target,routes,report,eligible,inspected,
-                                       repair_only=bool(report['counts']['FAIL']),snapshot=snapshots.get(_proposal_source_key(best)))
-        if not proposals:break
-        _,candidate,signature,reason=proposals[0]
-        inspected.add(signature)
-        trial,new_target,new_routes,new_index,new_report=evaluate(candidate,reason)
-        if trial<score:
-            best,score,target,routes,chosen,report=candidate,trial,new_target,new_routes,new_index,new_report
-    summary = dict(optimization_id=folder.name, selected_attempt=chosen, attempts=attempts,
-                   status=attempts[chosen]['status'], baseline=attempts[0]['counts'], final=attempts[chosen]['counts'],
-                   improved=chosen != 0, message='Exact geometry search only. Validate runs STEP round trip and saves the chosen editable project.')
+        if net.routing=='automatic':net.routing_variant=next(r['variant'] for r in routes if r['net']==net.id)
+    if routes:
+        evidence=store.OUTPUT/'route-selections'/routes[0]['selection_evidence']
+        import json
+        selection=json.loads((evidence/'summary.json').read_text(encoding='utf-8'))
+    else:
+        selection=dict(selected_attempt=0,attempts=[dict(index=0,reason='Fixed geometry',status=report['status'],
+            counts=report['counts'],cost=0,objective=route_objective(target,[]),routes=[])])
+    folder=store.OUTPUT/'optimizations'/uuid.uuid4().hex
+    attempts=selection['attempts'];chosen=selection['selected_attempt']
+    summary=dict(optimization_id=folder.name,selected_attempt=chosen,attempts=attempts,
+        status=attempts[chosen]['status'],baseline=attempts[0]['counts'],final=attempts[chosen]['counts'],
+        improved=chosen!=0,message='CAD-safe exact route and production STEP checked. Validate saves the chosen editable project.')
+    if routes:summary['selection_evidence']=routes[0]['selection_evidence']
     store.atomic_json(folder/'summary.json',summary)
     return dict(design=best.model_dump(),**summary)

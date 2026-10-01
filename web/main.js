@@ -11,7 +11,7 @@ import {pose,axes} from './kinematics.js';
 import {workflows} from './workflows.js';
 import {projectLibrary} from './project-library.js';
 import {hydrateDesign,cloneDesign} from './domain.js';
-import {setDesignPriority,selectEngineeringMaterial,engineeringMaterialChoices,validStockSizes,selectRawStock,setEnvelopeMaximum,customPortDescription} from './engineering-inputs.js';
+import {setDesignPriority,selectEngineeringMaterial,appendMaterialGroups,validStockSizes,selectRawStock,setEnvelopeMaximum,customPortDescription} from './engineering-inputs.js';
 import {displayIdentity,displayRuleName,displayInterfaceName,displayNetName} from './presentation.js';
 import {engineeringFactsUI} from './engineering-facts-ui.js';
 import {createStudioShell} from './studio-shell.js';
@@ -398,19 +398,14 @@ if(selection==='block'){
     const materialInput=field(form,'Engineering material',draft.block.material_id||'',value=>{
       const material=materialCatalog.find(row=>row.id===value);
       if(change(()=>{if(!material)throw Error('Select an active engineering material.');selectEngineeringMaterial(draft,material);},{kind:'none'}))select('block');
-    },{'':'Select engineering material',...Object.fromEntries(engineeringMaterialChoices(materialCatalog,draft.block.material_id).map(row=>[row.id,row.display_name]))});
+    },{'':'Select engineering material'});
+    appendMaterialGroups(materialInput,materialCatalog,draft.block.material_id);
     materialInput.options[0].disabled=true;
     const material=materialCatalog.find(row=>row.id===draft.block.material_id),stock=validStockSizes(draft,material);
     if(material){
       if(material.legacy_unspecified)note('Legacy / unspecified grade and state. Select a precise material manually to specify new stock.','Material & stock');
-      const facts=engineeringFactsUI({element,action},form,material.engineering_facts_summary,{title:'Material engineering data',
-        evidence:material.technical_identity_id?()=>workflowHandlers.openEngineeringEvidence({entryCategory:'materials',recordId:material.technical_identity_id}):null});
-      facts.dataset.inspectorGroup='Material & stock';
-      note(`Supplier stock references: ${material.supplier_stock_count||0} · engineering stock only in Raw stock selector.`,'Material & stock');
-      if(material.surface_treatments?.length)note(`Treatment references (not selected): ${[...new Set(material.surface_treatments.map(t=>`${t.treatment} (${t.status})`))].join(', ')}${material.surface_treatments_total>material.surface_treatments.length?' · more in Library':''}`,'Material & stock');
       prop(form,'Raw stock / standard blank',draft.block.stock_id||'',value=>selectRawStock(draft,stock.find(row=>row.id===value)),
         {'':'No standard blank selected',...Object.fromEntries(stock.map(row=>[row.id,`${row.size_1_mm.toFixed(2)} × ${row.size_2_mm.toFixed(2)} mm · ${row.unit_system} native`]))});
-      note('Optional source-backed raw stock size. Finished manifold dimensions remain the Block dimensions above.','Material & stock');
       if(draft.block.stock_id&&draft.block.machining_allowance&&draft.block.stock_excess){
         note(`Required machining allowance: ${draft.block.machining_allowance.map(v=>v.toFixed(2)).join(' / ')} mm\nActual stock excess: ${draft.block.stock_excess.map(v=>v.toFixed(2)).join(' / ')} mm`,'Material & stock');
         if(!stock.some(row=>row.id===draft.block.stock_id))note('Previously selected raw stock no longer fits. Select a valid blank or clear the stock selection.','Material & stock');
@@ -418,8 +413,6 @@ if(selection==='block'){
     }
   }else note('Engineering material library is unavailable. Retry after the library is available.','Material & stock');
   prop(form,'Allowable material stress / MPa',draft.rules.allowable_stress_mpa??'',value=>draft.rules.allowable_stress_mpa=value,null,'optional');
-  const sourceStress=materialCatalog.find(row=>row.id===draft.block.material_id)?.engineering_facts_summary?.facts?.allowable_stress_mpa;
-  note(draft.rules.allowable_stress_mpa!=null?(sourceStress?.status==='SOURCE_BACKED'&&sourceStress.value===draft.rules.allowable_stress_mpa?'Allowable stress · Source-backed; technical evidence available above.':'Allowable stress · User override.'):'No applicable source-backed allowable stress. Yield/tensile values are references; an engineer may enter an override.','Engineering rules');
   prop(form,'Pressure safety factor',draft.rules.pressure_safety_factor??2,value=>draft.rules.pressure_safety_factor=value,null,true);
   prop(form,'Preferred extra wall margin / mm',draft.constraints.preferred_wall_margin,value=>draft.constraints.preferred_wall_margin=value,null,true);
   prop(form,'Minimum wall / mm',draft.rules.minimum_wall,value=>draft.rules.minimum_wall=value,null,true);

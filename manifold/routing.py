@@ -601,7 +601,10 @@ def exact_route_score(design, report, route, *, cad_error=False):
         else:
             identity=items
         unresolved.add((check['rule'],identity,str(check.get('actual')),str(check.get('required'))))
-    return (1_000_000 if cad_error else report['counts']['FAIL'],len(unresolved),route_objective(design,route))
+    topology_failure=any(c['status']=='FAIL' and c['rule'] in {'solid_validity','solid_count','step_round_trip'}
+                         for c in report['checks'])
+    return (1_000_000+report['counts']['FAIL'] if cad_error or topology_failure else report['counts']['FAIL'],
+            len(unresolved),route_objective(design,route))
 
 
 def _plug_cut_overlap(plug, cut, block, plug_bounds=None):
@@ -1223,7 +1226,7 @@ def resize_route(design, net, option, diameter, definitions, threads=None, modif
         for feature in option['route']:feature.diameter=diameter
 
 
-def _complete_route_combination(design, definitions, thread_definitions, modifier_definitions, snapshot=None, net_ids=None, deadline=None):
+def _complete_route_combination(design, definitions, thread_definitions, modifier_definitions, snapshot=None, net_ids=None, deadline=None, excluded=None):
     """Bounded backtracking across individually clear automatic routes."""
     nets = sorted((n for n in design.nets if n.routing == 'automatic' and (net_ids is None or n.id in net_ids)), key=lambda n:n.id)
     if len(nets)<2 or any(n.routing_variant or n.flow_lpm for n in nets):
@@ -1291,6 +1294,7 @@ def _complete_route_combination(design, definitions, thread_definitions, modifie
         if best_key and bound>best_key[0][:len(bound)]:
             return None
         if index == len(nets):
+            if excluded and tuple(sorted((n,o['key']) for n,o in chosen.items())) in excluded:return None
             route=[f for option in chosen.values() for f in option['route']]
             if len(source.features)+len(route)>120:return None
             key=combination_key(chosen)
@@ -1314,6 +1318,7 @@ def _complete_route_combination(design, definitions, thread_definitions, modifie
                 for option in pools[net.id]:
                     if all(pair_clear(other,best[other.id],net,option) for other in nets if other.id!=net.id):
                         chosen={**best,net.id:option}
+                        if excluded and tuple(sorted((n,o['key']) for n,o in chosen.items())) in excluded:continue
                         route=[f for value in chosen.values() for f in value['route']]
                         key=combination_key(chosen)
                         if key<best_key:best,best_key=chosen,key;improved=True
@@ -1485,7 +1490,7 @@ def _resolve_proposals(design, *, snapshots=None):
     return resolved, candidates
 
 
-def alternative_proposals(best, target, routes, report, eligible, inspected, *, repair_only=None, snapshot=None):
+def alternative_proposals(best, target, routes, report, eligible, inspected, *, repair_only=None, snapshot=None, cad_fallback=False):
     """Conflict-directed bounded neighbourhood, shared by save and optimization.
 
     Reconsider either implicated net, plus paired moves to escape a one-net local
@@ -1512,7 +1517,7 @@ def alternative_proposals(best, target, routes, report, eligible, inspected, *, 
     # A failure without an automatic-net owner cannot be repaired by routing.
     # Never expand metadata, schematic, library-reference or fixed-geometry
     # failures into a search across every otherwise eligible net.
-    net_ids=sorted(affected if repair_only else eligible)
+    net_ids=sorted(eligible if cad_fallback else affected if repair_only else eligible)
     if not net_ids:
         return []
     pools={}; moves=[]
@@ -1527,17 +1532,19 @@ def alternative_proposals(best, target, routes, report, eligible, inspected, *, 
                                           thread_definitions=threads,modifier_definitions=modifiers,snapshot=snapshot) if o['key']!=selected[net_id]]
         screened=sorted(options,key=lambda o:(route_objective(context,o['route'],o['risk'],definitions),o['key']))
         feasible=[o for o in screened if o['hard_failures']==0]
-        pool={o['key']:o for o in feasible[:6]}
+        shortlist=_strategy_shortlist(context,feasible,definitions,limit=6) if cad_fallback else feasible[:6]
+        pool={o['key']:o for o in shortlist}
         pools[net_id]=sorted(options,key=lambda o:(o['hard_failures'],
                                                   route_objective(context,o['route'],o['risk'],definitions),o['key']))[:3]
         moves.extend({net_id:o} for o in pool.values())
     for a,b in sorted(conflicts):
         moves.extend({a:x,b:y} for x,y in itertools.product(pools[a],pools[b]))
-    if not repair_only and len(net_ids)>1:
+    if (not repair_only or cad_fallback) and len(net_ids)>1:
         combination_source=target.model_copy(deep=True)
         for net in combination_source.nets:
             if net.id in eligible:net.routing_variant=None
-        combination=_complete_route_combination(combination_source,definitions,threads,modifiers,snapshot,net_ids=eligible)
+        combination=_complete_route_combination(combination_source,definitions,threads,modifiers,snapshot,net_ids=eligible,
+                                               excluded=inspected if cad_fallback else None)
         if combination:moves.append(combination)
     proposals=[]
     for move in moves:
@@ -1563,7 +1570,7 @@ def alternative_proposals(best, target, routes, report, eligible, inspected, *, 
         if failures:
             continue
         objective=route_objective(proposal,drillings,definitions=definitions)
-        if not repair_only:
+        if not repair_only and not cad_fallback:
             current=[f for f in target.features if f.kind=='drilling' and not f.suppressed]
             current_objective=route_objective(target,current,definitions=definitions)
             # Only truly better manufacturing moves spend optimization attempts.
@@ -1578,7 +1585,8 @@ def alternative_proposals(best, target, routes, report, eligible, inspected, *, 
 
 
 @timed('route.resolution')
-def resolve_design(design, *, exact=True, persist=False, prepared=False, snapshot_cache=None):
+def resolve_design(design, *, exact=True, persist=False, prepared=False, snapshot_cache=None,
+                   max_attempts=8, step_path=None):
     """Check a bounded set of distinct clear proposals, preserving frozen/manual cuts.
 
     Exact selection is pure unless an explicit build/engineering decision opts into evidence.
@@ -1594,6 +1602,7 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
         return target, routes
     from .geometry import build_geometry
     from .validation import validate
+    from .cad_acceptance import production_topology,topology_clear,step_round_trip,add_step_check
     from . import store
     import uuid
     import time
@@ -1601,6 +1610,11 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
     folder = store.OUTPUT/'route-selections'/uuid.uuid4().hex if persist else None
     attempts=[]
     skipped=[]
+    evaluations=[]
+    fixed_topology=None
+    step_exported=None
+    optimization_done=False
+    if not 1<=max_attempts<=12:raise ValueError('max_attempts must be between 1 and 12')
     def evaluate(candidate, reason):
         resolved, metadata = _resolve_proposals(candidate,snapshots=snapshots)
         geometry=None
@@ -1608,19 +1622,22 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
             geometry=build_geometry(resolved)
             authorize_generated_contacts(resolved,geometry)
             report=validate(resolved,geometry)
-            failed=report['counts']['FAIL']
         except Exception as exc:
             geometry=None
-            failed=1_000_000
-            report=dict(counts=dict(FAIL=1,WARNING=0),checks=[dict(rule='cad_candidate_error',status='FAIL',error=type(exc).__name__,message=str(exc)[:2000])])
+            report=dict(status='FAIL',counts=dict(FAIL=1,WARNING=0,PASS=0),checks=[dict(rule='cad_candidate_error',status='FAIL',error=type(exc).__name__,message=str(exc)[:2000])])
         cost=route_cost(resolved,[f for f in resolved.features if f.kind=='drilling' and not f.suppressed])
         index=len(attempts)
         score=exact_route_score(resolved,report,
-               [f for f in resolved.features if f.kind=='drilling' and not f.suppressed],cad_error=geometry is None)
+               [f for f in resolved.features if f.kind=='drilling' and not f.suppressed],
+               cad_error=geometry is None or not topology_clear(geometry))
         if folder:
             store.atomic_json(folder/f'attempt-{index:02}'/'resolved_design.json',resolved.model_dump())
             store.atomic_json(folder/f'attempt-{index:02}'/'validation.json',report)
-        attempts.append(dict(reason=reason,score=score,routes=metadata))
+        attempts.append(dict(index=index,reason=reason,score=score,routes=metadata,cost=cost,objective=score[2],
+                             status=report['status'],counts=report['counts'],
+                             production=production_topology(geometry) if geometry else None,
+                             design_revision=store.revision(candidate)))
+        evaluations.append([score,resolved,metadata,index,report,geometry,candidate])
         return score,resolved,metadata,index,report,geometry
     best=design.model_copy(deep=True)
     # Pin the baseline before varying one net, avoiding implicit nested searches.
@@ -1631,13 +1648,51 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
     eligible={n.id for n in pending}
     # Only untried, analytically clear candidates spend the exact budget. The
     # eight-candidate/240 s ceilings leave the worker's CAD watchdog intact.
-    while len(attempts)<8 and time.monotonic()-started<240:
-        proposals=alternative_proposals(best,target,routes,report,eligible,inspected,
-                                        repair_only=bool(score[0]),snapshot=snapshots.get(_proposal_source_key(best)))
-        if not proposals:break
-        attempt_limit=min(8,len(attempts)+len(proposals))
-        if len(attempts)>=attempt_limit or time.monotonic()-started>=240:
+    while True:
+        cad_bad=geometry is None or not topology_clear(geometry) or any(
+            c['rule']=='step_round_trip' and c['status']=='FAIL' for c in report['checks'])
+        snapshot=snapshots.get(_proposal_source_key(best))
+        if cad_bad and eligible and fixed_topology is None:
+            # Diagnose the fixed stock/cavities/manual/frozen machining once.
+            # No net ownership is required for a route-dependent topology FAIL.
+            try:
+                fixed=best.model_copy(deep=True)
+                fixed.features=[f for f in fixed.features if f.route_net not in eligible or f.frozen_net]
+                fixed_geometry=snapshot.geometry if snapshot and snapshot.geometry is not None else build_geometry(fixed)
+                fixed_topology=production_topology(fixed_geometry)
+            except Exception as exc:
+                fixed_topology=dict(valid=False,solids=None,error=type(exc).__name__)
+        cad_fallback=cad_bad and bool(eligible) and fixed_topology['valid'] and fixed_topology['solids']==1
+        if cad_bad and eligible and not cad_fallback:
+            skipped.append(dict(reason='Production topology already fails without automatic generated routes',production=fixed_topology))
+            proposals=[]
+        elif (cad_fallback or not optimization_done) and len(attempts)<max_attempts and time.monotonic()-started<240:
+            kwargs=dict(repair_only=bool(score[0]),snapshot=snapshot)
+            if cad_fallback:kwargs['cad_fallback']=True
+            proposals=alternative_proposals(best,target,routes,report,eligible,inspected,**kwargs)
+        else:
             skipped.append(dict(reason='Distinct candidate/execution budget exhausted'))
+            proposals=[]
+        if not proposals:
+            # STEP is lazy: test the otherwise selected exact candidate only.
+            # Failed serializations remain rejected in the same bounded pool.
+            step_check=next((c for c in report['checks'] if c['rule']=='step_round_trip'),None)
+            if geometry is not None and (step_check is None or step_path and step_exported!=chosen):
+                check=step_round_trip(geometry,step_path)
+                step_exported=chosen
+                add_step_check(report,check)
+                score=exact_route_score(target,report,[f for f in target.features if f.kind=='drilling' and not f.suppressed],
+                                        cad_error=not topology_clear(geometry))
+                evaluations[chosen][0]=score
+                attempts[chosen].update(score=score,status=report['status'],counts=report['counts'],step=check)
+                if folder:store.atomic_json(folder/f'attempt-{chosen:02}'/'validation.json',report)
+                if check['status']=='FAIL':
+                    # Reuse exact candidates already evaluated before spending
+                    # another OCCT attempt. A worse objective can be CAD-safe.
+                    selected=min(evaluations,key=lambda value:(value[0],value[3]))
+                    score,target,routes,chosen,report,geometry,best=selected
+                    if chosen!=step_exported or len(attempts)<max_attempts and time.monotonic()-started<240:
+                        continue
             break
         _,candidate,signature,reason=proposals[0]
         inspected.add(signature)
@@ -1646,12 +1701,15 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
         objective=route_objective(proposal,[f for f in proposal.features if f.kind=='drilling' and not f.suppressed])
         if score[:2]==(0,0) and objective>=score[2]:
             skipped.append(dict(variants=signature,cost=cost,reason='Cannot improve exact PASS under the selected design priority'))
-            break
+            # Finalize the selected serialization gate before returning.
+            optimization_done=True
+            continue
         trial,new_target,new_routes,index,new_report,new_geometry=evaluate(candidate,reason)
         if trial<score:
             best,score,target,routes,chosen,report,geometry=candidate,trial,new_target,new_routes,index,new_report,new_geometry
     if folder:
-        store.atomic_json(folder/'summary.json',dict(selected_attempt=chosen,attempts=attempts,skipped=skipped))
+        store.atomic_json(folder/'summary.json',dict(selected_attempt=chosen,attempts=attempts,skipped=skipped,
+                                                   fixed_production=fixed_topology,seconds=time.monotonic()-started))
     for route in routes:
         if folder:route['selection_evidence']=folder.name
         route['exact_attempts']=len(attempts)

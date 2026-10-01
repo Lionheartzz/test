@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {setDesignPriority,selectEngineeringMaterial,engineeringMaterialChoices,validStockSizes,selectRawStock,
+import {setDesignPriority,selectEngineeringMaterial,engineeringMaterialChoices,engineeringMaterialGroups,appendMaterialGroups,validStockSizes,selectRawStock,
   setEnvelopeMaximum,customPortDescription} from '../web/engineering-inputs.js';
 import {portSetup,customPort} from '../web/port-setup.js';
 
@@ -18,6 +18,39 @@ test('new material choices hide unspecified legacy; old project shows only its c
   assert.deepEqual(engineeringMaterialChoices([modern,...old]),[modern]);
   assert.deepEqual(engineeringMaterialChoices([modern,...old],'material_1'),[modern,old[0]]);
   assert.deepEqual(engineeringMaterialChoices([modern,...old],'material_2'),[modern,old[1]]);
+});
+
+test('material families have stable engineering order, natural identity order and current legacy only',()=>{
+  const catalog=[
+    {id:'316',display_name:'316 · Annealed',material_type:'Stainless steel'},
+    {id:'7075',display_name:'7075 · T651',material_type:'Aluminum alloy'},
+    {id:'iron',display_name:'Dura-Bar 65-45-12',material_type:'Ductile iron'},
+    {id:'C45',display_name:'C45 · +N',material_type:'Carbon steel'},
+    {id:'6061',display_name:'6061 · T651',material_type:'Aluminum alloy'},
+    {id:'304',display_name:'304 · Annealed',material_type:'Stainless steel'},
+    {id:'other',display_name:'Precise other grade',material_type:'Copper alloy'},
+    {id:'material_1',display_name:'Legacy unspecified Aluminum',material_type:'Aluminum alloy (unspecified)',selectable:false},
+    {id:'material_2',display_name:'Legacy unspecified Dura-Bar',material_type:'Cast iron (unspecified grade)',selectable:false}
+  ].map(r=>({active:1,...r}));
+  const before=structuredClone(catalog),groups=engineeringMaterialGroups(catalog);
+  assert.deepEqual(groups.map(r=>r.family),['Aluminum Alloy','Carbon Steel','Stainless Steel','Ductile Iron','Copper alloy']);
+  assert.deepEqual(groups[0].items.map(r=>r.id),['6061','7075']);
+  assert.deepEqual(groups[2].items.map(r=>r.id),['304','316']);
+  assert.equal(groups.flatMap(r=>r.items).length,7);
+  const old=engineeringMaterialGroups(catalog,'material_1').flatMap(r=>r.items);
+  assert(old.some(r=>r.id==='material_1'));assert(!old.some(r=>r.id==='material_2'));
+  assert.deepEqual(catalog,before);
+});
+
+test('native material optgroups preserve precise selected identity and hide other legacy IDs',()=>{
+  const doc={createElement:tag=>({tag,children:[],append(...rows){this.children.push(...rows);}})};
+  const select={ownerDocument:doc,children:[],append(...rows){this.children.push(...rows);}};
+  const catalog=[{id:'precise',display_name:'6061 · T651 (Plate) · ASTM B209/B209M',material_type:'Aluminum alloy',active:1},
+    {id:'material_1',display_name:'Legacy unspecified Aluminum',material_type:'Aluminum alloy (unspecified)',active:1,selectable:false}];
+  appendMaterialGroups(select,catalog,'precise');
+  assert.equal(select.value,'precise');assert.equal(select.children[0].tag,'optgroup');
+  assert.equal(select.children[0].label,'Aluminum Alloy');
+  assert.deepEqual(select.children[0].children.map(r=>[r.value,r.textContent]),[['precise',catalog[0].display_name]]);
 });
 
 test('priority invalidates only automatic choices and keeps frozen/manual data',()=>{

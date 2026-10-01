@@ -24,10 +24,10 @@ async page => {
     stage='Material identities, defaults and raw stock';
     const select=page.getByLabel('Engineering material',{exact:true});
     assert((await select.locator('option').count())===materials.length+1,'Selector differs from runtime material API');
-    await select.selectOption(m6061.id);await page.getByText('Yield Strength: 276 MPa · Source-backed · T6; Extrusion',{exact:true}).waitFor();
+    await select.selectOption(m6061.id);
     assert(await page.getByLabel('Allowable material stress / MPa',{exact:true}).inputValue()==='','Yield converted into allowable');
     assert(await page.getByLabel('Raw stock / standard blank',{exact:true}).locator('option').count()===1,'Supplier inventory became engineering stock');
-    assert((await page.locator('#inspector').innerText()).includes('Treatment references (not selected):'),'Treatments missing');
+    assert(!/Material engineering data|Conditional.reference observations|View technical evidence|Supplier stock references|Treatment references|Source-backed/.test(await page.locator('#inspector').innerText()),'Material research leaked into Model');
     await screenshot('model-material');stages.push(stage);
     stage='Overrides survive rerender and stable IDs persist';
     for(const [label,value] of [['Allowable material stress / MPa','123'],['Pressure safety factor','3'],['Preferred extra wall margin / mm','6'],['Minimum wall / mm','9']]){
@@ -35,7 +35,6 @@ async page => {
     }
     await page.getByRole('button',{name:'Block Envelope · material · rules',exact:true}).click();
     assert(await page.getByLabel('Allowable material stress / MPa',{exact:true}).inputValue()==='123','Override lost on rerender');
-    assert((await page.locator('#inspector').innerText()).includes('Allowable stress · User override.'),'Override provenance missing');
     await page.getByRole('button',{name:'Save Project',exact:true}).click();
     await page.waitForFunction(()=>document.querySelector('#dirty-dot')?.getAttribute('aria-label')==='Draft saved');
     const saved=await api('/api/projects/'+created.project_id);assert(saved.design.block.material_id===m6061.id&&saved.design.block.material===m6061.display_name,'Stable material identity not saved');
@@ -45,7 +44,9 @@ async page => {
     assert(await page.getByLabel('Allowable material stress / MPa',{exact:true}).inputValue()==='','New material retained old stress');
     for(const [label,value] of [['Pressure safety factor','2'],['Preferred extra wall margin / mm','4'],['Minimum wall / mm','7']])assert(await page.getByLabel(label,{exact:true}).inputValue()===value,label+' default wrong');
     stages.push(stage);
-    stage='Material evidence and research actionability';await page.locator('#inspector').getByRole('button',{name:'View technical evidence',exact:true}).click();
+    stage='Material evidence and research actionability';await page.getByRole('button',{name:/^Engineering(?: \d+)?$/}).click();await page.getByRole('button',{name:'Engineering Library',exact:true}).click();
+    await dialog.locator('.library-category-card').filter({has:page.getByRole('heading',{name:'Materials & Stock',exact:true})}).getByRole('button',{name:'Open →',exact:true}).click();
+    await dialog.getByLabel('Search Materials & Stock',{exact:true}).fill('6082');await dialog.getByRole('button',{name:'View Detail',exact:true}).click();
     await dialog.getByText('Engineering material · Available in Model material selector',{exact:true}).waitFor();
     assert(await dialog.getByRole('button',{name:/^(Place|Bind|Use)/}).count()===0,'Evidence offers an execution action');
     await screenshot('material-library');await dialog.getByRole('button',{name:'Back to Materials & Stock',exact:true}).click();

@@ -72,13 +72,12 @@ def build_outputs(design, folder, *, engineering_complete=None):
     assert_engine_current()
     folder.mkdir(parents=True, exist_ok=False)
     authored = design
-    design, routes, g, report = resolve_design(authored,persist=True,prepared=True)
+    design, routes, g, report = resolve_design(authored,persist=True,prepared=True,step_path=folder/'production.step')
     rev = revision(authored)
     report['route_proposals'] = routes
     report.update(design_revision=rev, generated_at=datetime.now(timezone.utc).isoformat(),
                   cadquery_version=cq.__version__, rules_version='pmc-intent-2', engine_revision=engine_revision(), engine=engine_evidence())
     with phase('step.export'):
-        cq.exporters.export(g.production, str(folder / 'production.step'))
         from .presentation import feature_name
         import re
         assembly=cq.Assembly(name='PMC_ENGINEERING')
@@ -94,17 +93,8 @@ def build_outputs(design, folder, *, engineering_complete=None):
         for identifier,shape in g.manufacturing_features.items():
             assembly.add(shape,name='MANUFACTURING_'+identifier)
         assembly.save(str(folder/'engineering.step'),exportType='STEP',mode='default')
-    # Round trip tests actual serialized CAD, not merely in-memory validity.
-    with phase('step.round_trip'):
-        imported = cq.importers.importStep(str(folder / 'production.step')).val()
-        error = abs(imported.Volume() - g.production.Volume())
-        passed = imported.isValid() and len(imported.Solids()) == 1 and error < 0.01
-    report['checks'].append(dict(rule='step_round_trip', items=['block'], actual=round(error, 8), required=0.01,
-                                 status='PASS' if passed else 'FAIL', unit='mm³',
-                                 message='STEP reimport: valid single solid and matching volume.'))
-    report['counts']['PASS' if passed else 'FAIL'] += 1
-    if not passed:
-        report['status'] = 'FAIL'
+    # The selected production.step was checked by the authoritative resolver's
+    # serialization gate. Build uses that exact route and serialized artifact.
     atomic_json(folder / 'design.json', authored.model_dump())
     atomic_json(folder / 'resolved_design.json', design.model_dump())
     from .manufacturing import manufacturing_outputs

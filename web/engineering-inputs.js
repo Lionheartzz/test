@@ -26,6 +26,32 @@ export function engineeringMaterialChoices(catalog,currentId=null){
   return catalog.filter(row=>row.active&&(row.selectable!==false||row.id===currentId));
 }
 
+export function engineeringMaterialGroups(catalog,currentId=null){
+  const order=['Aluminum Alloy','Carbon Steel','Stainless Steel','Ductile Iron'];
+  const groups=new Map();
+  for(const material of engineeringMaterialChoices(catalog,currentId)){
+    const type=(material.material_type||'Other').trim();
+    const family=order.find(name=>name.toLowerCase()===type.toLowerCase())||type;
+    if(!groups.has(family))groups.set(family,[]);
+    groups.get(family).push(material);
+  }
+  const rank=family=>order.includes(family)?order.indexOf(family):order.length;
+  return [...groups].sort(([a],[b])=>rank(a)-rank(b)||a.localeCompare(b)).map(([family,items])=>({family,
+    items:items.sort((a,b)=>a.display_name.localeCompare(b.display_name,'en',{numeric:true})||a.id.localeCompare(b.id))}));
+}
+
+export function appendMaterialGroups(select,catalog,currentId=null){
+  for(const {family,items} of engineeringMaterialGroups(catalog,currentId)){
+    const group=select.ownerDocument.createElement('optgroup');group.label=family;
+    for(const material of items){
+      const option=select.ownerDocument.createElement('option');
+      option.value=material.id;option.textContent=material.display_name;group.append(option);
+    }
+    select.append(group);
+  }
+  select.value=currentId||'';
+}
+
 export function validStockSizes(design,material){
   return (material?.stock||[]).filter(row=>row.active&&row.material_id===material.id&&
     [row.size_1_mm,row.size_2_mm].every(value=>Number.isFinite(value)&&value>0&&value<=2000)&&
