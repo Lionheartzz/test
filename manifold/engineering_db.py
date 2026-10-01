@@ -840,9 +840,9 @@ def browse_closures(*, include_inactive=False):
                          "envelope":json.loads(row["envelope_json"])} for row in rows]
 
 
-def materials(*, connection: sqlite3.Connection | None = None):
+def materials(*, include_legacy=False, current_id=None, connection: sqlite3.Connection | None = None):
     if connection is None:
-        with _connect() as opened:return materials(connection=opened)
+        with _connect() as opened:return materials(include_legacy=include_legacy,current_id=current_id,connection=opened)
     from .engineering_facts import facts_batch
     links = {row['material_id']: row['id'] for row in connection.execute(
         "SELECT id,material_id FROM technical_identities WHERE domain='material' AND material_id IS NOT NULL")}
@@ -859,12 +859,21 @@ def materials(*, connection: sqlite3.Connection | None = None):
         treatments.setdefault(row['material_id'], []).append(dict(id=row['id'], treatment=raw.get('treatment',''),
             status=raw.get('status','REFERENCE_ONLY')))
     result=[]
+    legacy={'material_1':('Legacy unspecified Aluminum','Aluminum alloy (unspecified)'),
+            'material_2':('Legacy unspecified Dura-Bar','Cast iron (unspecified grade)')}
     for row in connection.execute("SELECT * FROM materials WHERE active=1 ORDER BY display_name"):
         value=dict(row);value['stock']=stock.get(row['id'], [])
         research_id = links.get(row['id'])
         facts = summaries.get(research_id)
+        is_legacy=row['id'] in legacy
+        selectable=not is_legacy and bool(facts and facts['identity'] and facts['identity']['selectable'])
+        if not selectable and not include_legacy and row['id']!=current_id:continue
+        if is_legacy:value.update(display_name=legacy[row['id']][0],material_type=legacy[row['id']][1])
         stress = facts['facts']['allowable_stress_mpa'] if facts else {}
-        value.update(technical_identity_id=research_id, source_backed=bool(research_id),
+        value.update(technical_identity_id=research_id, source_backed=bool(research_id) and not is_legacy,
+            legacy_unspecified=is_legacy,selectable=selectable,
+            selection_reason='Legacy unspecified grade/state; retained for existing projects' if is_legacy else
+                (facts['identity']['reason'] if facts and facts['identity'] else 'Exact source-backed grade/state/standard/form not established'),
             engineering_defaults=dict(allowable_stress_mpa=stress.get('value') if stress.get('status')=='SOURCE_BACKED' else None,
                 pressure_safety_factor=2, minimum_wall=7, preferred_wall_margin=4),
             engineering_facts_summary=facts, supplier_stock_count=supplier_counts.get(research_id,0),

@@ -44,12 +44,13 @@ SOURCE_TYPES = {
     'OFFICIAL_MANUFACTURER_DATASHEET', 'OFFICIAL_MANUFACTURER_CATALOG',
     'OFFICIAL_MANUFACTURER_PRODUCT_DATASHEET', 'OFFICIAL_MANUFACTURER_TECHNICAL_INFORMATION',
     'PRIMARY_PRODUCER_DATASHEET', 'PRIMARY_PRODUCER_GENERATED_MODEL_DATASHEET',
+    'OEM_MANUFACTURER_BULLETIN',
     'SUN_GENERATED_CURRENT_MODEL_PDF', 'CURRENT_OFFICIAL_MODEL_PDF',
     'MANUFACTURER_AUTHORED_CATALOGUE_THIRD_PARTY_HOST', 'HISTORICAL_OFFICIAL_CATALOG',
     'PRODUCER_OR_SUPPLIER_DATASHEET',
 }
 UNITS = {
-    'MPa': {'mpa': 1, 'n/mm2': 1, 'n/mm^2': 1, 'ksi': 6.894757293},
+    'MPa': {'mpa': 1, 'n/mm2': 1, 'n/mm^2': 1, 'ksi': 6.894757293, 'psi': .006894757293},
     'bar': {'bar': 1, 'mpa': 10, 'psi': .06894757293},
     'L/min': {'l/min': 1, 'lpm': 1, 'usgpm': 3.785411784},
     'kg/m³': {'kg/m3': 1, 'kg/m^3': 1, 'kg/m³': 1, 'kg/dm3': 1000},
@@ -68,13 +69,19 @@ def material_actionability(identity, conflicts=()):
     raw = identity['original']
     grade, state, standard = (str(raw.get(k) or '').strip() for k in
                               ('canonical_grade', 'temper_condition', 'standard'))
+    core=raw.get('core_material') or {}
     reason = ''
-    if identity['disposition'] in ('IDENTITY_AMBIGUOUS', 'RELATION_SOURCE_ONLY'):
+    if core.get('status')=='RESEARCH_ONLY':
+        reason=core['reason']
+    elif identity['disposition'] in ('IDENTITY_AMBIGUOUS', 'RELATION_SOURCE_ONLY'):
         reason = 'Ambiguous or relation-only identity'
     elif not all((grade, state, standard)):
         reason = 'Grade, standard and material state must all be explicit'
     elif not identity.get('source_supported'):
         reason = 'No attributed registered source evidence supports this material identity'
+    elif core and (not core.get('identity_evidence_ids') or not core.get('primary_standard') or
+                   not core.get('stock_product_form')):
+        reason = 'Primary identity support or exact solid stock form unresolved'
     elif any(term in norm(state + ' ' + standard) for term in
              ('requires confirmation', 'suffix-specific', 'unspecified', 'unknown')):
         reason = 'Standard applicability or grade/state suffix is unresolved'
@@ -84,10 +91,15 @@ def material_actionability(identity, conflicts=()):
              not c.get('preferred_evidence_id') for c in conflicts):
         reason = 'Unresolved conflict in material identity, standard or state'
     key = json.dumps([identity['id'], grade, standard, state], ensure_ascii=False, separators=(',', ':'))
-    return dict(selectable=not reason, reason=reason, grade=grade, standard=standard,
-                state=state, product_form=raw.get('product_form', ''),
+    display_standard=core.get('primary_standard') or standard
+    form=core.get('stock_product_form') or raw.get('product_form','')
+    display_grade=core.get('display_grade') or grade
+    label_state=state+(' ('+form.lower()+')' if core and not reason else '')
+    return dict(selectable=not reason, reason=reason, grade=grade, standard=display_standard,
+                canonical_standard=standard, additional_standards=core.get('additional_standards',[]),
+                state=state, product_form=form, material_family=core.get('material_family') or identity.get('product_family',''),
                 runtime_id='material_rev2_' + hashlib.sha256(key.encode()).hexdigest()[:24],
-                display_name=f'{grade} · {state} · {standard}')
+                display_name=f'{display_grade} · {label_state} · {display_standard}')
 
 
 def _number(value, unit, target):
@@ -121,6 +133,34 @@ def _applicability(domain, identity, row, original, context):
         else:
             return False, 'Scope/option does not establish exact model applicability'
     else:
+        core=identity['original'].get('core_material') or {}
+        if core and core.get('status')=='ENGINEERING':
+            if row['entity_id']!=identity['id'] or row['id'] not in core.get('parameter_evidence_ids',[]):
+                return False,'Evidence is not reviewed for this exact material identity'
+            applicability=original.get('applies_to') or {}
+            expected=dict(grade=identity['original']['canonical_grade'],state=identity['original']['temper_condition'],
+                          product_form=core['stock_product_form'])
+            if any(applicability.get(k)!=v for k,v in expected.items()):
+                return False,'Exact grade/state/product form not established for this reviewed identity'
+            if context.get('product_form') and context['product_form']!=expected['product_form']:
+                return False,'Actual stock product form does not match the source'
+            if applicability.get('source_profile') and context.get('source_profile')!=applicability['source_profile']:
+                return False,'Exact extrusion profile type not established'
+            for key in ('producer_variant','standard_basis'):
+                if applicability.get(key) and context.get(key)!=applicability[key]:
+                    return False,'Source '+key.replace('_',' ')+' not established'
+            for key in ('stock_thickness_mm','stock_diameter_mm'):
+                interval=applicability.get(key)
+                if interval:
+                    value=context.get(key)
+                    if value is None:return False,'Source size range requires an identified raw-stock '+key
+                    if ('min' in interval and value<interval['min'] or 'max' in interval and value>interval['max'] or
+                        'min_exclusive' in interval and value<=interval['min_exclusive'] or
+                        'max_exclusive' in interval and value>=interval['max_exclusive']):
+                        return False,'Raw-stock size is outside the source range'
+            if applicability.get('temperature_c') is not None and context.get('temperature_c')!=applicability['temperature_c']:
+                return False,'Source temperature condition not established'
+            return True,''  # test method/value kind stays attached; no allowable is derived
         scope = original.get('scope_class', row['scope'])
         applies = scope in ('GRADE', 'GRADE_CONDITION', 'GRADE_CONDITION_PRODUCT_FORM', 'GRADE_CONDITION_FORM')
         if norm(row['entity_id']) != norm(identity['id']) or not applies:
@@ -168,13 +208,24 @@ def facts_batch(domain, identifiers, *, contexts=None, overrides=None, connectio
         conflicts[r['identity_id']].append(dict(r))
     properties = list(PROPERTIES[domain])
     pmarks = ','.join('?' for _ in properties)
+    reviewed={mid:r['original']['core_material'] for mid,r in identities.items()
+              if r['original'].get('core_material',{}).get('status')=='ENGINEERING'}
+    review_filter='';review_args=[]
+    if reviewed:
+        approved=sorted({eid for core in reviewed.values() for eid in core.get('parameter_evidence_ids',[])})
+        review_filter=f" AND (v.identity_id NOT IN ({','.join('?' for _ in reviewed)})"
+        review_args=list(reviewed)
+        if approved:
+            review_filter+=f" OR v.evidence_id IN ({','.join('?' for _ in approved)})"
+            review_args+=approved
+        review_filter+=')'
     rows = [dict(r) for r in db.execute(f'''SELECT * FROM (
         SELECT v.identity_id,v.status AS value_status,e.*,
         row_number() OVER(PARTITION BY v.identity_id,e.property ORDER BY e.id) AS position,
         count(*) OVER(PARTITION BY v.identity_id,e.property) AS total
         FROM technical_values v JOIN technical_evidence e ON e.domain=v.domain AND e.id=v.evidence_id
-        WHERE v.domain=? AND v.identity_id IN ({marks}) AND v.property IN ({pmarks}))
-        WHERE position<=32 ORDER BY identity_id,property,id''', [domain, *identifiers, *properties])]
+        WHERE v.domain=? AND v.identity_id IN ({marks}) AND v.property IN ({pmarks}) {review_filter})
+        WHERE position<=32 ORDER BY identity_id,property,id''', [domain, *identifiers, *properties, *review_args])]
     sources = defaultdict(list)
     ids = list(dict.fromkeys(r['id'] for r in rows))
     if ids:
@@ -230,10 +281,13 @@ def facts_batch(domain, identifiers, *, contexts=None, overrides=None, connectio
             observation = dict(property=prop, value=converted[0] if converted else value,
                                unit=converted[1] if converted else r['normalized_unit'],
                                condition=r['condition'], scope=r['scope'], evidence_id=r['id'],
+                               value_kind=raw.get('value_kind','SOURCE_VALUE'),applicability=raw.get('applies_to',{}),
                                sources=[{k:v for k,v in s.items() if k!='evidence_id'} for s in sources[r['id']][:2]])
             if reason:
                 rejected[prop].add(reason)
-                if converted and len([x for x in references if x['property']==prop]) < 2:
+                has_reference=converted or (value is not None and r['normalized_unit'] and
+                    not isinstance(value,bool) and not re.search(r'NOT_FOUND|NOT_REPORTED|UNRESOLVED',str(value),re.I))
+                if has_reference and len([x for x in references if x['property']==prop]) < 2:
                     references.append(observation | dict(status='UNRESOLVED', reason=reason, engineering_usable=False))
             else:
                 candidates[prop].append(observation)
@@ -264,7 +318,7 @@ def facts_batch(domain, identifiers, *, contexts=None, overrides=None, connectio
     return result
 
 
-def promote_materials(db):
+def promote_materials(db, *, refresh_metadata=False):
     """Explicit importer only; no startup writes, name merges or supplier-stock promotion."""
     report = []
     cursor = db.cursor(); cursor.row_factory = sqlite3.Row
@@ -277,10 +331,13 @@ def promote_materials(db):
             JOIN technical_conflicts c ON c.domain=l.domain AND c.id=l.conflict_id WHERE l.domain='material' AND l.identity_id=?''', (r['id'],))]
         decision = material_actionability(identity, conflicts)
         if decision['selectable']:
-            row = (decision['runtime_id'], decision['display_name'], r['product_family'], 1)
+            row = (decision['runtime_id'], decision['display_name'], decision['material_family'], 1)
             existing = db.execute('SELECT * FROM materials WHERE id=?', (row[0],)).fetchone()
             if existing and tuple(existing) != row:
-                raise ValueError('Stable promoted material identity conflicts with existing runtime material')
+                if not refresh_metadata or not identity['original'].get('core_material'):
+                    raise ValueError('Stable promoted material identity conflicts with existing runtime material')
+                if existing[3]!=1:raise ValueError('Material review cannot silently restore an archived identity')
+                db.execute('UPDATE materials SET display_name=?,material_type=? WHERE id=?',(row[1],row[2],row[0]))
             if not existing:
                 db.execute('INSERT INTO materials VALUES (?,?,?,?)', row)
             db.execute("UPDATE technical_identities SET material_id=? WHERE domain='material' AND id=?", (row[0], r['id']))

@@ -74,6 +74,12 @@ def summary(domain, identifier):
         from .engineering_facts import resolved_engineering_facts
         result['engineering_facts'] = resolved_engineering_facts(domain, identifier, connection=db)
         if domain == 'material':
+            core=identity['original'].get('core_material') or {}
+            primary_ids=core.get('source_ids',[])[:8]
+            result['primary_sources']=[]
+            if primary_ids:
+                for row in db.execute(f"SELECT * FROM technical_sources WHERE domain='material' AND id IN ({','.join('?' for _ in primary_ids)}) ORDER BY id",primary_ids):
+                    source=dict(row);source['original']=json.loads(source.pop('original_json'));result['primary_sources'].append(source)
             result['surface_treatments'] = [json.loads(row[0]) for row in db.execute('''
                 SELECT t.original_json FROM material_research_links l JOIN material_surface_treatments t ON t.id=l.record_id
                 WHERE l.material_id=? AND l.kind='treatment' ORDER BY t.id''', (identifier,))]
@@ -128,7 +134,7 @@ def materials():
             decision=material_actionability(item)
             rows.append(dict(id=item['id'],runtime_id=item['material_id'],display_name=decision['display_name'],
                 material_type=item['product_family'],disposition=item['disposition'],active=True,
-                research_only=not bool(item['material_id']),research_reason=decision['reason']))
+                research_only=not bool(item['material_id']) or not decision['selectable'],research_reason=decision['reason']))
     return dict(items=rows, total=len(rows))
 
 

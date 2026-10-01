@@ -18,7 +18,7 @@ test('Inspector evidence direct entry returns to category instead of reopening r
   const calls=[],h=harness(async url=>{calls.push(url);
     if(url==='/api/materials/technical/MAT')return {identity:{id:'MAT',full_part_number:'6061',material_id:'runtime',disposition:'PARTIAL',original:{}},
       counts:{evidence:0,sources:0,conflicts:0},values:[],values_total:0,field_status:[],surface_treatments:[],engineering_stock:[]};
-    if(url==='/api/materials')return {items:[{id:'runtime',display_name:'6061 T6',stock:[],active:true}]};
+    if(url==='/api/materials?include_legacy=true')return {items:[{id:'runtime',display_name:'6061 T6',stock:[],active:true}]};
     if(url==='/api/materials/technical')return {items:[]};
     throw Error('Unexpected '+url);
   });

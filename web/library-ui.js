@@ -87,7 +87,7 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{}}){
       ['cartridges','Valve identities, compatibility and source evidence',async()=>(await api('/api/cartridges?limit=1')).total,'cartridges'],
       ['external-ports','Reusable hydraulic port machining definitions',async()=>(await api('/api/catalog?kind=port_definition&limit=1')).total,'definitions'],
       ['threads','Reusable thread and tap definitions',async()=>(await api('/api/threads?usable_only=false&limit=1')).total,'definitions'],
-      ['materials','Engineering stock and sourced material knowledge',async()=>{const rows=await Promise.all([api('/api/materials'),api('/api/materials/technical')]);return rows[0].items.length+rows[1].items.filter(r=>r.research_only).length;},'materials'],
+      ['materials','Engineering stock and sourced material knowledge',async()=>{const rows=await Promise.all([api('/api/materials?include_legacy=true'),api('/api/materials/technical')]);return rows[0].items.length+rows[1].items.filter(r=>r.research_only).length;},'materials'],
       ['tooling','Drill, flat-bottom-drill and spotface tools',async()=>{const rows=await Promise.all(['drill','flat-bottom-drill','spotface'].map(type=>api('/api/tools?'+new URLSearchParams({type,usable_only:false}))));return rows.reduce((sum,row)=>sum+(row.total??row.items.length),0);},'tools'],
       ['closures','Construction closures and plugs',async()=>(await api('/api/closures')).total,'definitions'],
       ['modifiers','O-ring grooves, counterbores and undercuts',async()=>(await api('/api/machining-modifiers?usable_only=false')).total,'definitions'],
@@ -176,6 +176,7 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{}}){
     const card=element('section',null,'library-card');content.append(card);
     const line=(label,value)=>card.append(element('p',`${label}: ${value===null||value===undefined||value===''?'Not collected':value}`));
     line('Engineering ID',row.id);line('Active',row.active?'Yes':'No');
+    if(category==='materials'&&row.legacy_unspecified)line('Identity status','Legacy unspecified · retained for existing projects; select a precise material manually for new work');
     if(category==='threads'){for(const [name,value] of [['Family',row.normalized_family||row.family],['Designation',row.display_name],['Nominal size',row.nominal_size],['Native unit',row.unit_system],['Tap diameter',row.tap_diameter_mm==null?'Not collected':`${displayMm(row.tap_diameter_mm)} mm`],['Pitch / TPI',row.pitch_tpi],['Class',row.thread_class],['Applicability',row.applicability],['Form',row.tapered?'Tapered':'Parallel'],['Usable',row.usable?'Yes':'No'],['Reason',row.unusable_reason]])line(name,value);}
     if(category==='materials'){line('Material',row.display_name);line('Type',row.material_type);card.append(element('h3','Available stock sizes'));for(const stock of row.stock||[]){const item=element('section',null,'library-card');item.append(element('strong',`${stock.unit_system.toUpperCase()} · ${stock.size_1_mm} × ${stock.size_2_mm} mm`),element('p',`Machining allowance: ${stock.allowance_1_mm} × ${stock.allowance_2_mm} mm · ${stock.active?'ACTIVE':'ARCHIVED'}`));card.append(item);}if(!row.stock?.length)line('Stock','No source-backed stock sizes');}
     if(category==='tooling'){for(const [name,value] of [['Type',row.tool_type],['Native unit',row.unit_system],['Diameter',`${displayMm(row.diameter_mm)} mm`],['Maximum depth',`${displayMm(row.max_depth_mm)} mm`],['Usable',row.usable?'Yes':'No']])line(name,value);}
@@ -197,7 +198,7 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{}}){
     const filters=element('div',null,'editor-grid'),list=element('div',null,'library-list'),pager=element('div',null,'action-row');content.append(filters,list,pager);
     let request=0,timer;
     const fetchRows=async()=>{
-      if(category==='materials'){const results=await Promise.all([api('/api/materials'),api('/api/materials/technical')]);return [...results[0].items,...results[1].items.filter(row=>row.research_only)];}
+      if(category==='materials'){const results=await Promise.all([api('/api/materials?include_legacy=true'),api('/api/materials/technical')]);return [...results[0].items,...results[1].items.filter(row=>row.research_only)];}
       if(category==='tooling'){const results=await Promise.all(['drill','flat-bottom-drill','spotface'].map(type=>api('/api/tools?'+new URLSearchParams({type,usable_only:false}))));return results.flatMap(result=>result.items);}
       if(category==='closures')return (await api('/api/closures')).items;
       return (await api('/api/machining-modifiers?usable_only=false')).items;
@@ -213,7 +214,7 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{}}){
       });const page=matches.slice(query.offset,query.offset+30);
       list.replaceChildren(element('p',`${matches.length.toLocaleString()} matching ${labels[category].toLowerCase()} records`));
       for(const row of page){const card=element('section',null,'library-card');list.append(card);
-        if(category==='materials')card.append(element('h3',row.display_name),element('p',row.research_only?`${row.material_type} · Research knowledge · ${row.disposition}`:`${row.material_type} · ${(row.stock||[]).length} engineering stock sizes · ${row.active?'ACTIVE':'ARCHIVED'}`));
+        if(category==='materials')card.append(element('h3',row.display_name),element('p',row.legacy_unspecified?'Legacy unspecified · existing project compatibility':row.research_only?`${row.material_type} · Research-only · ${row.research_reason||row.disposition}`:`Engineering material · ${row.material_type} · ${(row.stock||[]).length} engineering stock sizes · ${row.active?'ACTIVE':'ARCHIVED'}`));
         if(category==='tooling')card.append(element('h3',`${row.tool_type} · Ø${displayMm(row.diameter_mm)} mm`),element('p',`${row.unit_system.toUpperCase()} · max depth ${displayMm(row.max_depth_mm)} mm · ${row.usable?'Usable':'Unavailable'}`));
         if(category==='closures')card.append(element('h3',row.display_name),element('p',`${row.model||'Model not collected'} · ${row.construction_port_name||row.construction_port_definition_id||'No construction port'} · ${row.usable?'Usable':'Unavailable: '+row.unusable_reason}`));
         if(category==='modifiers')card.append(element('h3',row.display_name),element('p',`${row.kind} · ${row.unit_system.toUpperCase()} · ${row.usable?'Usable':'Unavailable: '+row.unusable_reason}`));

@@ -22,6 +22,10 @@ export function selectEngineeringMaterial(design,material){
   design.constraints.preferred_wall_margin=4;
 }
 
+export function engineeringMaterialChoices(catalog,currentId=null){
+  return catalog.filter(row=>row.active&&(row.selectable!==false||row.id===currentId));
+}
+
 export function validStockSizes(design,material){
   return (material?.stock||[]).filter(row=>row.active&&row.material_id===material.id&&
     [row.size_1_mm,row.size_2_mm].every(value=>Number.isFinite(value)&&value>0&&value<=2000)&&

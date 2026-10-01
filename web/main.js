@@ -11,7 +11,7 @@ import {pose,axes} from './kinematics.js';
 import {workflows} from './workflows.js';
 import {projectLibrary} from './project-library.js';
 import {hydrateDesign,cloneDesign} from './domain.js';
-import {setDesignPriority,selectEngineeringMaterial,validStockSizes,selectRawStock,setEnvelopeMaximum,customPortDescription} from './engineering-inputs.js';
+import {setDesignPriority,selectEngineeringMaterial,engineeringMaterialChoices,validStockSizes,selectRawStock,setEnvelopeMaximum,customPortDescription} from './engineering-inputs.js';
 import {displayIdentity,displayRuleName,displayInterfaceName,displayNetName} from './presentation.js';
 import {engineeringFactsUI} from './engineering-facts-ui.js';
 import {createStudioShell} from './studio-shell.js';
@@ -42,7 +42,7 @@ async function api(url,options={}){
   }catch(error){if(error.name==='TimeoutError')throw Error('Request timed out. Draft and last usable view retained. Refresh project status before retrying a save or build.');throw error;}
 }
 const post=(url,body,options={})=>api(url,{...options,method:'POST',headers:{'Content-Type':'application/json','X-PMC-Request':'local-console',...options.headers},body:JSON.stringify(body)});
-api('/api/materials').then(result=>materialCatalog=result.items||[]).catch(()=>{});
+api('/api/materials?include_legacy=true').then(result=>materialCatalog=result.items||[]).catch(()=>{});
 api('/api/machining-modifiers').then(result=>modifierCatalog=result.items||[]).catch(()=>{});
 function change(fn,edit={kind:'global'}){if(busy)return false;const before=cloneDesign(draft);try{fn();syncNets(draft);history.push(before);if(history.length>40)history.shift();future=[];markDirty(edit,before);return true;}catch(e){draft=before;notice(e.message,true);select(selection);return false;}}
 const solidOverlay=element('div',null,'viewport-loading');solidOverlay.setAttribute('role','status');solidOverlay.hidden=true;$('viewport').append(solidOverlay);
@@ -398,10 +398,11 @@ if(selection==='block'){
     const materialInput=field(form,'Engineering material',draft.block.material_id||'',value=>{
       const material=materialCatalog.find(row=>row.id===value);
       if(change(()=>{if(!material)throw Error('Select an active engineering material.');selectEngineeringMaterial(draft,material);},{kind:'none'}))select('block');
-    },{'':'Select engineering material',...Object.fromEntries(materialCatalog.map(row=>[row.id,row.display_name]))});
+    },{'':'Select engineering material',...Object.fromEntries(engineeringMaterialChoices(materialCatalog,draft.block.material_id).map(row=>[row.id,row.display_name]))});
     materialInput.options[0].disabled=true;
     const material=materialCatalog.find(row=>row.id===draft.block.material_id),stock=validStockSizes(draft,material);
     if(material){
+      if(material.legacy_unspecified)note('Legacy / unspecified grade and state. Select a precise material manually to specify new stock.','Material & stock');
       const facts=engineeringFactsUI({element,action},form,material.engineering_facts_summary,{title:'Material engineering data',
         evidence:material.technical_identity_id?()=>workflowHandlers.openEngineeringEvidence({entryCategory:'materials',recordId:material.technical_identity_id}):null});
       facts.dataset.inspectorGroup='Material & stock';

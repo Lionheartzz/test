@@ -25,7 +25,7 @@ export function guided(ctx,open){
     };
     const loadMaterials=async()=>{
       materialStatus='loading';updateMaterial();
-      try{const result=await api('/api/materials');materials=(result.items||[]).filter(row=>row.active);materialStatus='ready';if(materialId&&!selectedMaterial())materialId='';}
+      try{const result=await api('/api/materials');materials=(result.items||[]).filter(row=>row.active&&row.selectable!==false);materialStatus='ready';if(materialId&&!selectedMaterial())materialId='';}
       catch{materials=[];materialStatus='error';}
       updateMaterial();
     };

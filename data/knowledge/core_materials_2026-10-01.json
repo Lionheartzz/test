@@ -1,0 +1,2705 @@
+{
+  "format_version": 1,
+  "domain": "material",
+  "id": "PMC_CORE_MATERIALS_2026_10_01",
+  "retrieved_date": "2026-10-01",
+  "base_rev2_sha256": "3a8dea4d38fc14fe8169697be465ea2fa492ea343da0b722d036385c07af4a80",
+  "sources": [
+    {
+      "id": "CORE-SRC-SUN-MATERIALS",
+      "title": "Manifolds: Materials of Construction",
+      "url": "https://www.sunhydraulics.com/sites/default/files/media_library/Product_Bulletin-Manifold_Materials_of_Construction%20update_v4.pdf",
+      "organization": "Sun Hydraulics",
+      "revision": "999-904-013, January 2024",
+      "retrieved_date": "2026-10-01",
+      "applicability": "Sun standard/custom manifold construction only; no universal material pressure limit",
+      "excerpt": "ASTM B221 for Extruded Bar",
+      "source_type": "OEM_MANUFACTURER_BULLETIN",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-KAISER-6061-BAR",
+      "title": "Rod & Bar Alloy 6061 Technical Data",
+      "url": "https://online.kaiseraluminum.com/depot/PublicProductInformation/Document/1025/Kaiser_Aluminum_6061_Rod_and_Bar.pdf",
+      "organization": "Kaiser Aluminum",
+      "revision": "KA-RBH-6061-8.10",
+      "retrieved_date": "2026-10-01",
+      "applicability": "6061 rod/bar; extruded B221 and cold-finished B211 columns remain separate",
+      "excerpt": "T6, T651",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-KAISER-6061-PLATE",
+      "title": "Sheet Coil & Plate Alloy 6061 Technical Data",
+      "url": "https://online.kaiseraluminum.com/depot/PublicProductInformation/Document/1015/Kaiser_Aluminum_6061_Sheet_Coil_and_Plate.pdf",
+      "organization": "Kaiser Aluminum",
+      "revision": "Rev. 05/06",
+      "retrieved_date": "2026-10-01",
+      "applicability": "6061 flat products; typical tensile specimen 0.500 inch diameter",
+      "excerpt": "T6, T651",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-KAISER-7075-PLATE",
+      "title": "Sheet Coil & Plate Alloy 7075 Technical Data",
+      "url": "https://online.kaiseraluminum.com/depot/PublicProductInformation/Document/1017/Kaiser_Aluminum_7075_Sheet_Coil_and_Plate.pdf",
+      "organization": "Kaiser Aluminum",
+      "revision": "Rev. 05/06",
+      "retrieved_date": "2026-10-01",
+      "applicability": "7075 T651 flat product row; typical properties; no T6 tube substitution",
+      "excerpt": "T651",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-KAISER-PLATE-CAPABILITY",
+      "title": "KaiserSelect General Engineering Plate",
+      "url": "https://online.kaiseraluminum.com/depot/PublicProductInformation/Document/1043/KaiserSelect_General_Engineering_Plate.pdf",
+      "organization": "Kaiser Aluminum",
+      "revision": "Public brochure; revision/date not printed",
+      "retrieved_date": "2026-10-01",
+      "applicability": "Published plate ranges; not discrete engineering stock sizes",
+      "excerpt": "7075 T651",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-KAISER-FLAT-SPECS",
+      "title": "Flat Rolled Products — Summary of Specifications",
+      "url": "https://online.kaiseraluminum.com/depot/PublicProductInformation/Document/1010/Kaiser_Aluminum_Sheet_Plate.pdf",
+      "organization": "Kaiser Aluminum",
+      "revision": "KA-SP-AFSS3-1.09",
+      "retrieved_date": "2026-10-01",
+      "applicability": "Historical capability listing; does not assert current mill certification",
+      "excerpt": "ASTM B 209",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-ASTM-B209",
+      "title": "ASTM B209/B209M-21 — Aluminum-Alloy Sheet and Plate",
+      "url": "https://store.astm.org/b0209_b0209m-21.html",
+      "organization": "ASTM International",
+      "revision": "B209/B209M-21",
+      "retrieved_date": "2026-10-01",
+      "applicability": "Public standard-owner scope; product form and alloy/temper tables; no unlicensed normative document copied",
+      "excerpt": "",
+      "source_type": "OFFICIAL_STANDARD_OWNER",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-HYDRO-6061",
+      "title": "Alloy 6061 — Extruded Mechanical and Physical Property Limits",
+      "url": "https://www.hydro.com/globalassets/01-products--services/extruded-profiles/americas/ena-resources/alloy-data-sheets/hydro_2019_data_sheet_6061.pdf",
+      "organization": "Hydro Extrusion North America",
+      "revision": "2019/01 (2/2019)",
+      "retrieved_date": "2026-10-01",
+      "applicability": "Standard T6 extrusion limits; special Hydro tempers are separate",
+      "excerpt": "T6, T6511",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-HYDRO-6082-EN",
+      "title": "Technical datasheet — Extruded products, Alloy EN AW-6082",
+      "url": "https://www.hydro.com/globalassets/08-about-hydro/hydro-worldwide/germany/extrusion-germany/alloy-data-sheets/hydro-en-aw-6082.pdf",
+      "organization": "Hydro Innovation & Technology",
+      "revision": "6082 Rev.2, 01/2019",
+      "retrieved_date": "2026-10-01",
+      "applicability": "EN 755-2:2016 extruded profiles; open and hollow profile thickness limits differ",
+      "excerpt": "EN 755-2:2016",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-HYDRO-6082-NA",
+      "title": "Alloy 6082 — Extruded Mechanical and Physical Property Limits",
+      "url": "https://www.hydro.com/Document/Doc/Alloy%206082.pdf?docId=560720",
+      "organization": "Hydro Extrusion North America",
+      "revision": "Revision 2019/02 (3/2019)",
+      "retrieved_date": "2026-10-01",
+      "applicability": "6082 extrusion product support; do not import NA limits as EN-profile limits",
+      "excerpt": "",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-SAARSTAHL-C45",
+      "title": "Material specification sheet — Saarstahl C45",
+      "url": "https://en.saarstahl.com/app/uploads/2024/03/20160401102929-0503_C45.pdf",
+      "organization": "Saarstahl",
+      "revision": "Public specification sheet; date not printed",
+      "retrieved_date": "2026-10-01",
+      "applicability": "C45 per DIN EN 10083; normalization process; QT values not used for +N",
+      "excerpt": "Normalising",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-SIJ-C45",
+      "title": "SIQUAL 0503 Steel",
+      "url": "https://steelselector.sij.si/data/pdf/C45.pdf",
+      "organization": "SIJ Metal Ravne",
+      "revision": "Copyright 2016",
+      "retrieved_date": "2026-10-01",
+      "applicability": "C45 normalized section-size rows; producer labels properties typical/reference, not guaranteed certificate values",
+      "excerpt": "Mechanical Properties in Normalized Condition",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-DIN-ISO6831",
+      "title": "DIN EN ISO 683-1:2018-09",
+      "url": "https://www.dinmedia.de/de/norm/din-en-iso-683-1/291176752",
+      "organization": "DIN Media / DIN",
+      "revision": "2018-09",
+      "retrieved_date": "2026-10-01",
+      "applicability": "Official public scope lists C45 and bar/forging forms; replaces EN 10083-1/-2. No paid normative tables copied.",
+      "excerpt": "",
+      "source_type": "OFFICIAL_STANDARD_OWNER",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-OUTOKUMPU-CORE",
+      "title": "Outokumpu Core range datasheet",
+      "url": "https://www.outokumpu.com/-/media/files/products/core/outokumpu-core-range-datasheet.pdf?hash=0DB21994AD31F93E9C62A531BE9C36E6&modified=20251117111909&revision=025e9931-a1d5-4c8f-8ff5-f881d38916da",
+      "organization": "Outokumpu",
+      "revision": "1560EN:4, November 2022",
+      "retrieved_date": "2026-10-01",
+      "applicability": "304/4301 and 304L/4307 flat products; ASTM A240 Table 6; EN properties kept separate",
+      "excerpt": "Mechanical properties, values according to ASTM A240",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-OUTOKUMPU-SUPRA",
+      "title": "Outokumpu Supra range datasheet",
+      "url": "https://www.outokumpu.com/-/media/files/products/supra/outokumpu-supra-range-datasheet.pdf?modified=20251117111951&revision=7a909396-d1f3-4d36-9c1c-99606be41fd2",
+      "organization": "Outokumpu",
+      "revision": "1561EN:4, November 2022",
+      "retrieved_date": "2026-10-01",
+      "applicability": "316/4401 and 316L/4404 plate; ASTM A240 table; do not mix other EN variants",
+      "excerpt": "Mechanical properties, values according to ASTM A240",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-DURA-65",
+      "title": "Dura-Bar 65-45-12 Ductile Iron",
+      "url": "https://www.dura-bar.com/products/ductile-iron/65-45-12",
+      "organization": "Dura-Bar",
+      "revision": "Public product page; revision not stated",
+      "retrieved_date": "2026-10-01",
+      "applicability": "As-cast continuous bar; longitudinal mid-radius tensile sample; section-sensitive hardness",
+      "excerpt": "ASTM A536 grade 65-45-12",
+      "source_type": "MANUFACTURER_OFFICIAL_PRODUCT_PAGE",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-DURA-80",
+      "title": "Dura-Bar 80-55-06 Ductile Iron",
+      "url": "https://www.dura-bar.com/products/ductile-iron/80-55-06",
+      "organization": "Dura-Bar",
+      "revision": "Public product page; revision not stated",
+      "retrieved_date": "2026-10-01",
+      "applicability": "As-cast continuous bar; longitudinal mid-radius tensile sample; rectangle hardness by request",
+      "excerpt": "conforms to ASTM A536",
+      "source_type": "MANUFACTURER_OFFICIAL_PRODUCT_PAGE",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-DURA-80-2019",
+      "title": "80-55-06 Ductile Iron Product Brief",
+      "url": "https://www.dura-bar.com/getmedia/ca3b3f47-82b1-428f-8e6f-83351f8e3888/80-55-06-ductile-iron-0319.pdf",
+      "organization": "Dura-Bar",
+      "revision": "Form 99-75-00-86-00, 0319",
+      "retrieved_date": "2026-10-01",
+      "applicability": "Historical standard wording retained alongside current explicit conformity statement",
+      "excerpt": "similar to ASTM A536",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-VOEST-1045",
+      "title": "AISI 1045 Datasheet 2026 v2",
+      "url": "https://www.voestalpine.com/highperformancemetals/australia/app/uploads/sites/265/2024/08/Datasheet-1045-2026-v2.pdf",
+      "organization": "voestalpine High Performance Metals Australia",
+      "revision": "Datasheet 1045 2026 v2",
+      "retrieved_date": "2026-10-01",
+      "applicability": "Supply hot rolled/normalised; nearest-designation list is not a declared exact bar product specification",
+      "excerpt": "NEAREST STANDARDS",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-SSAB-S355J2N",
+      "title": "SSAB S355J2+N Zero",
+      "url": "https://www.ssab.com/-/media/files/en/zero/data_sheet_2422_ssab_s355j2n_zero_2025_01_21.pdf",
+      "organization": "SSAB",
+      "revision": "Data sheet 2422, 2025-01-21",
+      "retrieved_date": "2026-10-01",
+      "applicability": "Normalized-rolled structural plate, 6–60 mm; separate S355J2 designation, not generic S355",
+      "excerpt": "Normalized rolled.",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    },
+    {
+      "id": "CORE-SRC-KAISER-MANIFOLD",
+      "title": "KaiserSelect Manifold Bar",
+      "url": "https://online.kaiseraluminum.com/depot/PublicProductInformation/Document/1001/KaiserSelect_Manifold_Bar_Brochure.pdf",
+      "organization": "Kaiser Aluminum",
+      "revision": "KSR021-010412, copyright 2012",
+      "retrieved_date": "2026-10-01",
+      "applicability": "Proprietary T6511B manifold bar; no silent inheritance by T6/T651 stock",
+      "excerpt": "Alloy: 6061-T6511B",
+      "source_type": "PRIMARY_PRODUCER_DATASHEET",
+      "sha256": "",
+      "content_hash_status": "NOT_RECORDED"
+    }
+  ],
+  "identities": [
+    {
+      "canonical_grade": "6061",
+      "temper_condition": "T6",
+      "standard": "ASTM B221 / UNS A96061",
+      "product_form": "Extrusion",
+      "id": "MAT-6061",
+      "update": true,
+      "material_family": "Aluminum alloy",
+      "manufacturer": "",
+      "aliases": [
+        "UNS A96061"
+      ],
+      "core_material": {
+        "status": "ENGINEERING",
+        "reason": "",
+        "material_family": "Aluminum alloy",
+        "primary_standard": "ASTM B221",
+        "stock_product_form": "Extrusion",
+        "source_ids": [
+          "CORE-SRC-HYDRO-6061",
+          "CORE-SRC-KAISER-6061-BAR"
+        ],
+        "identity_evidence_ids": [
+          "CORE-ID-MAT-6061"
+        ],
+        "parameter_evidence_ids": [
+          "CORE-EV-MAT-6061-YIELD",
+          "CORE-EV-MAT-6061-TENSILE",
+          "CORE-EV-MAT-6061-DENSITY"
+        ],
+        "additional_standards": [
+          "UNS A96061"
+        ],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved"
+      }
+    },
+    {
+      "canonical_grade": "6082",
+      "temper_condition": "T6",
+      "standard": "EN AW-6082 / EN 573",
+      "product_form": "Extrusion",
+      "id": "MAT-6082",
+      "update": true,
+      "material_family": "Aluminum alloy",
+      "manufacturer": "",
+      "aliases": [
+        "EN AW-6082",
+        "EN 573-3"
+      ],
+      "core_material": {
+        "status": "ENGINEERING",
+        "reason": "",
+        "material_family": "Aluminum alloy",
+        "primary_standard": "EN 755-2",
+        "stock_product_form": "Extrusion",
+        "source_ids": [
+          "CORE-SRC-HYDRO-6082-EN",
+          "CORE-SRC-HYDRO-6082-NA"
+        ],
+        "identity_evidence_ids": [
+          "CORE-ID-MAT-6082"
+        ],
+        "parameter_evidence_ids": [
+          "CORE-EV-MAT-6082-YIELD-THIN",
+          "CORE-EV-MAT-6082-TENSILE-THIN",
+          "CORE-EV-MAT-6082-YIELD-THICK",
+          "CORE-EV-MAT-6082-TENSILE-THICK"
+        ],
+        "additional_standards": [
+          "EN AW-6082",
+          "EN 573-3"
+        ],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved"
+      }
+    },
+    {
+      "canonical_grade": "C45",
+      "temper_condition": "+N",
+      "standard": "EN 10083 / EN ISO 683-1:2018",
+      "product_form": "Round/flat/square/hex/plate",
+      "id": "MAT-C45",
+      "update": true,
+      "material_family": "Carbon steel",
+      "manufacturer": "",
+      "aliases": [
+        "EN 1.0503",
+        "EN 10083 (historical producer basis)"
+      ],
+      "core_material": {
+        "status": "ENGINEERING",
+        "reason": "",
+        "material_family": "Carbon steel",
+        "primary_standard": "EN ISO 683-1:2018",
+        "stock_product_form": "Bar",
+        "source_ids": [
+          "CORE-SRC-SAARSTAHL-C45",
+          "CORE-SRC-SIJ-C45",
+          "CORE-SRC-DIN-ISO6831"
+        ],
+        "identity_evidence_ids": [
+          "CORE-ID-MAT-C45"
+        ],
+        "parameter_evidence_ids": [
+          "CORE-EV-MAT-C45-YIELD-SIJ",
+          "CORE-EV-MAT-C45-YIELD-SAAR",
+          "CORE-EV-MAT-C45-DENSITY"
+        ],
+        "additional_standards": [
+          "EN 1.0503",
+          "EN 10083 (historical producer basis)"
+        ],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved"
+      }
+    },
+    {
+      "canonical_grade": "304",
+      "temper_condition": "Annealed",
+      "standard": "EN 1.4301 / UNS S30400",
+      "product_form": "Sheet/plate forms C/H/P",
+      "id": "MAT-SS-304",
+      "update": true,
+      "material_family": "Stainless steel",
+      "manufacturer": "",
+      "aliases": [
+        "EN 1.4301",
+        "UNS S30400"
+      ],
+      "core_material": {
+        "status": "ENGINEERING",
+        "reason": "",
+        "material_family": "Stainless steel",
+        "primary_standard": "ASTM A240",
+        "stock_product_form": "Plate",
+        "source_ids": [
+          "CORE-SRC-OUTOKUMPU-CORE"
+        ],
+        "identity_evidence_ids": [
+          "CORE-ID-MAT-SS-304"
+        ],
+        "parameter_evidence_ids": [
+          "CORE-EV-MAT-SS-304-PROOF",
+          "CORE-EV-MAT-SS-304-TENSILE",
+          "CORE-EV-MAT-SS-304-DENSITY"
+        ],
+        "additional_standards": [
+          "EN 1.4301",
+          "UNS S30400"
+        ],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved"
+      }
+    },
+    {
+      "canonical_grade": "304L",
+      "temper_condition": "Annealed",
+      "standard": "EN 1.4307 / UNS S30403",
+      "product_form": "Sheet/plate forms C/H/P",
+      "id": "MAT-SS-304L",
+      "update": true,
+      "material_family": "Stainless steel",
+      "manufacturer": "",
+      "aliases": [
+        "EN 1.4307",
+        "UNS S30403"
+      ],
+      "core_material": {
+        "status": "ENGINEERING",
+        "reason": "",
+        "material_family": "Stainless steel",
+        "primary_standard": "ASTM A240",
+        "stock_product_form": "Plate",
+        "source_ids": [
+          "CORE-SRC-OUTOKUMPU-CORE"
+        ],
+        "identity_evidence_ids": [
+          "CORE-ID-MAT-SS-304L"
+        ],
+        "parameter_evidence_ids": [
+          "CORE-EV-MAT-SS-304L-PROOF",
+          "CORE-EV-MAT-SS-304L-TENSILE",
+          "CORE-EV-MAT-SS-304L-DENSITY"
+        ],
+        "additional_standards": [
+          "EN 1.4307",
+          "UNS S30403"
+        ],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved"
+      }
+    },
+    {
+      "canonical_grade": "316",
+      "temper_condition": "Annealed",
+      "standard": "EN 1.4401 / UNS S31600",
+      "product_form": "Sheet/plate forms C/H/P",
+      "id": "MAT-SS-316",
+      "update": true,
+      "material_family": "Stainless steel",
+      "manufacturer": "",
+      "aliases": [
+        "EN 1.4401",
+        "UNS S31600"
+      ],
+      "core_material": {
+        "status": "ENGINEERING",
+        "reason": "",
+        "material_family": "Stainless steel",
+        "primary_standard": "ASTM A240",
+        "stock_product_form": "Plate",
+        "source_ids": [
+          "CORE-SRC-OUTOKUMPU-SUPRA"
+        ],
+        "identity_evidence_ids": [
+          "CORE-ID-MAT-SS-316"
+        ],
+        "parameter_evidence_ids": [
+          "CORE-EV-MAT-SS-316-PROOF",
+          "CORE-EV-MAT-SS-316-TENSILE",
+          "CORE-EV-MAT-SS-316-DENSITY"
+        ],
+        "additional_standards": [
+          "EN 1.4401",
+          "UNS S31600"
+        ],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved"
+      }
+    },
+    {
+      "canonical_grade": "316L",
+      "temper_condition": "Annealed",
+      "standard": "EN 1.4404 / UNS S31603",
+      "product_form": "Sheet/plate forms C/H/P",
+      "id": "MAT-SS-316L",
+      "update": true,
+      "material_family": "Stainless steel",
+      "manufacturer": "",
+      "aliases": [
+        "EN 1.4404",
+        "UNS S31603"
+      ],
+      "core_material": {
+        "status": "ENGINEERING",
+        "reason": "",
+        "material_family": "Stainless steel",
+        "primary_standard": "ASTM A240",
+        "stock_product_form": "Plate",
+        "source_ids": [
+          "CORE-SRC-OUTOKUMPU-SUPRA"
+        ],
+        "identity_evidence_ids": [
+          "CORE-ID-MAT-SS-316L"
+        ],
+        "parameter_evidence_ids": [
+          "CORE-EV-MAT-SS-316L-PROOF",
+          "CORE-EV-MAT-SS-316L-TENSILE",
+          "CORE-EV-MAT-SS-316L-DENSITY"
+        ],
+        "additional_standards": [
+          "EN 1.4404",
+          "UNS S31603"
+        ],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved"
+      }
+    },
+    {
+      "canonical_grade": "6061",
+      "temper_condition": "T651",
+      "standard": "ASTM B221",
+      "product_form": "Extruded bar",
+      "id": "MAT-CORE-6061-T651-EXTRUDED",
+      "update": false,
+      "material_family": "Aluminum alloy",
+      "manufacturer": "",
+      "aliases": [
+        "UNS A96061"
+      ],
+      "core_material": {
+        "status": "ENGINEERING",
+        "reason": "",
+        "material_family": "Aluminum alloy",
+        "primary_standard": "ASTM B221",
+        "stock_product_form": "Extruded bar",
+        "source_ids": [
+          "CORE-SRC-SUN-MATERIALS",
+          "CORE-SRC-KAISER-6061-BAR"
+        ],
+        "identity_evidence_ids": [
+          "CORE-ID-MAT-CORE-6061-T651-EXTRUDED"
+        ],
+        "parameter_evidence_ids": [
+          "CORE-EV-MAT-CORE-6061-T651-EXTRUDED-YIELD",
+          "CORE-EV-MAT-CORE-6061-T651-EXTRUDED-TENSILE",
+          "CORE-EV-MAT-CORE-6061-T651-EXTRUDED-OEM-PRESSURE"
+        ],
+        "additional_standards": [
+          "UNS A96061"
+        ],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved"
+      }
+    },
+    {
+      "canonical_grade": "6061",
+      "temper_condition": "T651",
+      "standard": "ASTM B209/B209M",
+      "product_form": "Plate",
+      "id": "MAT-CORE-6061-T651-PLATE",
+      "update": false,
+      "material_family": "Aluminum alloy",
+      "manufacturer": "",
+      "aliases": [
+        "UNS A96061"
+      ],
+      "core_material": {
+        "status": "ENGINEERING",
+        "reason": "",
+        "material_family": "Aluminum alloy",
+        "primary_standard": "ASTM B209/B209M",
+        "stock_product_form": "Plate",
+        "source_ids": [
+          "CORE-SRC-KAISER-6061-PLATE",
+          "CORE-SRC-KAISER-PLATE-CAPABILITY",
+          "CORE-SRC-KAISER-FLAT-SPECS",
+          "CORE-SRC-ASTM-B209"
+        ],
+        "identity_evidence_ids": [
+          "CORE-ID-MAT-CORE-6061-T651-PLATE"
+        ],
+        "parameter_evidence_ids": [
+          "CORE-EV-MAT-CORE-6061-T651-PLATE-YIELD",
+          "CORE-EV-MAT-CORE-6061-T651-PLATE-TENSILE",
+          "CORE-EV-MAT-CORE-6061-T651-PLATE-HARDNESS",
+          "CORE-EV-MAT-CORE-6061-T651-PLATE-DENSITY"
+        ],
+        "additional_standards": [
+          "UNS A96061"
+        ],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved"
+      }
+    },
+    {
+      "canonical_grade": "7075",
+      "temper_condition": "T651",
+      "standard": "ASTM B209/B209M",
+      "product_form": "Plate",
+      "id": "MAT-CORE-7075-T651-PLATE",
+      "update": false,
+      "material_family": "Aluminum alloy",
+      "manufacturer": "",
+      "aliases": [
+        "UNS A97075"
+      ],
+      "core_material": {
+        "status": "ENGINEERING",
+        "reason": "",
+        "material_family": "Aluminum alloy",
+        "primary_standard": "ASTM B209/B209M",
+        "stock_product_form": "Plate",
+        "source_ids": [
+          "CORE-SRC-KAISER-7075-PLATE",
+          "CORE-SRC-KAISER-PLATE-CAPABILITY",
+          "CORE-SRC-KAISER-FLAT-SPECS",
+          "CORE-SRC-ASTM-B209"
+        ],
+        "identity_evidence_ids": [
+          "CORE-ID-MAT-CORE-7075-T651-PLATE"
+        ],
+        "parameter_evidence_ids": [
+          "CORE-EV-MAT-CORE-7075-T651-PLATE-YIELD",
+          "CORE-EV-MAT-CORE-7075-T651-PLATE-TENSILE",
+          "CORE-EV-MAT-CORE-7075-T651-PLATE-HARDNESS",
+          "CORE-EV-MAT-CORE-7075-T651-PLATE-DENSITY"
+        ],
+        "additional_standards": [
+          "UNS A97075"
+        ],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved"
+      }
+    },
+    {
+      "canonical_grade": "65-45-12",
+      "temper_condition": "As-cast",
+      "standard": "ASTM A536",
+      "product_form": "Continuous cast bar",
+      "id": "MAT-CORE-DURABAR-65-45-12",
+      "update": false,
+      "material_family": "Ductile iron",
+      "manufacturer": "",
+      "aliases": [],
+      "core_material": {
+        "status": "ENGINEERING",
+        "reason": "",
+        "material_family": "Ductile iron",
+        "primary_standard": "ASTM A536",
+        "stock_product_form": "Continuous cast bar",
+        "source_ids": [
+          "CORE-SRC-DURA-65"
+        ],
+        "identity_evidence_ids": [
+          "CORE-ID-MAT-CORE-DURABAR-65-45-12"
+        ],
+        "parameter_evidence_ids": [
+          "CORE-EV-MAT-CORE-DURABAR-65-45-12-YIELD",
+          "CORE-EV-MAT-CORE-DURABAR-65-45-12-TENSILE",
+          "CORE-EV-MAT-CORE-DURABAR-65-45-12-ELONGATION",
+          "CORE-EV-MAT-CORE-DURABAR-65-45-12-HARDNESS",
+          "CORE-EV-MAT-CORE-DURABAR-65-45-12-OEM-PRESSURE"
+        ],
+        "additional_standards": [],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved",
+        "display_grade": "Dura-Bar 65-45-12"
+      }
+    },
+    {
+      "canonical_grade": "80-55-06",
+      "temper_condition": "As-cast",
+      "standard": "ASTM A536",
+      "product_form": "Continuous cast bar",
+      "id": "MAT-CORE-DURABAR-80-55-06",
+      "update": false,
+      "material_family": "Ductile iron",
+      "manufacturer": "",
+      "aliases": [],
+      "core_material": {
+        "status": "ENGINEERING",
+        "reason": "",
+        "material_family": "Ductile iron",
+        "primary_standard": "ASTM A536",
+        "stock_product_form": "Continuous cast bar",
+        "source_ids": [
+          "CORE-SRC-DURA-80"
+        ],
+        "identity_evidence_ids": [
+          "CORE-ID-MAT-CORE-DURABAR-80-55-06"
+        ],
+        "parameter_evidence_ids": [
+          "CORE-EV-MAT-CORE-DURABAR-80-55-06-YIELD",
+          "CORE-EV-MAT-CORE-DURABAR-80-55-06-TENSILE",
+          "CORE-EV-MAT-CORE-DURABAR-80-55-06-ELONGATION",
+          "CORE-EV-MAT-CORE-DURABAR-80-55-06-HARDNESS"
+        ],
+        "additional_standards": [],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved",
+        "display_grade": "Dura-Bar 80-55-06"
+      }
+    },
+    {
+      "canonical_grade": "1045",
+      "temper_condition": "+N",
+      "standard": "AISI/SAE 1045",
+      "product_form": "Round bar",
+      "id": "MAT-1045",
+      "update": true,
+      "material_family": "Carbon steel",
+      "manufacturer": "",
+      "aliases": [],
+      "core_material": {
+        "status": "RESEARCH_ONLY",
+        "reason": "Exact normalized 1045 bar product standard is not declared by the producer; nearest-designation list and supply states do not validate the old +N identity. C45 is not substituted.",
+        "material_family": "Carbon steel",
+        "primary_standard": "AISI/SAE 1045",
+        "stock_product_form": "Round bar",
+        "source_ids": [
+          "CORE-SRC-VOEST-1045"
+        ],
+        "identity_evidence_ids": [],
+        "parameter_evidence_ids": [],
+        "additional_standards": [],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved"
+      }
+    },
+    {
+      "canonical_grade": "7075",
+      "temper_condition": "T6",
+      "standard": "ASTM B210/B221 applicability requires confirmation; UNS A97075",
+      "product_form": "Tube/pipe",
+      "id": "MAT-7075",
+      "update": true,
+      "material_family": "Aluminium",
+      "manufacturer": "",
+      "aliases": [],
+      "core_material": {
+        "status": "RESEARCH_ONLY",
+        "reason": "Existing T6 tube/pipe identity lacks a confirmed applicable product standard and solid manifold stock form; independently specified T651 plate is selectable.",
+        "material_family": "Aluminium",
+        "primary_standard": "ASTM B210/B221 applicability requires confirmation; UNS A97075",
+        "stock_product_form": "Tube/pipe",
+        "source_ids": [
+          "CORE-SRC-KAISER-7075-PLATE",
+          "CORE-SRC-ASTM-B209"
+        ],
+        "identity_evidence_ids": [],
+        "parameter_evidence_ids": [],
+        "additional_standards": [],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved"
+      }
+    },
+    {
+      "canonical_grade": "S355",
+      "temper_condition": "As-rolled / normalized grade suffix-specific",
+      "standard": "EN 10025-2",
+      "product_form": "Hot-rolled flat product",
+      "id": "MAT-S355",
+      "update": true,
+      "material_family": "Carbon steel",
+      "manufacturer": "",
+      "aliases": [],
+      "core_material": {
+        "status": "RESEARCH_ONLY",
+        "reason": "Generic S355 does not establish exact suffix/state/product form. SSAB documents a distinct S355J2+N structural plate; generic S355 cannot inherit it.",
+        "material_family": "Carbon steel",
+        "primary_standard": "EN 10025-2",
+        "stock_product_form": "Hot-rolled flat product",
+        "source_ids": [
+          "CORE-SRC-SSAB-S355J2N"
+        ],
+        "identity_evidence_ids": [],
+        "parameter_evidence_ids": [],
+        "additional_standards": [],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved"
+      }
+    },
+    {
+      "canonical_grade": "6061",
+      "temper_condition": "T6511B",
+      "standard": "Kaiser product designation; general product standard unresolved",
+      "product_form": "Extruded bar",
+      "id": "MAT-CORE-6061-T6511B-CANDIDATE",
+      "update": false,
+      "material_family": "Aluminum alloy",
+      "manufacturer": "",
+      "aliases": [],
+      "core_material": {
+        "status": "RESEARCH_ONLY",
+        "reason": "Producer-specific T6511B manifold bar is documented, but its applicable product standard is not declared in this brochure. Do not equate it with T651 or T6.",
+        "material_family": "Aluminum alloy",
+        "primary_standard": "Kaiser product designation; general product standard unresolved",
+        "stock_product_form": "Extruded bar",
+        "source_ids": [
+          "CORE-SRC-KAISER-MANIFOLD"
+        ],
+        "identity_evidence_ids": [],
+        "parameter_evidence_ids": [],
+        "additional_standards": [],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved"
+      }
+    },
+    {
+      "canonical_grade": "S355J2",
+      "temper_condition": "Normalized rolled",
+      "standard": "EN 10025-2",
+      "product_form": "Plate",
+      "id": "MAT-CORE-S355J2N-CANDIDATE",
+      "update": false,
+      "material_family": "Carbon steel",
+      "manufacturer": "",
+      "aliases": [],
+      "core_material": {
+        "status": "RESEARCH_ONLY",
+        "reason": "Specific S355J2+N structural plate identity is supported, but no manifold-block application need was established in this bounded core review; not promoted merely to fill the count.",
+        "material_family": "Carbon steel",
+        "primary_standard": "EN 10025-2",
+        "stock_product_form": "Plate",
+        "source_ids": [
+          "CORE-SRC-SSAB-S355J2N"
+        ],
+        "identity_evidence_ids": [],
+        "parameter_evidence_ids": [],
+        "additional_standards": [],
+        "review_date": "2026-10-01",
+        "review_basis": "Exact grade/state/primary product standard and solid-stock applicability; original REV2 identity fields preserved"
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "CORE-ID-MAT-6061",
+      "identity_id": "MAT-6061",
+      "property": "engineering_identity",
+      "raw_value": "{\"grade\": \"6061\", \"state\": \"T6\", \"standard\": \"ASTM B221\", \"product_form\": \"Extrusion\"}",
+      "normalized_value": {
+        "grade": "6061",
+        "state": "T6",
+        "standard": "ASTM B221",
+        "product_form": "Extrusion"
+      },
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-HYDRO-6061",
+        "CORE-SRC-KAISER-6061-BAR"
+      ],
+      "evidence_class": "identity",
+      "scope": "EXACT_GRADE_STATE_FORM",
+      "condition": "",
+      "evidence_text": "Reviewed producer/OEM identity and product-standard scope; no equivalence substitution."
+    },
+    {
+      "id": "CORE-EV-MAT-6061-YIELD",
+      "identity_id": "MAT-6061",
+      "property": "yield_strength_Rp0.2",
+      "raw_value": 240,
+      "raw_unit": "MPa",
+      "normalized_value": 240,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-HYDRO-6061"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "6061",
+        "state": "T6",
+        "product_form": "Extrusion"
+      },
+      "value_kind": "MINIMUM",
+      "condition": "T6; Extrusion; p.2 standard T6 row; both published thickness brackets",
+      "evidence_text": "Recorded source row; p.2 standard T6 row; both published thickness brackets",
+      "source_page_or_section": "p.2 standard T6 row; both published thickness brackets"
+    },
+    {
+      "id": "CORE-EV-MAT-6061-TENSILE",
+      "identity_id": "MAT-6061",
+      "property": "tensile_strength",
+      "raw_value": 260,
+      "raw_unit": "MPa",
+      "normalized_value": 260,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-HYDRO-6061"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "6061",
+        "state": "T6",
+        "product_form": "Extrusion"
+      },
+      "value_kind": "MINIMUM",
+      "condition": "T6; Extrusion; p.2 standard T6 row",
+      "evidence_text": "Recorded source row; p.2 standard T6 row",
+      "source_page_or_section": "p.2 standard T6 row"
+    },
+    {
+      "id": "CORE-EV-MAT-6061-DENSITY",
+      "identity_id": "MAT-6061",
+      "property": "density",
+      "raw_value": 2.7,
+      "raw_unit": "Mg/m3",
+      "normalized_value": 2.7,
+      "normalized_unit": "Mg/m3",
+      "source_ids": [
+        "CORE-SRC-KAISER-6061-BAR"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "6061",
+        "state": "T6",
+        "product_form": "Extrusion",
+        "temperature_c": 20
+      },
+      "value_kind": "NOMINAL",
+      "condition": "T6; Extrusion; p.2 physical properties",
+      "evidence_text": "Recorded source row; p.2 physical properties",
+      "source_page_or_section": "p.2 physical properties"
+    },
+    {
+      "id": "CORE-ID-MAT-6082",
+      "identity_id": "MAT-6082",
+      "property": "engineering_identity",
+      "raw_value": "{\"grade\": \"6082\", \"state\": \"T6\", \"standard\": \"EN 755-2\", \"product_form\": \"Extrusion\"}",
+      "normalized_value": {
+        "grade": "6082",
+        "state": "T6",
+        "standard": "EN 755-2",
+        "product_form": "Extrusion"
+      },
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-HYDRO-6082-EN",
+        "CORE-SRC-HYDRO-6082-NA"
+      ],
+      "evidence_class": "identity",
+      "scope": "EXACT_GRADE_STATE_FORM",
+      "condition": "",
+      "evidence_text": "Reviewed producer/OEM identity and product-standard scope; no equivalence substitution."
+    },
+    {
+      "id": "CORE-EV-MAT-6082-YIELD-THIN",
+      "identity_id": "MAT-6082",
+      "property": "yield_strength_Rp0.2",
+      "raw_value": 250,
+      "raw_unit": "MPa",
+      "normalized_value": 250,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-HYDRO-6082-EN"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "6082",
+        "state": "T6",
+        "product_form": "Extrusion",
+        "stock_thickness_mm": {
+          "max": 5
+        },
+        "source_profile": "open profile"
+      },
+      "value_kind": "MINIMUM",
+      "condition": "T6; Extrusion; p.1 open profile t<=5 mm",
+      "evidence_text": "Recorded source row; p.1 open profile t<=5 mm",
+      "source_page_or_section": "p.1 open profile t<=5 mm"
+    },
+    {
+      "id": "CORE-EV-MAT-6082-TENSILE-THIN",
+      "identity_id": "MAT-6082",
+      "property": "tensile_strength",
+      "raw_value": 290,
+      "raw_unit": "MPa",
+      "normalized_value": 290,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-HYDRO-6082-EN"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "6082",
+        "state": "T6",
+        "product_form": "Extrusion",
+        "stock_thickness_mm": {
+          "max": 5
+        },
+        "source_profile": "open profile"
+      },
+      "value_kind": "MINIMUM",
+      "condition": "T6; Extrusion; p.1 open profile t<=5 mm",
+      "evidence_text": "Recorded source row; p.1 open profile t<=5 mm",
+      "source_page_or_section": "p.1 open profile t<=5 mm"
+    },
+    {
+      "id": "CORE-EV-MAT-6082-YIELD-THICK",
+      "identity_id": "MAT-6082",
+      "property": "yield_strength_Rp0.2",
+      "raw_value": 260,
+      "raw_unit": "MPa",
+      "normalized_value": 260,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-HYDRO-6082-EN"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "6082",
+        "state": "T6",
+        "product_form": "Extrusion",
+        "stock_thickness_mm": {
+          "min_exclusive": 5,
+          "max": 25
+        },
+        "source_profile": "open profile"
+      },
+      "value_kind": "MINIMUM",
+      "condition": "T6; Extrusion; p.1 open profile 5<t<=25 mm",
+      "evidence_text": "Recorded source row; p.1 open profile 5<t<=25 mm",
+      "source_page_or_section": "p.1 open profile 5<t<=25 mm"
+    },
+    {
+      "id": "CORE-EV-MAT-6082-TENSILE-THICK",
+      "identity_id": "MAT-6082",
+      "property": "tensile_strength",
+      "raw_value": 310,
+      "raw_unit": "MPa",
+      "normalized_value": 310,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-HYDRO-6082-EN"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "6082",
+        "state": "T6",
+        "product_form": "Extrusion",
+        "stock_thickness_mm": {
+          "min_exclusive": 5,
+          "max": 25
+        },
+        "source_profile": "open profile"
+      },
+      "value_kind": "MINIMUM",
+      "condition": "T6; Extrusion; p.1 open profile 5<t<=25 mm",
+      "evidence_text": "Recorded source row; p.1 open profile 5<t<=25 mm",
+      "source_page_or_section": "p.1 open profile 5<t<=25 mm"
+    },
+    {
+      "id": "CORE-ID-MAT-C45",
+      "identity_id": "MAT-C45",
+      "property": "engineering_identity",
+      "raw_value": "{\"grade\": \"C45\", \"state\": \"+N\", \"standard\": \"EN ISO 683-1:2018\", \"product_form\": \"Bar\"}",
+      "normalized_value": {
+        "grade": "C45",
+        "state": "+N",
+        "standard": "EN ISO 683-1:2018",
+        "product_form": "Bar"
+      },
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-SAARSTAHL-C45",
+        "CORE-SRC-SIJ-C45",
+        "CORE-SRC-DIN-ISO6831"
+      ],
+      "evidence_class": "identity",
+      "scope": "EXACT_GRADE_STATE_FORM",
+      "condition": "",
+      "evidence_text": "Reviewed producer/OEM identity and product-standard scope; no equivalence substitution."
+    },
+    {
+      "id": "CORE-EV-MAT-C45-YIELD-SIJ",
+      "identity_id": "MAT-C45",
+      "property": "yield_strength_Rp0.2",
+      "raw_value": 390,
+      "raw_unit": "MPa",
+      "normalized_value": 390,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-SIJ-C45"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "C45",
+        "state": "+N",
+        "product_form": "Bar",
+        "stock_diameter_mm": {
+          "max_exclusive": 16
+        },
+        "producer_variant": "SIJ Metal Ravne",
+        "standard_basis": "producer sheet, historical EN 10083"
+      },
+      "value_kind": "TYPICAL",
+      "condition": "+N; Bar; p.2 normalized reference row d<16 mm; not current normative design minimum",
+      "evidence_text": "Recorded source row; p.2 normalized reference row d<16 mm; not current normative design minimum",
+      "source_page_or_section": "p.2 normalized reference row d<16 mm; not current normative design minimum"
+    },
+    {
+      "id": "CORE-EV-MAT-C45-YIELD-SAAR",
+      "identity_id": "MAT-C45",
+      "property": "yield_strength_Rp0.2",
+      "raw_value": 340,
+      "raw_unit": "MPa",
+      "normalized_value": 340,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-SAARSTAHL-C45"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "C45",
+        "state": "+N",
+        "product_form": "Bar",
+        "stock_diameter_mm": {
+          "max_exclusive": 16
+        },
+        "producer_variant": "Saarstahl",
+        "standard_basis": "producer sheet, historical EN 10083"
+      },
+      "value_kind": "MINIMUM",
+      "condition": "+N; Bar; p.2 +N row d<16 mm; not transcribed as current ISO design allowable",
+      "evidence_text": "Recorded source row; p.2 +N row d<16 mm; not transcribed as current ISO design allowable",
+      "source_page_or_section": "p.2 +N row d<16 mm; not transcribed as current ISO design allowable"
+    },
+    {
+      "id": "CORE-EV-MAT-C45-DENSITY",
+      "identity_id": "MAT-C45",
+      "property": "density",
+      "raw_value": 7850,
+      "raw_unit": "kg/m3",
+      "normalized_value": 7850,
+      "normalized_unit": "kg/m3",
+      "source_ids": [
+        "CORE-SRC-SIJ-C45"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "C45",
+        "state": "+N",
+        "product_form": "Bar",
+        "temperature_c": 20
+      },
+      "value_kind": "TYPICAL",
+      "condition": "+N; Bar; p.1 ambient average; 7.85 g/cm3 converted to kg/m3",
+      "evidence_text": "Recorded source row; p.1 ambient average; 7.85 g/cm3 converted to kg/m3",
+      "source_page_or_section": "p.1 ambient average; 7.85 g/cm3 converted to kg/m3"
+    },
+    {
+      "id": "CORE-ID-MAT-SS-304",
+      "identity_id": "MAT-SS-304",
+      "property": "engineering_identity",
+      "raw_value": "{\"grade\": \"304\", \"state\": \"Annealed\", \"standard\": \"ASTM A240\", \"product_form\": \"Plate\"}",
+      "normalized_value": {
+        "grade": "304",
+        "state": "Annealed",
+        "standard": "ASTM A240",
+        "product_form": "Plate"
+      },
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-CORE"
+      ],
+      "evidence_class": "identity",
+      "scope": "EXACT_GRADE_STATE_FORM",
+      "condition": "",
+      "evidence_text": "Reviewed producer/OEM identity and product-standard scope; no equivalence substitution."
+    },
+    {
+      "id": "CORE-EV-MAT-SS-304-PROOF",
+      "identity_id": "MAT-SS-304",
+      "property": "yield_strength_Rp0.2",
+      "raw_value": 170,
+      "raw_unit": "MPa",
+      "normalized_value": 170,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-CORE"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "304",
+        "state": "Annealed",
+        "product_form": "Plate",
+        "temperature_c": 20
+      },
+      "value_kind": "MINIMUM",
+      "condition": "Annealed; Plate; Table 6, p.9; P / quarto plate, ASTM row only",
+      "evidence_text": "Recorded source row; Table 6, p.9; P / quarto plate, ASTM row only",
+      "source_page_or_section": "Table 6, p.9; P / quarto plate, ASTM row only"
+    },
+    {
+      "id": "CORE-EV-MAT-SS-304-TENSILE",
+      "identity_id": "MAT-SS-304",
+      "property": "tensile_strength",
+      "raw_value": 485,
+      "raw_unit": "MPa",
+      "normalized_value": 485,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-CORE"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "304",
+        "state": "Annealed",
+        "product_form": "Plate",
+        "temperature_c": 20
+      },
+      "value_kind": "MINIMUM",
+      "condition": "Annealed; Plate; Table 6, p.9; P / quarto plate, ASTM row only",
+      "evidence_text": "Recorded source row; Table 6, p.9; P / quarto plate, ASTM row only",
+      "source_page_or_section": "Table 6, p.9; P / quarto plate, ASTM row only"
+    },
+    {
+      "id": "CORE-EV-MAT-SS-304-DENSITY",
+      "identity_id": "MAT-SS-304",
+      "property": "density",
+      "raw_value": 7.9,
+      "raw_unit": "kg/dm3",
+      "normalized_value": 7.9,
+      "normalized_unit": "kg/dm3",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-CORE"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "304",
+        "state": "Annealed",
+        "product_form": "Plate",
+        "temperature_c": 20
+      },
+      "value_kind": "REFERENCE",
+      "condition": "Annealed; Plate; Physical properties table; room temperature",
+      "evidence_text": "Recorded source row; Physical properties table; room temperature",
+      "source_page_or_section": "Physical properties table; room temperature"
+    },
+    {
+      "id": "CORE-ID-MAT-SS-304L",
+      "identity_id": "MAT-SS-304L",
+      "property": "engineering_identity",
+      "raw_value": "{\"grade\": \"304L\", \"state\": \"Annealed\", \"standard\": \"ASTM A240\", \"product_form\": \"Plate\"}",
+      "normalized_value": {
+        "grade": "304L",
+        "state": "Annealed",
+        "standard": "ASTM A240",
+        "product_form": "Plate"
+      },
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-CORE"
+      ],
+      "evidence_class": "identity",
+      "scope": "EXACT_GRADE_STATE_FORM",
+      "condition": "",
+      "evidence_text": "Reviewed producer/OEM identity and product-standard scope; no equivalence substitution."
+    },
+    {
+      "id": "CORE-EV-MAT-SS-304L-PROOF",
+      "identity_id": "MAT-SS-304L",
+      "property": "yield_strength_Rp0.2",
+      "raw_value": 205,
+      "raw_unit": "MPa",
+      "normalized_value": 205,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-CORE"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "304L",
+        "state": "Annealed",
+        "product_form": "Plate",
+        "temperature_c": 20
+      },
+      "value_kind": "MINIMUM",
+      "condition": "Annealed; Plate; Table 6, p.9; P / quarto plate, ASTM row only",
+      "evidence_text": "Recorded source row; Table 6, p.9; P / quarto plate, ASTM row only",
+      "source_page_or_section": "Table 6, p.9; P / quarto plate, ASTM row only"
+    },
+    {
+      "id": "CORE-EV-MAT-SS-304L-TENSILE",
+      "identity_id": "MAT-SS-304L",
+      "property": "tensile_strength",
+      "raw_value": 515,
+      "raw_unit": "MPa",
+      "normalized_value": 515,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-CORE"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "304L",
+        "state": "Annealed",
+        "product_form": "Plate",
+        "temperature_c": 20
+      },
+      "value_kind": "MINIMUM",
+      "condition": "Annealed; Plate; Table 6, p.9; P / quarto plate, ASTM row only",
+      "evidence_text": "Recorded source row; Table 6, p.9; P / quarto plate, ASTM row only",
+      "source_page_or_section": "Table 6, p.9; P / quarto plate, ASTM row only"
+    },
+    {
+      "id": "CORE-EV-MAT-SS-304L-DENSITY",
+      "identity_id": "MAT-SS-304L",
+      "property": "density",
+      "raw_value": 7.9,
+      "raw_unit": "kg/dm3",
+      "normalized_value": 7.9,
+      "normalized_unit": "kg/dm3",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-CORE"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "304L",
+        "state": "Annealed",
+        "product_form": "Plate",
+        "temperature_c": 20
+      },
+      "value_kind": "REFERENCE",
+      "condition": "Annealed; Plate; Physical properties table; room temperature",
+      "evidence_text": "Recorded source row; Physical properties table; room temperature",
+      "source_page_or_section": "Physical properties table; room temperature"
+    },
+    {
+      "id": "CORE-ID-MAT-SS-316",
+      "identity_id": "MAT-SS-316",
+      "property": "engineering_identity",
+      "raw_value": "{\"grade\": \"316\", \"state\": \"Annealed\", \"standard\": \"ASTM A240\", \"product_form\": \"Plate\"}",
+      "normalized_value": {
+        "grade": "316",
+        "state": "Annealed",
+        "standard": "ASTM A240",
+        "product_form": "Plate"
+      },
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-SUPRA"
+      ],
+      "evidence_class": "identity",
+      "scope": "EXACT_GRADE_STATE_FORM",
+      "condition": "",
+      "evidence_text": "Reviewed producer/OEM identity and product-standard scope; no equivalence substitution."
+    },
+    {
+      "id": "CORE-EV-MAT-SS-316-PROOF",
+      "identity_id": "MAT-SS-316",
+      "property": "yield_strength_Rp0.2",
+      "raw_value": 205,
+      "raw_unit": "MPa",
+      "normalized_value": 205,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-SUPRA"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "316",
+        "state": "Annealed",
+        "product_form": "Plate",
+        "temperature_c": 20
+      },
+      "value_kind": "MINIMUM",
+      "condition": "Annealed; Plate; Table 6, p.7; P / quarto plate, ASTM row only",
+      "evidence_text": "Recorded source row; Table 6, p.7; P / quarto plate, ASTM row only",
+      "source_page_or_section": "Table 6, p.7; P / quarto plate, ASTM row only"
+    },
+    {
+      "id": "CORE-EV-MAT-SS-316-TENSILE",
+      "identity_id": "MAT-SS-316",
+      "property": "tensile_strength",
+      "raw_value": 515,
+      "raw_unit": "MPa",
+      "normalized_value": 515,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-SUPRA"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "316",
+        "state": "Annealed",
+        "product_form": "Plate",
+        "temperature_c": 20
+      },
+      "value_kind": "MINIMUM",
+      "condition": "Annealed; Plate; Table 6, p.7; P / quarto plate, ASTM row only",
+      "evidence_text": "Recorded source row; Table 6, p.7; P / quarto plate, ASTM row only",
+      "source_page_or_section": "Table 6, p.7; P / quarto plate, ASTM row only"
+    },
+    {
+      "id": "CORE-EV-MAT-SS-316-DENSITY",
+      "identity_id": "MAT-SS-316",
+      "property": "density",
+      "raw_value": 8.0,
+      "raw_unit": "kg/dm3",
+      "normalized_value": 8.0,
+      "normalized_unit": "kg/dm3",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-SUPRA"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "316",
+        "state": "Annealed",
+        "product_form": "Plate",
+        "temperature_c": 20
+      },
+      "value_kind": "REFERENCE",
+      "condition": "Annealed; Plate; Physical properties table; room temperature",
+      "evidence_text": "Recorded source row; Physical properties table; room temperature",
+      "source_page_or_section": "Physical properties table; room temperature"
+    },
+    {
+      "id": "CORE-ID-MAT-SS-316L",
+      "identity_id": "MAT-SS-316L",
+      "property": "engineering_identity",
+      "raw_value": "{\"grade\": \"316L\", \"state\": \"Annealed\", \"standard\": \"ASTM A240\", \"product_form\": \"Plate\"}",
+      "normalized_value": {
+        "grade": "316L",
+        "state": "Annealed",
+        "standard": "ASTM A240",
+        "product_form": "Plate"
+      },
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-SUPRA"
+      ],
+      "evidence_class": "identity",
+      "scope": "EXACT_GRADE_STATE_FORM",
+      "condition": "",
+      "evidence_text": "Reviewed producer/OEM identity and product-standard scope; no equivalence substitution."
+    },
+    {
+      "id": "CORE-EV-MAT-SS-316L-PROOF",
+      "identity_id": "MAT-SS-316L",
+      "property": "yield_strength_Rp0.2",
+      "raw_value": 170,
+      "raw_unit": "MPa",
+      "normalized_value": 170,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-SUPRA"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "316L",
+        "state": "Annealed",
+        "product_form": "Plate",
+        "temperature_c": 20
+      },
+      "value_kind": "MINIMUM",
+      "condition": "Annealed; Plate; Table 6, p.7; P / quarto plate, ASTM row only",
+      "evidence_text": "Recorded source row; Table 6, p.7; P / quarto plate, ASTM row only",
+      "source_page_or_section": "Table 6, p.7; P / quarto plate, ASTM row only"
+    },
+    {
+      "id": "CORE-EV-MAT-SS-316L-TENSILE",
+      "identity_id": "MAT-SS-316L",
+      "property": "tensile_strength",
+      "raw_value": 485,
+      "raw_unit": "MPa",
+      "normalized_value": 485,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-SUPRA"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "316L",
+        "state": "Annealed",
+        "product_form": "Plate",
+        "temperature_c": 20
+      },
+      "value_kind": "MINIMUM",
+      "condition": "Annealed; Plate; Table 6, p.7; P / quarto plate, ASTM row only",
+      "evidence_text": "Recorded source row; Table 6, p.7; P / quarto plate, ASTM row only",
+      "source_page_or_section": "Table 6, p.7; P / quarto plate, ASTM row only"
+    },
+    {
+      "id": "CORE-EV-MAT-SS-316L-DENSITY",
+      "identity_id": "MAT-SS-316L",
+      "property": "density",
+      "raw_value": 8.0,
+      "raw_unit": "kg/dm3",
+      "normalized_value": 8.0,
+      "normalized_unit": "kg/dm3",
+      "source_ids": [
+        "CORE-SRC-OUTOKUMPU-SUPRA"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "316L",
+        "state": "Annealed",
+        "product_form": "Plate",
+        "temperature_c": 20
+      },
+      "value_kind": "REFERENCE",
+      "condition": "Annealed; Plate; Physical properties table; room temperature",
+      "evidence_text": "Recorded source row; Physical properties table; room temperature",
+      "source_page_or_section": "Physical properties table; room temperature"
+    },
+    {
+      "id": "CORE-ID-MAT-CORE-6061-T651-EXTRUDED",
+      "identity_id": "MAT-CORE-6061-T651-EXTRUDED",
+      "property": "engineering_identity",
+      "raw_value": "{\"grade\": \"6061\", \"state\": \"T651\", \"standard\": \"ASTM B221\", \"product_form\": \"Extruded bar\"}",
+      "normalized_value": {
+        "grade": "6061",
+        "state": "T651",
+        "standard": "ASTM B221",
+        "product_form": "Extruded bar"
+      },
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-SUN-MATERIALS",
+        "CORE-SRC-KAISER-6061-BAR"
+      ],
+      "evidence_class": "identity",
+      "scope": "EXACT_GRADE_STATE_FORM",
+      "condition": "",
+      "evidence_text": "Reviewed producer/OEM identity and product-standard scope; no equivalence substitution."
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-6061-T651-EXTRUDED-YIELD",
+      "identity_id": "MAT-CORE-6061-T651-EXTRUDED",
+      "property": "yield_strength",
+      "raw_value": 276,
+      "raw_unit": "MPa",
+      "normalized_value": 276,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-KAISER-6061-BAR"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "6061",
+        "state": "T651",
+        "product_form": "Extruded bar"
+      },
+      "value_kind": "TYPICAL",
+      "condition": "T651; Extruded bar; p.1 T6/T651 typical rod/bar row; 0.500 inch tensile specimen",
+      "evidence_text": "Recorded source row; p.1 T6/T651 typical rod/bar row; 0.500 inch tensile specimen",
+      "source_page_or_section": "p.1 T6/T651 typical rod/bar row; 0.500 inch tensile specimen"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-6061-T651-EXTRUDED-TENSILE",
+      "identity_id": "MAT-CORE-6061-T651-EXTRUDED",
+      "property": "tensile_strength",
+      "raw_value": 310,
+      "raw_unit": "MPa",
+      "normalized_value": 310,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-KAISER-6061-BAR"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "6061",
+        "state": "T651",
+        "product_form": "Extruded bar"
+      },
+      "value_kind": "TYPICAL",
+      "condition": "T651; Extruded bar; p.1 T6/T651 typical rod/bar row; 0.500 inch tensile specimen",
+      "evidence_text": "Recorded source row; p.1 T6/T651 typical rod/bar row; 0.500 inch tensile specimen",
+      "source_page_or_section": "p.1 T6/T651 typical rod/bar row; 0.500 inch tensile specimen"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-6061-T651-EXTRUDED-OEM-PRESSURE",
+      "identity_id": "MAT-CORE-6061-T651-EXTRUDED",
+      "property": "oem_manifold_pressure_guidance",
+      "raw_value": {
+        "rated_bar": 210,
+        "proof_bar": 420,
+        "burst_bar": 840
+      },
+      "raw_unit": "bar",
+      "normalized_value": {
+        "rated_bar": 210,
+        "proof_bar": 420,
+        "burst_bar": 840
+      },
+      "normalized_unit": "bar",
+      "source_ids": [
+        "CORE-SRC-SUN-MATERIALS"
+      ],
+      "evidence_class": "parameter",
+      "scope": "OEM_APPLICATION",
+      "scope_class": "OEM_APPLICATION",
+      "applies_to": {
+        "grade": "6061",
+        "state": "T651",
+        "product_form": "Extruded bar"
+      },
+      "value_kind": "OEM_APPLICATION_REFERENCE",
+      "condition": "T651; Extruded bar; p.1 Sun manifold designs only; not an intrinsic material limit",
+      "evidence_text": "Recorded source row; p.1 Sun manifold designs only; not an intrinsic material limit",
+      "source_page_or_section": "p.1 Sun manifold designs only; not an intrinsic material limit"
+    },
+    {
+      "id": "CORE-ID-MAT-CORE-6061-T651-PLATE",
+      "identity_id": "MAT-CORE-6061-T651-PLATE",
+      "property": "engineering_identity",
+      "raw_value": "{\"grade\": \"6061\", \"state\": \"T651\", \"standard\": \"ASTM B209/B209M\", \"product_form\": \"Plate\"}",
+      "normalized_value": {
+        "grade": "6061",
+        "state": "T651",
+        "standard": "ASTM B209/B209M",
+        "product_form": "Plate"
+      },
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-KAISER-6061-PLATE",
+        "CORE-SRC-KAISER-PLATE-CAPABILITY",
+        "CORE-SRC-KAISER-FLAT-SPECS",
+        "CORE-SRC-ASTM-B209"
+      ],
+      "evidence_class": "identity",
+      "scope": "EXACT_GRADE_STATE_FORM",
+      "condition": "",
+      "evidence_text": "Reviewed producer/OEM identity and product-standard scope; no equivalence substitution."
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-6061-T651-PLATE-YIELD",
+      "identity_id": "MAT-CORE-6061-T651-PLATE",
+      "property": "yield_strength",
+      "raw_value": 276,
+      "raw_unit": "MPa",
+      "normalized_value": 276,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-KAISER-6061-PLATE"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "6061",
+        "state": "T651",
+        "product_form": "Plate"
+      },
+      "value_kind": "TYPICAL",
+      "condition": "T651; Plate; p.1 T651 flat-product typical row; tensile specimen 0.500 inch",
+      "evidence_text": "Recorded source row; p.1 T651 flat-product typical row; tensile specimen 0.500 inch",
+      "source_page_or_section": "p.1 T651 flat-product typical row; tensile specimen 0.500 inch"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-6061-T651-PLATE-TENSILE",
+      "identity_id": "MAT-CORE-6061-T651-PLATE",
+      "property": "tensile_strength",
+      "raw_value": 310,
+      "raw_unit": "MPa",
+      "normalized_value": 310,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-KAISER-6061-PLATE"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "6061",
+        "state": "T651",
+        "product_form": "Plate"
+      },
+      "value_kind": "TYPICAL",
+      "condition": "T651; Plate; p.1 T651 flat-product typical row; tensile specimen 0.500 inch",
+      "evidence_text": "Recorded source row; p.1 T651 flat-product typical row; tensile specimen 0.500 inch",
+      "source_page_or_section": "p.1 T651 flat-product typical row; tensile specimen 0.500 inch"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-6061-T651-PLATE-HARDNESS",
+      "identity_id": "MAT-CORE-6061-T651-PLATE",
+      "property": "hardness",
+      "raw_value": 95,
+      "raw_unit": "HB",
+      "normalized_value": 95,
+      "normalized_unit": "HB",
+      "source_ids": [
+        "CORE-SRC-KAISER-6061-PLATE"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "6061",
+        "state": "T651",
+        "product_form": "Plate"
+      },
+      "value_kind": "TYPICAL",
+      "condition": "T651; Plate; p.1 T651 flat-product typical row; tensile specimen 0.500 inch",
+      "evidence_text": "Recorded source row; p.1 T651 flat-product typical row; tensile specimen 0.500 inch",
+      "source_page_or_section": "p.1 T651 flat-product typical row; tensile specimen 0.500 inch"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-6061-T651-PLATE-DENSITY",
+      "identity_id": "MAT-CORE-6061-T651-PLATE",
+      "property": "density",
+      "raw_value": 2.7,
+      "raw_unit": "Mg/m3",
+      "normalized_value": 2.7,
+      "normalized_unit": "Mg/m3",
+      "source_ids": [
+        "CORE-SRC-KAISER-6061-PLATE"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "6061",
+        "state": "T651",
+        "product_form": "Plate",
+        "temperature_c": 20
+      },
+      "value_kind": "NOMINAL",
+      "condition": "T651; Plate; p.2 nominal density at 20 C",
+      "evidence_text": "Recorded source row; p.2 nominal density at 20 C",
+      "source_page_or_section": "p.2 nominal density at 20 C"
+    },
+    {
+      "id": "CORE-ID-MAT-CORE-7075-T651-PLATE",
+      "identity_id": "MAT-CORE-7075-T651-PLATE",
+      "property": "engineering_identity",
+      "raw_value": "{\"grade\": \"7075\", \"state\": \"T651\", \"standard\": \"ASTM B209/B209M\", \"product_form\": \"Plate\"}",
+      "normalized_value": {
+        "grade": "7075",
+        "state": "T651",
+        "standard": "ASTM B209/B209M",
+        "product_form": "Plate"
+      },
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-KAISER-7075-PLATE",
+        "CORE-SRC-KAISER-PLATE-CAPABILITY",
+        "CORE-SRC-KAISER-FLAT-SPECS",
+        "CORE-SRC-ASTM-B209"
+      ],
+      "evidence_class": "identity",
+      "scope": "EXACT_GRADE_STATE_FORM",
+      "condition": "",
+      "evidence_text": "Reviewed producer/OEM identity and product-standard scope; no equivalence substitution."
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-7075-T651-PLATE-YIELD",
+      "identity_id": "MAT-CORE-7075-T651-PLATE",
+      "property": "yield_strength",
+      "raw_value": 503,
+      "raw_unit": "MPa",
+      "normalized_value": 503,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-KAISER-7075-PLATE"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "7075",
+        "state": "T651",
+        "product_form": "Plate"
+      },
+      "value_kind": "TYPICAL",
+      "condition": "T651; Plate; p.1 T651 typical plate row; 0.500 inch tensile specimen",
+      "evidence_text": "Recorded source row; p.1 T651 typical plate row; 0.500 inch tensile specimen",
+      "source_page_or_section": "p.1 T651 typical plate row; 0.500 inch tensile specimen"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-7075-T651-PLATE-TENSILE",
+      "identity_id": "MAT-CORE-7075-T651-PLATE",
+      "property": "tensile_strength",
+      "raw_value": 572,
+      "raw_unit": "MPa",
+      "normalized_value": 572,
+      "normalized_unit": "MPa",
+      "source_ids": [
+        "CORE-SRC-KAISER-7075-PLATE"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "7075",
+        "state": "T651",
+        "product_form": "Plate"
+      },
+      "value_kind": "TYPICAL",
+      "condition": "T651; Plate; p.1 T651 typical plate row; 0.500 inch tensile specimen",
+      "evidence_text": "Recorded source row; p.1 T651 typical plate row; 0.500 inch tensile specimen",
+      "source_page_or_section": "p.1 T651 typical plate row; 0.500 inch tensile specimen"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-7075-T651-PLATE-HARDNESS",
+      "identity_id": "MAT-CORE-7075-T651-PLATE",
+      "property": "hardness",
+      "raw_value": 150,
+      "raw_unit": "HB",
+      "normalized_value": 150,
+      "normalized_unit": "HB",
+      "source_ids": [
+        "CORE-SRC-KAISER-7075-PLATE"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "7075",
+        "state": "T651",
+        "product_form": "Plate"
+      },
+      "value_kind": "TYPICAL",
+      "condition": "T651; Plate; p.1 T651 typical plate row; 0.500 inch tensile specimen",
+      "evidence_text": "Recorded source row; p.1 T651 typical plate row; 0.500 inch tensile specimen",
+      "source_page_or_section": "p.1 T651 typical plate row; 0.500 inch tensile specimen"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-7075-T651-PLATE-DENSITY",
+      "identity_id": "MAT-CORE-7075-T651-PLATE",
+      "property": "density",
+      "raw_value": 2.8,
+      "raw_unit": "Mg/m3",
+      "normalized_value": 2.8,
+      "normalized_unit": "Mg/m3",
+      "source_ids": [
+        "CORE-SRC-KAISER-7075-PLATE"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "7075",
+        "state": "T651",
+        "product_form": "Plate",
+        "temperature_c": 20
+      },
+      "value_kind": "NOMINAL",
+      "condition": "T651; Plate; p.2 nominal density at 20 C",
+      "evidence_text": "Recorded source row; p.2 nominal density at 20 C",
+      "source_page_or_section": "p.2 nominal density at 20 C"
+    },
+    {
+      "id": "CORE-ID-MAT-CORE-DURABAR-65-45-12",
+      "identity_id": "MAT-CORE-DURABAR-65-45-12",
+      "property": "engineering_identity",
+      "raw_value": "{\"grade\": \"65-45-12\", \"state\": \"As-cast\", \"standard\": \"ASTM A536\", \"product_form\": \"Continuous cast bar\"}",
+      "normalized_value": {
+        "grade": "65-45-12",
+        "state": "As-cast",
+        "standard": "ASTM A536",
+        "product_form": "Continuous cast bar"
+      },
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-DURA-65"
+      ],
+      "evidence_class": "identity",
+      "scope": "EXACT_GRADE_STATE_FORM",
+      "condition": "",
+      "evidence_text": "Reviewed producer/OEM identity and product-standard scope; no equivalence substitution."
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-DURABAR-65-45-12-YIELD",
+      "identity_id": "MAT-CORE-DURABAR-65-45-12",
+      "property": "yield_strength",
+      "raw_value": 45000,
+      "raw_unit": "psi",
+      "normalized_value": 45000,
+      "normalized_unit": "psi",
+      "source_ids": [
+        "CORE-SRC-DURA-65"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "65-45-12",
+        "state": "As-cast",
+        "product_form": "Continuous cast bar"
+      },
+      "value_kind": "MINIMUM",
+      "condition": "As-cast; Continuous cast bar; Mechanical properties; longitudinal mid-radius as-cast sample",
+      "evidence_text": "Recorded source row; Mechanical properties; longitudinal mid-radius as-cast sample",
+      "source_page_or_section": "Mechanical properties; longitudinal mid-radius as-cast sample"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-DURABAR-65-45-12-TENSILE",
+      "identity_id": "MAT-CORE-DURABAR-65-45-12",
+      "property": "tensile_strength",
+      "raw_value": 65000,
+      "raw_unit": "psi",
+      "normalized_value": 65000,
+      "normalized_unit": "psi",
+      "source_ids": [
+        "CORE-SRC-DURA-65"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "65-45-12",
+        "state": "As-cast",
+        "product_form": "Continuous cast bar"
+      },
+      "value_kind": "MINIMUM",
+      "condition": "As-cast; Continuous cast bar; Mechanical properties; longitudinal mid-radius as-cast sample",
+      "evidence_text": "Recorded source row; Mechanical properties; longitudinal mid-radius as-cast sample",
+      "source_page_or_section": "Mechanical properties; longitudinal mid-radius as-cast sample"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-DURABAR-65-45-12-ELONGATION",
+      "identity_id": "MAT-CORE-DURABAR-65-45-12",
+      "property": "elongation",
+      "raw_value": 12,
+      "raw_unit": "%",
+      "normalized_value": 12,
+      "normalized_unit": "%",
+      "source_ids": [
+        "CORE-SRC-DURA-65"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "65-45-12",
+        "state": "As-cast",
+        "product_form": "Continuous cast bar",
+        "stock_diameter_mm": {
+          "min": 50.8
+        }
+      },
+      "value_kind": "MINIMUM",
+      "condition": "As-cast; Continuous cast bar; Smaller round bars have lower specified elongation; do not generalize to rectangles",
+      "evidence_text": "Recorded source row; Smaller round bars have lower specified elongation; do not generalize to rectangles",
+      "source_page_or_section": "Smaller round bars have lower specified elongation; do not generalize to rectangles"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-DURABAR-65-45-12-HARDNESS",
+      "identity_id": "MAT-CORE-DURABAR-65-45-12",
+      "property": "hardness",
+      "raw_value": {
+        "min": 143,
+        "max": 207
+      },
+      "raw_unit": "HB",
+      "normalized_value": {
+        "min": 143,
+        "max": 207
+      },
+      "normalized_unit": "HB",
+      "source_ids": [
+        "CORE-SRC-DURA-65"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "65-45-12",
+        "state": "As-cast",
+        "product_form": "Continuous cast bar",
+        "stock_diameter_mm": {
+          "min": 76.2254,
+          "max": 152.4
+        }
+      },
+      "value_kind": "RANGE",
+      "condition": "As-cast; Continuous cast bar; Round-bar hardness band; rectangular section hardness requires producer confirmation",
+      "evidence_text": "Recorded source row; Round-bar hardness band; rectangular section hardness requires producer confirmation",
+      "source_page_or_section": "Round-bar hardness band; rectangular section hardness requires producer confirmation"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-DURABAR-65-45-12-OEM-PRESSURE",
+      "identity_id": "MAT-CORE-DURABAR-65-45-12",
+      "property": "oem_manifold_pressure_guidance",
+      "raw_value": {
+        "rated_bar": 350,
+        "proof_bar": 700,
+        "burst_bar": 1400
+      },
+      "raw_unit": "bar",
+      "normalized_value": {
+        "rated_bar": 350,
+        "proof_bar": 700,
+        "burst_bar": 1400
+      },
+      "normalized_unit": "bar",
+      "source_ids": [
+        "CORE-SRC-SUN-MATERIALS"
+      ],
+      "evidence_class": "parameter",
+      "scope": "OEM_APPLICATION",
+      "scope_class": "OEM_APPLICATION",
+      "applies_to": {
+        "grade": "65-45-12",
+        "state": "As-cast",
+        "product_form": "Continuous cast bar"
+      },
+      "value_kind": "OEM_APPLICATION_REFERENCE",
+      "condition": "As-cast; Continuous cast bar; Sun grade-65-45-12 manifold designs only; not all Dura-Bar parts",
+      "evidence_text": "Recorded source row; Sun grade-65-45-12 manifold designs only; not all Dura-Bar parts",
+      "source_page_or_section": "Sun grade-65-45-12 manifold designs only; not all Dura-Bar parts"
+    },
+    {
+      "id": "CORE-ID-MAT-CORE-DURABAR-80-55-06",
+      "identity_id": "MAT-CORE-DURABAR-80-55-06",
+      "property": "engineering_identity",
+      "raw_value": "{\"grade\": \"80-55-06\", \"state\": \"As-cast\", \"standard\": \"ASTM A536\", \"product_form\": \"Continuous cast bar\"}",
+      "normalized_value": {
+        "grade": "80-55-06",
+        "state": "As-cast",
+        "standard": "ASTM A536",
+        "product_form": "Continuous cast bar"
+      },
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-DURA-80"
+      ],
+      "evidence_class": "identity",
+      "scope": "EXACT_GRADE_STATE_FORM",
+      "condition": "",
+      "evidence_text": "Reviewed producer/OEM identity and product-standard scope; no equivalence substitution."
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-DURABAR-80-55-06-YIELD",
+      "identity_id": "MAT-CORE-DURABAR-80-55-06",
+      "property": "yield_strength",
+      "raw_value": 55000,
+      "raw_unit": "psi",
+      "normalized_value": 55000,
+      "normalized_unit": "psi",
+      "source_ids": [
+        "CORE-SRC-DURA-80"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "80-55-06",
+        "state": "As-cast",
+        "product_form": "Continuous cast bar"
+      },
+      "value_kind": "MINIMUM",
+      "condition": "As-cast; Continuous cast bar; Mechanical properties; longitudinal mid-radius as-cast sample",
+      "evidence_text": "Recorded source row; Mechanical properties; longitudinal mid-radius as-cast sample",
+      "source_page_or_section": "Mechanical properties; longitudinal mid-radius as-cast sample"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-DURABAR-80-55-06-TENSILE",
+      "identity_id": "MAT-CORE-DURABAR-80-55-06",
+      "property": "tensile_strength",
+      "raw_value": 80000,
+      "raw_unit": "psi",
+      "normalized_value": 80000,
+      "normalized_unit": "psi",
+      "source_ids": [
+        "CORE-SRC-DURA-80"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "80-55-06",
+        "state": "As-cast",
+        "product_form": "Continuous cast bar"
+      },
+      "value_kind": "MINIMUM",
+      "condition": "As-cast; Continuous cast bar; Mechanical properties; longitudinal mid-radius as-cast sample",
+      "evidence_text": "Recorded source row; Mechanical properties; longitudinal mid-radius as-cast sample",
+      "source_page_or_section": "Mechanical properties; longitudinal mid-radius as-cast sample"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-DURABAR-80-55-06-ELONGATION",
+      "identity_id": "MAT-CORE-DURABAR-80-55-06",
+      "property": "elongation",
+      "raw_value": 6,
+      "raw_unit": "%",
+      "normalized_value": 6,
+      "normalized_unit": "%",
+      "source_ids": [
+        "CORE-SRC-DURA-80"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "80-55-06",
+        "state": "As-cast",
+        "product_form": "Continuous cast bar",
+        "stock_diameter_mm": {
+          "min": 38.1
+        }
+      },
+      "value_kind": "MINIMUM",
+      "condition": "As-cast; Continuous cast bar; Smaller round bars have lower specified elongation; do not generalize to rectangles",
+      "evidence_text": "Recorded source row; Smaller round bars have lower specified elongation; do not generalize to rectangles",
+      "source_page_or_section": "Smaller round bars have lower specified elongation; do not generalize to rectangles"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-DURABAR-80-55-06-HARDNESS",
+      "identity_id": "MAT-CORE-DURABAR-80-55-06",
+      "property": "hardness",
+      "raw_value": {
+        "min": 187,
+        "max": 255
+      },
+      "raw_unit": "HB",
+      "normalized_value": {
+        "min": 187,
+        "max": 255
+      },
+      "normalized_unit": "HB",
+      "source_ids": [
+        "CORE-SRC-DURA-80"
+      ],
+      "evidence_class": "parameter",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "80-55-06",
+        "state": "As-cast",
+        "product_form": "Continuous cast bar",
+        "stock_diameter_mm": {
+          "min": 76.2254,
+          "max": 508
+        }
+      },
+      "value_kind": "RANGE",
+      "condition": "As-cast; Continuous cast bar; Round-bar hardness band; rectangular section hardness requires producer confirmation",
+      "evidence_text": "Recorded source row; Round-bar hardness band; rectangular section hardness requires producer confirmation",
+      "source_page_or_section": "Round-bar hardness band; rectangular section hardness requires producer confirmation"
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-DURABAR-80-55-06-OLD-STANDARD",
+      "identity_id": "MAT-CORE-DURABAR-80-55-06",
+      "property": "standard",
+      "raw_value": "similar to ASTM A536",
+      "raw_unit": "",
+      "normalized_value": "similar to ASTM A536",
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-DURA-80-2019"
+      ],
+      "evidence_class": "identity",
+      "scope": "GRADE_CONDITION_PRODUCT_FORM",
+      "scope_class": "GRADE_CONDITION_PRODUCT_FORM",
+      "applies_to": {
+        "grade": "80-55-06",
+        "state": "As-cast",
+        "product_form": "Continuous cast bar"
+      },
+      "value_kind": "HISTORICAL_WORDING",
+      "condition": "As-cast; Continuous cast bar",
+      "evidence_text": "Recorded source property with exact identity/form.",
+      "source_page_or_section": ""
+    },
+    {
+      "id": "CORE-EV-MAT-1045-REVIEW",
+      "identity_id": "MAT-1045",
+      "property": "core_identity_review",
+      "raw_value": "Exact normalized 1045 bar product standard is not declared by the producer; nearest-designation list and supply states do not validate the old +N identity. C45 is not substituted.",
+      "raw_unit": "",
+      "normalized_value": "Exact normalized 1045 bar product standard is not declared by the producer; nearest-designation list and supply states do not validate the old +N identity. C45 is not substituted.",
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-VOEST-1045"
+      ],
+      "evidence_class": "source_review",
+      "scope": "SOURCE_REVIEW",
+      "scope_class": "SOURCE_REVIEW",
+      "applies_to": {
+        "grade": "1045",
+        "state": "+N",
+        "product_form": "Round bar"
+      },
+      "value_kind": "RESEARCH_DISPOSITION",
+      "condition": "+N; Round bar",
+      "evidence_text": "Recorded source property with exact identity/form.",
+      "source_page_or_section": ""
+    },
+    {
+      "id": "CORE-EV-MAT-7075-REVIEW",
+      "identity_id": "MAT-7075",
+      "property": "core_identity_review",
+      "raw_value": "Existing T6 tube/pipe identity lacks a confirmed applicable product standard and solid manifold stock form; independently specified T651 plate is selectable.",
+      "raw_unit": "",
+      "normalized_value": "Existing T6 tube/pipe identity lacks a confirmed applicable product standard and solid manifold stock form; independently specified T651 plate is selectable.",
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-KAISER-7075-PLATE",
+        "CORE-SRC-ASTM-B209"
+      ],
+      "evidence_class": "source_review",
+      "scope": "SOURCE_REVIEW",
+      "scope_class": "SOURCE_REVIEW",
+      "applies_to": {
+        "grade": "7075",
+        "state": "T6",
+        "product_form": "Tube/pipe"
+      },
+      "value_kind": "RESEARCH_DISPOSITION",
+      "condition": "T6; Tube/pipe",
+      "evidence_text": "Recorded source property with exact identity/form.",
+      "source_page_or_section": ""
+    },
+    {
+      "id": "CORE-EV-MAT-S355-REVIEW",
+      "identity_id": "MAT-S355",
+      "property": "core_identity_review",
+      "raw_value": "Generic S355 does not establish exact suffix/state/product form. SSAB documents a distinct S355J2+N structural plate; generic S355 cannot inherit it.",
+      "raw_unit": "",
+      "normalized_value": "Generic S355 does not establish exact suffix/state/product form. SSAB documents a distinct S355J2+N structural plate; generic S355 cannot inherit it.",
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-SSAB-S355J2N"
+      ],
+      "evidence_class": "source_review",
+      "scope": "SOURCE_REVIEW",
+      "scope_class": "SOURCE_REVIEW",
+      "applies_to": {
+        "grade": "S355",
+        "state": "As-rolled / normalized grade suffix-specific",
+        "product_form": "Hot-rolled flat product"
+      },
+      "value_kind": "RESEARCH_DISPOSITION",
+      "condition": "As-rolled / normalized grade suffix-specific; Hot-rolled flat product",
+      "evidence_text": "Recorded source property with exact identity/form.",
+      "source_page_or_section": ""
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-6061-T6511B-CANDIDATE-REVIEW",
+      "identity_id": "MAT-CORE-6061-T6511B-CANDIDATE",
+      "property": "core_identity_review",
+      "raw_value": "Proprietary manifold bar and stable size table observed; engineering stock not admitted without exact standard/state semantics",
+      "raw_unit": "",
+      "normalized_value": "Proprietary manifold bar and stable size table observed; engineering stock not admitted without exact standard/state semantics",
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-KAISER-MANIFOLD"
+      ],
+      "evidence_class": "source_review",
+      "scope": "SOURCE_REVIEW",
+      "scope_class": "SOURCE_REVIEW",
+      "applies_to": {
+        "grade": "6061",
+        "state": "T6511B",
+        "product_form": "Extruded bar"
+      },
+      "value_kind": "TYPICAL",
+      "condition": "T6511B; Extruded bar",
+      "evidence_text": "Recorded source property with exact identity/form.",
+      "source_page_or_section": ""
+    },
+    {
+      "id": "CORE-EV-MAT-CORE-S355J2N-CANDIDATE-REVIEW",
+      "identity_id": "MAT-CORE-S355J2N-CANDIDATE",
+      "property": "core_identity_review",
+      "raw_value": "Structural plate 6–60 mm; no generic S355 identity substitution or pressure limit",
+      "raw_unit": "",
+      "normalized_value": "Structural plate 6–60 mm; no generic S355 identity substitution or pressure limit",
+      "normalized_unit": "",
+      "source_ids": [
+        "CORE-SRC-SSAB-S355J2N"
+      ],
+      "evidence_class": "source_review",
+      "scope": "SOURCE_REVIEW",
+      "scope_class": "SOURCE_REVIEW",
+      "applies_to": {
+        "grade": "S355J2",
+        "state": "Normalized rolled",
+        "product_form": "Plate"
+      },
+      "value_kind": "TYPICAL",
+      "condition": "Normalized rolled; Plate",
+      "evidence_text": "Recorded source property with exact identity/form.",
+      "source_page_or_section": ""
+    }
+  ],
+  "conflicts": [
+    {
+      "id": "CORE-CF-DURA80-STANDARD",
+      "identity_id": "MAT-CORE-DURABAR-80-55-06",
+      "property": "standard",
+      "conflict_type": "STANDARD_WORDING",
+      "evidence_a_ids": [
+        "CORE-EV-MAT-CORE-DURABAR-80-55-06-OLD-STANDARD"
+      ],
+      "evidence_b_ids": [
+        "CORE-ID-MAT-CORE-DURABAR-80-55-06"
+      ],
+      "preferred_evidence_id": "CORE-ID-MAT-CORE-DURABAR-80-55-06",
+      "resolution": "Reviewed current producer product page explicitly declares ASTM A536 conformance. Historical 0319 similar wording retained; no approximate steel equivalence is adopted."
+    }
+  ],
+  "field_status": [
+    {
+      "identity_id": "MAT-6061",
+      "field_group": "core_identity",
+      "status": "EVIDENCE_PRESENT",
+      "reason": ""
+    },
+    {
+      "identity_id": "MAT-6061",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-6061",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-6082",
+      "field_group": "core_identity",
+      "status": "EVIDENCE_PRESENT",
+      "reason": ""
+    },
+    {
+      "identity_id": "MAT-6082",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-6082",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-C45",
+      "field_group": "core_identity",
+      "status": "EVIDENCE_PRESENT",
+      "reason": ""
+    },
+    {
+      "identity_id": "MAT-C45",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-C45",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-SS-304",
+      "field_group": "core_identity",
+      "status": "EVIDENCE_PRESENT",
+      "reason": ""
+    },
+    {
+      "identity_id": "MAT-SS-304",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-SS-304",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-SS-304L",
+      "field_group": "core_identity",
+      "status": "EVIDENCE_PRESENT",
+      "reason": ""
+    },
+    {
+      "identity_id": "MAT-SS-304L",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-SS-304L",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-SS-316",
+      "field_group": "core_identity",
+      "status": "EVIDENCE_PRESENT",
+      "reason": ""
+    },
+    {
+      "identity_id": "MAT-SS-316",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-SS-316",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-SS-316L",
+      "field_group": "core_identity",
+      "status": "EVIDENCE_PRESENT",
+      "reason": ""
+    },
+    {
+      "identity_id": "MAT-SS-316L",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-SS-316L",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-CORE-6061-T651-EXTRUDED",
+      "field_group": "core_identity",
+      "status": "EVIDENCE_PRESENT",
+      "reason": ""
+    },
+    {
+      "identity_id": "MAT-CORE-6061-T651-EXTRUDED",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-CORE-6061-T651-EXTRUDED",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-CORE-6061-T651-PLATE",
+      "field_group": "core_identity",
+      "status": "EVIDENCE_PRESENT",
+      "reason": ""
+    },
+    {
+      "identity_id": "MAT-CORE-6061-T651-PLATE",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-CORE-6061-T651-PLATE",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-CORE-7075-T651-PLATE",
+      "field_group": "core_identity",
+      "status": "EVIDENCE_PRESENT",
+      "reason": ""
+    },
+    {
+      "identity_id": "MAT-CORE-7075-T651-PLATE",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-CORE-7075-T651-PLATE",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-CORE-DURABAR-65-45-12",
+      "field_group": "core_identity",
+      "status": "EVIDENCE_PRESENT",
+      "reason": ""
+    },
+    {
+      "identity_id": "MAT-CORE-DURABAR-65-45-12",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-CORE-DURABAR-65-45-12",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-CORE-DURABAR-80-55-06",
+      "field_group": "core_identity",
+      "status": "EVIDENCE_PRESENT",
+      "reason": ""
+    },
+    {
+      "identity_id": "MAT-CORE-DURABAR-80-55-06",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-CORE-DURABAR-80-55-06",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-1045",
+      "field_group": "core_identity",
+      "status": "UNRESOLVED",
+      "reason": "Exact normalized 1045 bar product standard is not declared by the producer; nearest-designation list and supply states do not validate the old +N identity. C45 is not substituted."
+    },
+    {
+      "identity_id": "MAT-1045",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-1045",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-7075",
+      "field_group": "core_identity",
+      "status": "UNRESOLVED",
+      "reason": "Existing T6 tube/pipe identity lacks a confirmed applicable product standard and solid manifold stock form; independently specified T651 plate is selectable."
+    },
+    {
+      "identity_id": "MAT-7075",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-7075",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-S355",
+      "field_group": "core_identity",
+      "status": "UNRESOLVED",
+      "reason": "Generic S355 does not establish exact suffix/state/product form. SSAB documents a distinct S355J2+N structural plate; generic S355 cannot inherit it."
+    },
+    {
+      "identity_id": "MAT-S355",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-S355",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-CORE-6061-T6511B-CANDIDATE",
+      "field_group": "core_identity",
+      "status": "UNRESOLVED",
+      "reason": "Producer-specific T6511B manifold bar is documented, but its applicable product standard is not declared in this brochure. Do not equate it with T651 or T6."
+    },
+    {
+      "identity_id": "MAT-CORE-6061-T6511B-CANDIDATE",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-CORE-6061-T6511B-CANDIDATE",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-CORE-S355J2N-CANDIDATE",
+      "field_group": "core_identity",
+      "status": "UNRESOLVED",
+      "reason": "Specific S355J2+N structural plate identity is supported, but no manifold-block application need was established in this bounded core review; not promoted merely to fill the count."
+    },
+    {
+      "identity_id": "MAT-CORE-S355J2N-CANDIDATE",
+      "field_group": "allowable_design_stress",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    },
+    {
+      "identity_id": "MAT-CORE-S355J2N-CANDIDATE",
+      "field_group": "engineering_stock",
+      "status": "NOT_REPORTED",
+      "reason": "No direct applicable admitted value"
+    }
+  ],
+  "treatment_links": [],
+  "legacy_materials": [
+    {
+      "runtime_id": "material_1",
+      "display_name": "Legacy unspecified Aluminum",
+      "selectable": false
+    },
+    {
+      "runtime_id": "material_2",
+      "display_name": "Legacy unspecified Dura-Bar",
+      "selectable": false
+    }
+  ],
+  "research_notes": [
+    "No intrinsic material allowable/design stress found; project policy remains separate.",
+    "Published plate/bar ranges are provenance only, not discrete engineering stock; supplier inventory is not admitted.",
+    "Existing ten research identities and their original grade/state/standard/form are immutable; this supplement adds reviewed delivery context and separate exact new identities.",
+    "No treatment is selected. Existing treatment references on reviewed identities remain; no T6-to-T651 treatment inheritance is inferred."
+  ]
+}

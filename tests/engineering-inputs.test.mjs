@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {setDesignPriority,selectEngineeringMaterial,validStockSizes,selectRawStock,
+import {setDesignPriority,selectEngineeringMaterial,engineeringMaterialChoices,validStockSizes,selectRawStock,
   setEnvelopeMaximum,customPortDescription} from '../web/engineering-inputs.js';
 import {portSetup,customPort} from '../web/port-setup.js';
 
@@ -10,6 +10,15 @@ const design=()=>({block:{length:120,width:120,height:100,material:'Legacy text'
   nets:[{id:'AUTO',routing:'automatic',routing_variant:'xyz:nearest:direct'},
         {id:'MANUAL',routing:'manual',routing_variant:'xyz:nearest:direct'}],
   features:[{id:'FROZEN',frozen_net:'MANUAL'}],project_context:'metric'});
+
+test('new material choices hide unspecified legacy; old project shows only its current legacy ID',()=>{
+  const modern={id:'precise',display_name:'6061 · T651 · ASTM B209',active:1,selectable:true};
+  const old=[{id:'material_1',display_name:'Legacy unspecified Aluminum',active:1,selectable:false},
+    {id:'material_2',display_name:'Legacy unspecified Dura-Bar',active:1,selectable:false}];
+  assert.deepEqual(engineeringMaterialChoices([modern,...old]),[modern]);
+  assert.deepEqual(engineeringMaterialChoices([modern,...old],'material_1'),[modern,old[0]]);
+  assert.deepEqual(engineeringMaterialChoices([modern,...old],'material_2'),[modern,old[1]]);
+});
 
 test('priority invalidates only automatic choices and keeps frozen/manual data',()=>{
   const d=design(),fixed=structuredClone(d.features);setDesignPriority(d,'short_drills');

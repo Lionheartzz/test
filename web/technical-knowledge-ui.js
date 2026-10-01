@@ -11,6 +11,7 @@ const labels={maximum_flow:'Maximum Flow',capacity:'Capacity',nominal_capacity:'
 export const propertyLabel=name=>labels[name]||name.replaceAll('_',' ').replace(/\b\w/g,letter=>letter.toUpperCase());
 function sectionFor(property,material){
   if(material){
+    if(property.startsWith('oem_'))return 'OEM / Application References';
     if(/strength|hardness|elongation|modulus|fatigue|poisson|shear/.test(property))return 'Mechanical Properties';
     if(/machin|corrosion|weld|workability|braze/.test(property))return 'Machinability / Corrosion / Weldability';
     return 'Thermal / Engineering Properties';
@@ -34,9 +35,14 @@ export function technicalKnowledgeUI(ctx,parent,data,base,isCurrent,{material=fa
   if(record.disposition==='PARTIAL_CONFIRMED'&&data.counts.evidence===0)identity.append(element('p','Research disposition is preserved, but no evidence is explicitly attributed to this stored manufacturer and code. Similar manufacturer records have not been inherited.','warning'));
   identity.append(element('p',`${data.counts.evidence} evidence records · ${data.counts.sources} sources · ${data.counts.conflicts} conflicts. Research knowledge does not grant execution permission.`));
   if(material){const original=record.original;identity.append(element('p',`Standard: ${original.standard||'Not reported'} · Condition: ${original.temper_condition||'Not reported'} · Form: ${original.product_form||'Not reported'}`),element('p',`Aliases: ${(original.aliases||[]).join(', ')||'None established'}`));}
-  if(material)identity.append(element('p',record.material_id?'Engineering material · Available in Model material selector':`Research-only material · ${data.engineering_facts?.identity?.reason||'Runtime identity not admitted'}`));
+  if(material)identity.append(element('p',record.material_id&&data.engineering_facts?.identity?.selectable!==false?'Engineering material · Available in Model material selector':`Research-only material · ${data.engineering_facts?.identity?.reason||'Runtime identity not admitted'}`));
   else identity.append(element('p',data.engineering_facts?.runtime_linked?'Runtime-linked cartridge · Compatibility remains governed by explicit admitted relations.':'Ambiguous / relation-only / unresearched technical identity · Parameters unavailable for engineering execution.'));
   if(data.engineering_facts)engineeringFactsUI(ctx,parent,data.engineering_facts,{title:'Resolved engineering facts'});
+  if(material&&data.primary_sources?.length){const host=box('Primary identity sources');
+    const reviewed=data.engineering_facts?.identity;
+    if(reviewed)host.append(element('p',`Block stock form: ${reviewed.product_form} · Primary standard: ${reviewed.standard}`));
+    for(const row of data.primary_sources){host.append(element('p',`${row.original.organization} · ${row.title} · ${row.original.revision||'Revision not stated'} · retrieved ${row.original.retrieved_date}`));sourceLink(ctx,host,row.url);}
+  }
   const sections=new Map(),seen=new Set();
   const normalized=row=>row.normalized_value!==null&&row.normalized_value!==undefined&&row.normalized_value!==''?`${typeof row.normalized_value==='string'?row.normalized_value:JSON.stringify(row.normalized_value)} ${row.normalized_unit||''}`:'';
   for(const row of data.values){

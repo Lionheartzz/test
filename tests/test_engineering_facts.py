@@ -109,7 +109,9 @@ def test_material_api_default_override_ai_and_batch_queries(knowledge):
     value(knowledge,'Y','yield_strength',276,'MPa',domain='material',identity='MAT-6061',scope='GRADE_CONDITION_FORM',condition='T6; Extrusion',source_type='PRIMARY_PRODUCER_DATASHEET')
     with TestClient(app) as client:
         rows=client.get('/api/materials').json()['items']
-    assert len(rows)==3
+        legacy_rows=client.get('/api/materials?include_legacy=true').json()['items']
+    assert len(rows)==1
+    assert len(legacy_rows)==3
     material=next(r for r in rows if r['technical_identity_id'])
     assert material['id'].startswith('material_rev2_') and material['stock']==[]
     assert material['engineering_defaults']['allowable_stress_mpa'] is None
@@ -122,7 +124,7 @@ def test_material_api_default_override_ai_and_batch_queries(knowledge):
         queries=[];db.set_trace_callback(queries.append)
         facts_batch('material',['MAT-6061','MISSING'],connection=db)
     assert len([q for q in queries if q.startswith('SELECT')])==4
-    assert {'material_1','material_2'} <= {r['id'] for r in engineering_db.materials()}
+    assert {'material_1','material_2'} <= {r['id'] for r in engineering_db.materials(include_legacy=True)}
 
 
 def test_material_identity_not_property_conflict_and_stable_states():

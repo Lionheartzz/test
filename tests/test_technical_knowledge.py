@@ -152,7 +152,8 @@ def test_read_only_api_pagination_conflicts_and_material_stock(inputs,tmp_path,m
         assert conflicts[0]['preferred_evidence_id'] is None
         assert client.get('/api/cartridges/NORMAL/technical/evidence?limit=1000').status_code==422
         assert client.get('/api/cartridges/ABSENT/technical').status_code==404
-        assert client.get('/api/materials').json()['items'][0]['id']=='RUNTIME'
+        assert client.get('/api/materials').json()['items']==[]
+        assert client.get('/api/materials?include_legacy=true').json()['items'][0]['id']=='RUNTIME'
         assert client.get('/api/materials/technical').json()['items'][0]['id']=='MAT-C45'
         material=client.get('/api/materials/technical/MAT-C45').json()
         assert material['engineering_stock']==[] and material['supplier_stock_count']==2

@@ -286,9 +286,9 @@ def threads(q: str='',unit: str='',family: str='',usable_only: bool=True,
 
 
 @app.get('/api/materials')
-def material_catalog():
+def material_catalog(include_legacy:bool=False,current_id:str|None=None):
     from .engineering_db import materials
-    return {'items':materials()}
+    return {'items':materials(include_legacy=include_legacy,current_id=current_id)}
 
 
 @app.get('/api/tools')

@@ -242,7 +242,7 @@ def preserved_tables(connection):
     return result
 
 
-def integrate(source: Path, package: Path, rev1: Path, output: Path | None = None):
+def integrate(source: Path, package: Path, rev1: Path, output: Path | None = None, *, material_supplement: Path | None = None):
     source, rev1 = source.resolve(), rev1.resolve()
     source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
     with zipfile.ZipFile(rev1) as archive:
@@ -251,6 +251,10 @@ def integrate(source: Path, package: Path, rev1: Path, output: Path | None = Non
         relation_count = sum(1 for _ in csv.DictReader(io.StringIO(
             archive.read('data/relations/cartridge_cavity_relations.csv').decode('utf-8-sig'))))
     research = Package(package)
+    if material_supplement:
+        from .material_supplement import read_supplement
+        supplement_data,supplement_sha=read_supplement(material_supplement)
+        if supplement_data.get('base_rev2_sha256')!=research.sha256:raise ValueError('Material supplement base package mismatch')
     with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as original:
         source_version = original.execute('PRAGMA user_version').fetchone()[0]
         if source_version not in (3, 4):
@@ -290,13 +294,19 @@ def integrate(source: Path, package: Path, rev1: Path, output: Path | None = Non
                     for table in reversed(technical_schema.TABLES):
                         db.execute(f'DELETE FROM {table}')
                 _import(db, research, targets)
+                if material_supplement:
+                    from .material_supplement import apply_supplement
+                    report['core_material_supplement']=apply_supplement(db,material_supplement,research.sha256)
                 from .engineering_facts import promote_materials
-                report['material_promotion'] = promote_materials(db)
+                report['material_promotion'] = promote_materials(db,refresh_metadata=bool(material_supplement))
                 after = preserved_tables(db)
                 if {k:v for k,v in after.items() if k!='materials'} != {k:v for k,v in before.items() if k!='materials'}:
                     raise ValueError('Technical import changed existing engineering domain data')
                 for row in old_materials:
-                    if db.execute('SELECT * FROM materials WHERE id=?', (row[0],)).fetchone() != row:
+                    actual=db.execute('SELECT * FROM materials WHERE id=?', (row[0],)).fetchone()
+                    reviewed=next((m for m in report['material_promotion'] if m['selectable'] and m['runtime_id']==row[0]),None)
+                    expected=(row[0],reviewed['display_name'],reviewed['material_family'],row[3]) if material_supplement and reviewed else row
+                    if actual != expected:
                         raise ValueError('Existing runtime material changed during promotion')
                 if db.execute('PRAGMA integrity_check').fetchall() != [('ok',)] or db.execute('PRAGMA foreign_key_check').fetchall():
                     raise ValueError('Staging integrity/foreign-key check failed')
@@ -486,10 +496,11 @@ def main():
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--knowledge-package', type=Path, required=True)
     parser.add_argument('--relationship-package', type=Path, required=True)
+    parser.add_argument('--material-supplement', type=Path)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--report', type=Path)
     args = parser.parse_args()
-    report = integrate(args.source, args.knowledge_package, args.relationship_package, args.output)
+    report = integrate(args.source, args.knowledge_package, args.relationship_package, args.output,material_supplement=args.material_supplement)
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')

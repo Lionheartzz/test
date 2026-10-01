@@ -85,7 +85,7 @@ export function renderHome({element,action,api,launch,hasProject,returnToDraft,s
   form.onsubmit=event=>{event.preventDefault();if(!name.value.trim()){name.setCustomValidity('Enter a project name.');name.reportValidity();return;}const selected=material.selectedOptions[0];startSetup({name:name.value.trim(),unit:units.value,dimensions:inputs.map(input=>input.valueAsNumber),material:selected?.value?{id:selected.value,name:selected.dataset.name}:null},continueButton);};name.oninput=()=>name.setCustomValidity('');
   api('/api/materials').then(result=>{
     if(!material.isConnected)return;
-    for(const row of result.items||[]){if(!row.active)continue;const option=element('option',row.display_name);option.value=row.id;option.dataset.name=row.display_name;material.append(option);}
+    for(const row of result.items||[]){if(!row.active||row.selectable===false)continue;const option=element('option',row.display_name);option.value=row.id;option.dataset.name=row.display_name;material.append(option);}
     material.disabled=false;material.dataset.loaded='true';
   }).catch(()=>{if(material.isConnected){placeholder.textContent='Material list unavailable · choose in setup';material.title='Could not load /api/materials. Continue to choose a material in engineering setup.';}});
   const ai=element('section',null,'home-card home-ai'),aiHead=element('div',null,'home-card-heading');aiHead.append(homeIcon('ai'),element('h2','AI from schematic'),element('span','PDF / PNG / JPEG','home-file-types'));ai.append(aiHead);
