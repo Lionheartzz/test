@@ -45,7 +45,39 @@ def spanning_pairs(points):
     return pairs
 
 
-def propose(design, net, order, entry=None, detour='direct', definitions=None, safe_planes=None, *, terminal_overrides=None):
+def _axial_connector_path(start, end, order, bends, axial_axis):
+    """Move only the last transverse approach; the axial trunk is a fixed endpoint."""
+    path=[start];point=list(start)
+    for axis in order:
+        if abs(point[axis]-end[axis])>1e-7:
+            point[axis]=end[axis];path.append(tuple(point))
+    # The final coaxial portion is already supplied by the physical axial bore.
+    last=len(path)-1
+    while last>0 and all(abs(path[last][i]-path[last-1][i])<1e-7 for i in range(3) if i!=axial_axis):last-=1
+    if last==0:return path
+    p,q=path[last-1],path[last]
+    transverse=next(i for i in range(3) if abs(p[i]-q[i])>1e-7)
+    if any(axis==transverse for axis,_ in bends):return None
+    pp,qq=list(p),list(q)
+    for axis,coordinate in bends:pp[axis]=qq[axis]=coordinate
+    prefix=path[:last]
+    # Shorten/extend an adjacent collinear leg instead of introducing a needless
+    # out-and-back excursion along that same drilling.
+    if len(prefix)>1 and sum(abs(prefix[-1][i]-prefix[-2][i])>1e-7 for i in range(3))==1:
+        previous=next(i for i in range(3) if abs(prefix[-1][i]-prefix[-2][i])>1e-7)
+        if all(abs(pp[i]-p[i])<1e-7 for i in range(3) if i!=previous):prefix.pop()
+    result=prefix+[tuple(pp),tuple(qq)]
+    # Return only in the non-axial directions. An offset along the bore axis is
+    # another junction on its existing cylinder, not a deeper/shifted bore.
+    for axis,_ in reversed(bends):
+        if axis!=axial_axis:
+            qq[axis]=q[axis];result.append(tuple(qq))
+    result.extend(path[last+1:])
+    if result[-1]!=end:result.append(end)
+    return result
+
+
+def propose(design, net, order, entry=None, detour='direct', definitions=None, safe_planes=None, *, terminal_overrides=None, connector_bends=None):
     if definitions is None:
         from .engineering_db import definitions_for_design
         definitions=definitions_for_design(design)
@@ -71,6 +103,14 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None, s
         start=port_stem(ports_at[a],a) if a in ports_at else a
         end=port_stem(ports_at[b],b) if b in ports_at else b
         waypoints = [a,start,end,b] if a in ports_at and b in ports_at else [a,start,end] if a in ports_at else [start,end,b] if b in ports_at else [a,b]
+        if connector_bends and (end in connector_bends or start in connector_bends):
+            reverse=end not in connector_bends
+            bends,axial_axis=connector_bends[start if reverse else end]
+            path=_axial_connector_path(end if reverse else start,start if reverse else end,
+                                      order[::-1] if reverse else order,bends,axial_axis)
+            if path is None:return None
+            if reverse:path=path[::-1]
+            waypoints=([a] if a in ports_at else [])+path+([b] if b in ports_at else [])
         if detour != 'direct':
             if safe_planes is None:
                 safe_planes = obstacle_safe_planes(design, net, definitions)
@@ -500,7 +540,7 @@ def route_dominates(design, better, worse, better_risk=0, worse_risk=0, definiti
 
 
 def _strategy_family(key):
-    if key.startswith('axial_'):return 'axial'
+    if key.startswith('axial_'):return 'axial-detour' if key.count(':')==3 else 'axial'
     if key.startswith('simple_'):return 'simple'
     return 'direct' if key.endswith(':direct') else 'detour'
 
@@ -512,7 +552,7 @@ def _strategy_shortlist(design, options, definitions=None, limit=16, eligible=No
     it may prune better or clear a different sibling route. Keep those as later
     Pareto layers rather than deleting them before exact connectivity pruning.
     """
-    buckets={family:[] for family in ('axial','simple','direct','detour')}
+    buckets={family:[] for family in ('axial','axial-detour','simple','direct','detour')}
     for option in options:
         option['metrics']=manufacturing_metrics(design,option['route'],option['risk'],definitions)
         buckets[_strategy_family(option['key'])].append(option)
@@ -527,7 +567,7 @@ def _strategy_shortlist(design, options, definitions=None, limit=16, eligible=No
         seen=set();distinct=[];remaining=[]
         for option in ranked:
             key=option['key'];faces=tuple(sorted({f.face for f in option['route']}))
-            strategy=(key.split(':')[0] if family=='axial' else key.split(':')[-1] if family=='detour' else family,faces)
+            strategy=(key.split(':')[0] if family=='axial' else key.split(':')[-1] if family in ('detour','axial-detour') else family,faces)
             (remaining if strategy in seen else distinct).append(option);seen.add(strategy)
         queues[family]=distinct+remaining
     selected=[]
@@ -1040,7 +1080,7 @@ def route_candidate_catalog(design, net, definitions, thread_definitions, modifi
     entries = ['nearest','negative','positive'] if net.entry_preference == 'nearest' else [net.entry_preference]
     options, seen = [],set()
     from .cavity_access import axial_route_candidates
-    for key,route in axial_route_candidates(design,net,definitions,thread_definitions,modifier_definitions):
+    for key,route in axial_route_candidates(design,net,definitions,thread_definitions,modifier_definitions,None,cache):
         signature = tuple((f.face,round(f.u,5),round(f.v,5),round(f.depth,5),f.plugged) for f in route)
         if signature in seen:continue
         seen.add(signature)
@@ -1088,18 +1128,40 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
     if catalog_key not in snapshot.catalogs:
         snapshot.catalogs[catalog_key]=route_candidate_catalog(source,net,definitions,thread_definitions,modifier_definitions,expanded=expanded,cache=snapshot.obstructions)
     options=deepcopy(snapshot.catalogs[catalog_key])
+    # Connector detours see actual retained automatic routes during local/repair
+    # evaluation. Plane coordinates are explicit in the key, so saved variants
+    # regenerate independently of these temporary obstacle contexts.
+    if any(f.route_net and f.route_net!=net.id for f in design.features):
+        from .cavity_access import axial_connector_candidates
+        known={option['key'] for option in options}
+        for key,route in axial_connector_candidates(source,net,definitions,thread_definitions,modifier_definitions,design,snapshot.obstructions):
+            if key in known:continue
+            options.append(dict(key=key,route=route,risk=proximity_risk(source,net,route,definitions,thread_definitions,snapshot.obstructions),cost=route_cost(source,route)))
     # Keep an explicitly failing proposal if the constraint makes every candidate impossible.
     # The validator reports the conflict; never remove a required connection to hide it.
     def source_clear(option):
         option['hard_failures']=len(route_obstructions(source,net,option['route'],thread_definitions,definitions,modifier_definitions,snapshot.obstructions))
         return not option['hard_failures']
+    fixed_failures={}
+    for option in options:
+        if _strategy_family(option['key'])!='axial-detour':continue
+        bores=[f for f in option['route'] if '-AX' in f.id]
+        token=tuple(f.model_dump_json(exclude={'connects_to'}) for f in bores)
+        if token not in fixed_failures:
+            fixed_failures[token]=len(route_obstructions(design,net,bores,thread_definitions,definitions,modifier_definitions,snapshot.obstructions))
+        # No connector layout can repair an obstruction of this immutable bore.
+        # Retain the failure for diagnostics, without spending pruning work on
+        # an impossible local strategy or changing any protection threshold.
+        option['fixed_failures']=fixed_failures[token]
     if not seed:
-        for option in options:source_clear(option)
+        for option in options:
+            if option.get('fixed_failures'):option['hard_failures']=option['fixed_failures']
+            else:source_clear(option)
     else:
         # A valid local seed permits lazy source screening in the SAME family /
         # Pareto queues. Invalid raw variants do not consume a family's quota.
         # Every shortlisted candidate is still fully screened before pruning.
-        for option in options:option['hard_failures']=0
+        for option in options:option['hard_failures']=option.get('fixed_failures',0)
     rank=lambda o:(o['hard_failures'],route_objective(design,o['route'],o['risk'],definitions),o['key'])
     permitted=[o for o in options if all(f.face not in design.constraints.forbidden_drilling_faces for f in o['route'])]
     options=sorted(permitted or options,key=rank)

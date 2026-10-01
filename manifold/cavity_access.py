@@ -137,7 +137,10 @@ def axial_route(design, net, definitions, variant, candidates=None, threads=None
     """Regenerate a stable terminal strategy, including its true opposite-face access."""
     from .routing import propose, terminal_points, segment_depth, add_construction_access
     import hashlib
-    strategy,order,entry = variant.split(':')
+    parts=variant.split(':')
+    if len(parts) not in (3,4):return None
+    strategy,order,entry=parts[:3]
+    changes=parts[3].split('+') if len(parts)==4 else []
     _,mask,level = strategy.split('_')
     mask,level = int(mask),int(level)
     members = sorted(net.members)
@@ -149,6 +152,7 @@ def axial_route(design, net, definitions, variant, candidates=None, threads=None
         return None
     points = terminal_points(design,definitions)
     overrides = {}
+    connector_bends={}
     for member in selected:
         bore = candidates[member]
         origin,direction = pose(bore,design.block)
@@ -165,8 +169,25 @@ def axial_route(design, net, definitions, variant, candidates=None, threads=None
             desired = min((sum((p[i]-origin[i])*direction[i] for i in range(3)) for p in others),
                           key=lambda depth:abs(depth-end))
         depth = min(end,max(start,desired))
+        bends=[]
+        for change in changes:
+            tokens=change.split('_');owner=tokens[0]
+            if int(owner[1:])!=members.index(member):continue
+            coordinate=float(tokens[-1])
+            if owner.startswith('j'):
+                axis=FACE_AXES[bore.face][2]
+                depth=(coordinate-origin[axis])*direction[axis]
+                if not start<=depth<=end:return None
+            elif owner.startswith('c') and len(tokens)==3:
+                axis='xyz'.index(tokens[1]);bends.append((axis,coordinate))
+                if axis==FACE_AXES[bore.face][2] and not start<=(coordinate-origin[axis])*direction[axis]<=end:return None
+            else:return None
         overrides[member] = tuple(origin[i]+direction[i]*depth for i in range(3))
-    route = propose(design,net,tuple('xyz'.index(a) for a in order),entry,definitions=definitions,terminal_overrides=overrides)
+        if bends:connector_bends[overrides[member]]=(tuple(bends),FACE_AXES[bore.face][2])
+    if any(int(change.split('_')[0][1:]) not in [members.index(member) for member in selected] for change in changes):return None
+    route = propose(design,net,tuple('xyz'.index(a) for a in order),entry,definitions=definitions,
+                    terminal_overrides=overrides,connector_bends=connector_bends or None)
+    if route is None:return None
     # Those accesses refer to the final trunk, which changes when its axial
     # connector becomes an opposite-face first-contact hole. Reapply them below.
     access_ids = {access.id for access in net.construction_access}
@@ -194,7 +215,7 @@ def axial_route(design, net, definitions, variant, candidates=None, threads=None
     return add_construction_access(design,net,route)
 
 
-def axial_route_candidates(design, net, definitions, threads=None, modifiers=None):
+def _direct_axial_candidates(design, net, definitions, threads=None, modifiers=None):
     candidates = cavity_terminal_candidates(design,net,definitions,threads,modifiers)
     members = sorted(net.members)
     masks = {1 << members.index(member) for member in candidates}
@@ -206,3 +227,153 @@ def axial_route_candidates(design, net, definitions, threads=None, modifiers=Non
         route = axial_route(design,net,definitions,key,candidates,threads,modifiers)
         if route is not None:
             yield key,route
+
+
+def _axial_direct_catalog(design, net, definitions, threads, modifiers, cache):
+    from .routing import route_objective
+    automatic={n.id for n in design.nets if n.routing=='automatic'}
+    source=design.model_copy(update=dict(features=[f for f in design.features if f.route_net not in automatic]))
+    token=(dimensions(source.block),net.model_dump_json(exclude={'routing_variant'}),tuple(net.members),
+           tuple(f.model_dump_json(exclude={'connects_to'}) for f in source.features))
+    catalogs=cache.setdefault('axial_direct_catalogs',{})
+    if token not in catalogs:
+        rows=list(_direct_axial_candidates(source,net,definitions,threads,modifiers))
+        clear=[];seen=set()
+        for key,route in rows:
+            signature=tuple(sorted((f.face,f.u,f.v,f.depth,f.diameter,f.plugged,f.tip_angle) for f in route))
+            if signature in seen:continue
+            seen.add(signature)
+            # Eligibility has already certified the fixed cavity approach. A
+            # blocked direct connector is precisely the anchor we must detour.
+            clear.append((key,route))
+        clear.sort(key=lambda row:(route_objective(source,row[1],definitions=definitions),row[0]))
+        catalogs[token]=(rows,clear[:2])
+    return source,catalogs[token]
+
+
+def _axial_obstacle_context(source, context, net, definitions, threads, modifiers, cache):
+    """Use retained routes when present; otherwise explore real peer axial proposals.
+
+    Peer proposals are hypothetical obstacles for global candidate generation,
+    never compatibility facts or selected engineering geometry. Explicit plane
+    coordinates in the new variant make regeneration independent of that context.
+    """
+    context=context.model_copy(update=dict(features=[f for f in context.features if f.route_net!=net.id]))
+    present={f.route_net for f in context.features if f.route_net}
+    for other in source.nets:
+        if (other.id==net.id or other.routing!='automatic' or other.id in present
+                or any(f.frozen_net==other.id for f in context.features)):continue
+        _,(_,anchors)=_axial_direct_catalog(source,other,definitions,threads,modifiers,cache)
+        if anchors:context.features.extend(anchors[0][1])
+    return context
+
+
+def _connector_planes(context, net, route, definitions, threads, modifiers, failures, order):
+    from .routing import _manufacturing_cuts,cylinder_bounds,segment_depth,segment,segment_distance
+    by_id={f.id:f for f in context.features}
+    connectors={f.id:f for f in route if '-AX' not in f.id}
+    bores={int(f.id.split('-AX')[-1]):f for f in route if '-AX' in f.id}
+    approaches={}
+    for member,bore in bores.items():
+        axial=FACE_AXES[bore.face][2]
+        touching={FACE_AXES[f.face][2] for f in connectors.values() if FACE_AXES[f.face][2]!=axial
+                  and segment_distance(*segment(f,context.block),*segment(bore,context.block,end=bore.depth))<(f.diameter+bore.diameter)/2}
+        approaches[member]=next(("xyz".index(axis) for axis in reversed(order) if "xyz".index(axis) in touching),None)
+    sizes=dimensions(context.block)
+    # Orthogonal branches extend their cylinder by one radius past the logical
+    # junction, followed by the real drill tip. Reserve that tip when deriving
+    # a boundary plane; a centerline-only offset would still leave thin walls.
+    tip=net.diameter/2/math.tan(math.radians(118/2))
+    margin=net.diameter/2+context.rules.minimum_wall+tip+.1
+    rows=set()
+    for failure in sorted(failures):
+        for key in failure[1:]:
+            if key not in connectors:continue
+            connector=connectors[key]
+            others=[by_id[item] for item in failure[1:] if item in by_id]
+            bounds=cylinder_bounds(connector,context.block,0,segment_depth(connector),connector.diameter)
+            for other in others:
+                pieces=list(_manufacturing_cuts(other,definitions,threads,modifiers))
+                regions=[cylinder_bounds(c['feature'],context.block,c['start'],c['end'],2*max(c['radius_start'],c['radius_end'])) for c in pieces]
+                if failure[0]=='installation_access':
+                    definition=definitions[other.definition] if other.definition else None
+                    diameter=definition.clearance_diameter if other.kind=='cavity' and definition else other.clearance_diameter
+                    height=definition.clearance_height if other.kind=='cavity' and definition else other.clearance_height
+                    regions.append(cylinder_bounds(other,context.block,-height,0,diameter))
+                regions=[region for region in regions if not any(a[1]+margin<b[0] or b[1]+margin<a[0] for a,b in zip(bounds,region))]
+                for region in regions:
+                    for member,bore in bores.items():
+                        for axis in range(3):
+                            if axis in (FACE_AXES[connector.face][2],approaches[member]):continue
+                            center=pose(connector,context.block)[0][axis]
+                            for coordinate in (region[axis][0]-margin,region[axis][1]+margin):
+                                # An internal cylinder/tip or stage boundary is
+                                # not a safe plane inside another relevant cut.
+                                if any(r[axis][0]-margin+1e-6<coordinate<r[axis][1]+margin-1e-6 for r in regions):continue
+                                if margin<=coordinate<=sizes[axis]-margin:
+                                    if axis==FACE_AXES[bore.face][2]:
+                                        p,d=pose(bore,context.block)
+                                        depth=(coordinate-p[axis])*d[axis]
+                                        first=(bore.plug_length if bore.plugged else 0)+margin-.1
+                                        last=bore.depth-margin+.1
+                                        if not first<=depth<=last:continue
+                                    rows.add((round(abs(coordinate-center),6),member,axis,round(coordinate,6)))
+    return sorted(rows)
+
+
+def axial_connector_candidates(design, net, definitions, threads=None, modifiers=None, context=None, cache=None):
+    """At most twelve conflict-derived local connector/junction alternatives."""
+    from .routing import route_obstructions
+    threads,modifiers=threads or {},modifiers or {}
+    cache=cache if cache is not None else {}
+    source,(_,anchors)=_axial_direct_catalog(design,net,definitions,threads,modifiers,cache)
+    if not anchors:return
+    context=_axial_obstacle_context(source,context or design,net,definitions,threads,modifiers,cache)
+    context_token=(net.id,tuple(f.model_dump_json(exclude={'connects_to'}) for f in context.features),
+                   tuple(key for key,_ in anchors))
+    plans=cache.setdefault('axial_connector_plans',{})
+    if context_token in plans:
+        yield from plans[context_token];return
+    result=[];seen=set()
+    for key,direct in anchors:
+        failures=route_obstructions(context,net,direct,threads,definitions,modifiers,cache)
+        if not failures:continue
+        planes=_connector_planes(context,net,direct,definitions,threads,modifiers,failures,key.split(':')[1])
+        # The nearest safe boundary on each perpendicular axis, plus one opposite
+        # side. No plane Cartesian product and no arbitrary depth sampling.
+        selected=[];axes=set()
+        for row in planes:
+            if row[2] not in axes:selected.append(row);axes.add(row[2])
+            if len(selected)==2:break
+        for row in planes:
+            if row not in selected and row[2] in axes:selected.append(row);break
+        suffixes=[]
+        for _,member,axis,coordinate in selected:
+            token=f'{coordinate:.6f}'.rstrip('0').rstrip('.')
+            suffixes.append(f'c{member}_{"xyz"[axis]}_{token}')
+            bore=next(f for f in direct if f.id.endswith(f'-AX{member}'))
+            if axis==FACE_AXES[bore.face][2]:suffixes.append(f'j{member}_{token}')
+        if len(selected)>=2 and selected[0][1]==selected[1][1]:
+            tokens=[f'c{m}_{"xyz"[axis]}_{coord:.6f}'.rstrip('0').rstrip('.') for _,m,axis,coord in selected[:2]]
+            suffixes.append('+'.join(tokens))
+        for suffix in suffixes:
+            parts=key.split(':')
+            entries=[parts[2]]
+            if parts[2]=='nearest':entries.append('positive')
+            for entry in entries:
+                variant=':'.join(parts[:2]+[entry,suffix])
+                if variant in seen or len(variant)>80:continue
+                seen.add(variant)
+                route=axial_route(source,net,definitions,variant,threads=threads,modifiers=modifiers)
+                if route is not None:
+                    result.append((variant,route))
+                    if len(result)==12:break
+            if len(result)==12:break
+        if len(result)==12:break
+    plans[context_token]=result
+    yield from result
+
+
+def axial_route_candidates(design, net, definitions, threads=None, modifiers=None, context=None, cache=None):
+    yield from _direct_axial_candidates(design,net,definitions,threads,modifiers)
+    yield from axial_connector_candidates(design,net,definitions,threads,modifiers,context,cache)
