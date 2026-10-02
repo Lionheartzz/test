@@ -145,6 +145,12 @@ def check_design(design: Design):
     return design.model_dump()
 
 
+@app.post('/api/engineering/conditions')
+def effective_project_conditions(design:Design):
+    from .engineering_conditions import project_engineering_context
+    return project_engineering_context(design)
+
+
 @app.get('/api/project-schema')
 def project_schema():
     return Design.model_json_schema()

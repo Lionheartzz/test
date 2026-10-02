@@ -1,3 +1,4 @@
+from .engineering_conditions import effective_net,required_wall,planning_wall
 """Analytic deep-side terminal proposals; ordinary cut screens and OCCT remain authoritative."""
 import itertools
 import math
@@ -65,6 +66,7 @@ def _contact(cuts, source, zone, tip_start, shoulder, radius):
 
 
 def cavity_terminal_candidates(design, net, definitions, threads=None, modifiers=None):
+    net=effective_net(design,net)
     """Optional coaxial construction holes, keyed by their assigned hydraulic member.
 
     Only a source machining corridor reaching this window qualifies. In particular,
@@ -122,11 +124,11 @@ def cavity_terminal_candidates(design, net, definitions, threads=None, modifiers
             probe = Feature(id='AXIAL-PROBE',kind='drilling',face=opposite,u=source.u,v=source.v,
                             diameter=net.diameter,depth=depth,circuit=net.id,route_net=net.id,
                             plugged=not coaxial,clearance_diameter=max(16,net.diameter+8),clearance_height=15)
-            if route_margin(design,[probe])['estimated_min_wall_mm'] < design.rules.minimum_wall:
+            if route_margin(design,[probe])['estimated_min_wall_mm'] < required_wall(design,probe,definitions=definitions):
                 continue
             probe_cuts = list(_manufacturing_cuts(probe,definitions,threads or {},modifiers or {}))
             assigned_only = net.model_copy(update=dict(members=[member]))
-            if any(_cuts_too_close(probe_cuts,protected,design.block,0 if own else design.rules.minimum_wall)
+            if any(_cuts_too_close(probe_cuts,protected,design.block,0 if own else required_wall(design,probe,source,definitions=definitions))
                    for protected,own in _protected_source_cuts(source,assigned_only,definitions,threads or {},modifiers or {})):
                 continue
             candidates[member] = probe
@@ -159,8 +161,8 @@ def axial_route(design, net, definitions, variant, candidates=None, threads=None
         # Junctions stay inside the bore's full cylinder, clear of the source
         # body and plug. One basic plane follows other terminals; the other is
         # the closest conservative transverse junction on the deep side.
-        end = bore.depth-net.diameter/2-design.rules.minimum_wall
-        start = (bore.plug_length if bore.plugged else 0)+net.diameter/2+design.rules.minimum_wall
+        end = bore.depth-net.diameter/2-planning_wall(design,net,definitions)
+        start = (bore.plug_length if bore.plugged else 0)+net.diameter/2+planning_wall(design,net,definitions)
         if end < start:
             return None
         desired = end
@@ -284,7 +286,7 @@ def _connector_planes(context, net, route, definitions, threads, modifiers, fail
     # junction, followed by the real drill tip. Reserve that tip when deriving
     # a boundary plane; a centerline-only offset would still leave thin walls.
     tip=net.diameter/2/math.tan(math.radians(118/2))
-    margin=net.diameter/2+context.rules.minimum_wall+tip+.1
+    margin=net.diameter/2+planning_wall(context,net,definitions)+tip+.1
     rows=set()
     for failure in sorted(failures):
         for key in failure[1:]:

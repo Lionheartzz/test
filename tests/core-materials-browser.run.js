@@ -53,7 +53,7 @@ async page => {
     assert(JSON.stringify(groups)===JSON.stringify([{label:'Aluminum Alloy',count:5},{label:'Carbon Steel',count:1},{label:'Stainless Steel',count:4},{label:'Ductile Iron',count:2}]),'Material family grouping mismatch');
     await selector.selectOption(ductile.id);
     assert(!/Material engineering data|Conditional.reference observations|View technical evidence|Supplier stock references|Treatment references|Source-backed/.test(await page.locator('#inspector').innerText()),'Research leaked into Model');
-    assert(await page.getByLabel('Allowable material stress / MPa',{exact:true}).inputValue()==='','Strength became allowable stress');
+    assert(await page.getByLabel('Allowable material stress / MPa',{exact:true}).count()===0,'Legacy stress remains in normal Model');
     assert(await page.getByLabel('Raw stock / standard blank',{exact:true}).locator('option').count()===1,'Supplier stock entered engineering stock');
     await screenshot('ductile-core-material');
     await page.getByRole('button',{name:'Save Project',exact:true}).click();

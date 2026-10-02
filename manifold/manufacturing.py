@@ -1,3 +1,4 @@
+from .engineering_conditions import effective_net
 """Inspection-only machining schedules from the exact resolved build."""
 import csv
 import json
@@ -72,7 +73,8 @@ def manufacturing_outputs(design, g, folder, definitions=None):
                               characteristic_opening_mm2=round(area,5),equivalent_diameter_mm=round(equivalent_diameter(area),5),
                               method='Minimum axial common sections at overlap centroid; geometric screen, not minimum-throat certification'))
     flows=[]
-    for n in design.nets:
+    for raw in design.nets:
+        n=effective_net(design,raw)
         if n.flow_lpm:
             diameters=[f.diameter for f in design.features if f.kind=='drilling' and f.circuit==n.id and not f.suppressed]
             diameter=min(diameters,default=n.diameter)

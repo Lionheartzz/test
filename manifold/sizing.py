@@ -2,7 +2,13 @@
 import math
 
 
-def route_sizing(net, standard_drills=(), *, tools=None, required_depth=0, preferred_unit=''):
+def route_sizing(net, standard_drills=(), *, tools=None, required_depth=0, preferred_unit='', design=None):
+    from .engineering_conditions import effective_net
+    if design is None:
+        from .schema import ProjectEngineeringDefaults
+        from types import SimpleNamespace
+        design=SimpleNamespace(project_defaults=ProjectEngineeringDefaults())
+    net=effective_net(design,net)
     area=net.flow_lpm*1000/60/net.velocity_limit if net.flow_lpm else None
     required=math.sqrt(4*area/math.pi) if area is not None else None
     result=dict(mode=net.diameter_mode,required_area_mm2=area,required_diameter_mm=required,

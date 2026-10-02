@@ -50,6 +50,8 @@ Validation Results 的可定位行会选中主对象、标出相关对象并框�
 
 可执行切削支持圆柱、锥面、显式环槽及旋转后的 footprint 偏移。无法无歧义执行的记录在数据库中标为不可用并说明原因；不猜测缺失尺寸或创建假 geometry variant。演示孔腔仍是演示尺寸。
 
+Studio 的 **Project → Project Settings** 管理项目名称、单位偏好、包络、液压默认值、安全系数、可选壁厚 floor、可选 routing margin 和路由目标。Net 的空白压力、流量、速度和 drilling mode 继承项目默认；覆盖值保持独立。材料切换只更新材料与 stock，自动壁厚使用适用的已解析 yield/proof 数据，缺失强度时不猜测。Metric/Imperial 是偏好，标准可以混用，CAD 始终使用 mm。新项目采用 JSON schema 3；schema 2（含旧的省略版本格式）通过纯、确定性的版本适配保留原来的具体默认值，只在显式保存/构建时写入新格式。SQLite 不变。字段、计算与验收见 [Project engineering defaults](PROJECT_ENGINEERING_DEFAULTS_REPORT.md)。
+
 ## AI Design · 原理图生成可编辑三维草稿
 
 从 **AI Design → Provider settings** 自行填写 API 地址、多模态模型名和密钥，没有预设厂商或模型。上传 PDF / PNG / JPEG，输入工程要求，选择配置的模型并点击 **Analyze & create manifold draft**。确认未解决的孔腔选择和液压窗口映射后，系统使用已有库几何、自动布置/布线和精确校验生成草稿；通过 **Open draft in Manifold Studio** 进入普通项目编辑、保存和校验。

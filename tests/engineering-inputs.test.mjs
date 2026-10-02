@@ -59,26 +59,26 @@ test('priority invalidates only automatic choices and keeps frozen/manual data',
   assert.deepEqual(d.features,fixed);
 });
 
-test('source material applies policy once without guessing stress or retaining stock',()=>{
+test('material selection preserves project criteria and legacy stress while clearing stock',()=>{
   const d=design();d.block.stock_id='old';selectEngineeringMaterial(d,{id:'material_1',display_name:'Aluminum'});
   assert.equal(d.block.material_id,'material_1');assert.equal(d.block.material,'Aluminum');
-  assert.equal(d.block.stock_id,null);assert.equal(d.rules.allowable_stress_mpa,null);
-  assert.equal(d.rules.pressure_safety_factor,2);assert.equal(d.rules.minimum_wall,7);
-  assert.equal(d.constraints.preferred_wall_margin,4);
+  assert.equal(d.block.stock_id,null);assert.equal(d.rules.allowable_stress_mpa,80);
+  assert.equal(d.rules.pressure_safety_factor,3);assert.equal(d.rules.minimum_wall,9);
+  assert.equal(d.constraints.preferred_wall_margin,5);
   d.rules.minimum_wall=8;validStockSizes(d,{id:'material_1',stock:[]});assert.equal(d.rules.minimum_wall,8);
 });
 
-test('REV2 allowable default uses only resolved semantics and preserves same-material overrides',()=>{
+test('material selection preserves explicit stress and project criteria across identities',()=>{
   const d=design(),material={id:'material_rev2_6061',display_name:'6061 · T6',engineering_facts_summary:{facts:{
     yield_strength:{status:'SOURCE_BACKED',value:276},allowable_stress_mpa:{status:'NOT_AVAILABLE',value:null}}}};
-  selectEngineeringMaterial(d,material);assert.equal(d.rules.allowable_stress_mpa,null);
+  selectEngineeringMaterial(d,material);assert.equal(d.rules.allowable_stress_mpa,80);
   Object.assign(d.rules,{allowable_stress_mpa:123,pressure_safety_factor:3,minimum_wall:9});d.constraints.preferred_wall_margin=6;
   d.block.stock_id='approved';selectEngineeringMaterial(d,material);
   assert.equal(d.rules.allowable_stress_mpa,123);assert.equal(d.rules.pressure_safety_factor,3);
   assert.equal(d.rules.minimum_wall,9);assert.equal(d.constraints.preferred_wall_margin,6);assert.equal(d.block.stock_id,'approved');
   selectEngineeringMaterial(d,{id:'material_other',display_name:'Other',engineering_facts_summary:{facts:{allowable_stress_mpa:{status:'SOURCE_BACKED',value:150}}}});
-  assert.equal(d.rules.allowable_stress_mpa,150);assert.equal(d.block.stock_id,null);
-  assert.equal(d.rules.pressure_safety_factor,2);assert.equal(d.rules.minimum_wall,7);assert.equal(d.constraints.preferred_wall_margin,4);
+  assert.equal(d.rules.allowable_stress_mpa,123);assert.equal(d.block.stock_id,null);
+  assert.equal(d.rules.pressure_safety_factor,3);assert.equal(d.rules.minimum_wall,9);assert.equal(d.constraints.preferred_wall_margin,6);
 });
 
 test('raw stock is source filtered, optional, and independent of finished dimensions',()=>{

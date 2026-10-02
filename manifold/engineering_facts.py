@@ -359,7 +359,8 @@ def engineering_review(design):
     for start in range(0, len(identifiers), 50):
         facts.update(facts_batch('cartridge', identifiers[start:start+50]))
     checks = []
-    nets = {net.id:net for net in design.nets}
+    from .engineering_conditions import effective_net
+    nets = {net.id:effective_net(design,net) for net in design.nets}
     for subject, (cid, assignments) in selected.items():
         for nid in sorted(set(assignments.values())):
             if nid not in nets:

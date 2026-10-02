@@ -10,13 +10,8 @@ import {hydrateDesign} from './domain.js';
 import {displayMemberName,displayNetName} from './presentation.js';
 import {uuidToken} from './crypto-utils.js';
 import {customPortDescription} from './engineering-inputs.js';
+import {projectSettings} from './project-settings.js';
 
-function flowSizing(net,tools,requiredDepth,unit){
-  if(!net.flow_lpm)return {required:null,selected:null};
-  const area=net.flow_lpm*1000/60/(net.velocity_limit||6),required=Math.sqrt(4*area/Math.PI);
-  const selected=[...(tools||[])].filter(row=>row.max_depth_mm>=requiredDepth&&Math.PI*row.diameter_mm*row.diameter_mm/4+1e-9>=area).sort((a,b)=>a.diameter_mm-b.diameter_mm||(a.unit_system===unit?-1:1)-(b.unit_system===unit?-1:1)||a.max_depth_mm-b.max_depth_mm||a.id.localeCompare(b.id))[0];
-  return {required,selected:selected?.diameter_mm||null,tool:selected||null};
-}
 
 const schematicInterfacePattern=/^[A-Za-z][A-Za-z0-9_-]{0,39}$/;
 
@@ -125,22 +120,22 @@ export function workflows(ctx){
     action(content,'Optimize routes with exact checks',guard(async()=>{if(!state().project_id)throw Error('Save Project before running exact route optimization.');const baseline=JSON.stringify(get());const r=await post('/api/optimize-routes',{design:get(),project_id:state().project_id,expected_revision:state().revision,max_attempts:6});if(JSON.stringify(get())!==baseline)throw Error('Draft changed during optimization.');change(()=>set(hydrateDesign(r.design,definitions(),Object.fromEntries((get().threads||[]).map(row=>[row.id,row])))));nets();content.prepend(element('p',`${r.attempts.length} exact candidates · FAIL ${r.baseline.FAIL} → ${r.final.FAIL}. Validate to commit.`));}));
     const advanced=element('details');advanced.append(element('summary','Advanced'));content.append(advanced);action(advanced,'Reset all routes to automatic',()=>{if(!confirm('This will remove manual/frozen routing geometry and return all hydraulic nets to automatic routing. Continue?'))return;change(()=>{for(const net of get().nets)returnNetToAutomatic(get(),net.id);});nets();});
     const newNet=element('div',null,'action-row'),name=element('input');name.setAttribute('aria-label','New net ID');name.placeholder='NET_P';newNet.append(name);action(newNet,'Add net',()=>{if(!/^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(name.value)||get().nets.some(n=>n.id===name.value)){$('workflow-error').textContent='Use a unique engineering ID';return;}change(()=>get().nets.push({id:name.value,label:name.value,routing:'automatic',diameter:8}));nets();});content.append(newNet);
+    const owner=get(),signature=JSON.stringify(owner),effectiveRequest=post('/api/engineering/conditions',owner);
     for(const n of get().nets){const card=element('section',null,'library-card'),members=netMembers(get(),n.id);content.append(card);card.append(element('h3',n.label||n.id),element('p',members.map(member=>displayMemberName(get(),member)).join(' ↔ ')||'No interfaces assigned'));const edit=(label,value,fn,o=null,num=false)=>field(card,label,value,v=>{if(change(()=>fn(v)))nets();},o,num);
       edit('Net label · '+n.id,n.label||n.id,v=>n.label=v);
       const colorWrap=element('label','Display color · '+n.id,'field'),color=element('input');color.type='color';color.setAttribute('aria-label','Display color · '+n.id);color.value=n.color||'#b08bea';color.onchange=()=>{if(change(()=>n.color=color.value))nets();};colorWrap.append(color);card.append(colorWrap);
       edit('Diameter sizing · '+n.id,n.diameter_mode||'automatic',v=>{n.diameter_mode=v;n.routing_variant=null;},{automatic:'Automatic from flow',manual:'Engineer override'});
-      const sizing=flowSizing(n,routingTools,0,get().project_context);
-      if(n.diameter_mode==='automatic'){
-        card.append(element('p',sizing.required==null?'Enter flow to calculate the required passage diameter.':`Calculated minimum: ${sizing.required.toFixed(2)} mm · ${sizing.selected?`Selected standard drill: Ø${sizing.selected.toFixed(2)} mm`:'No available standard drill is large enough.'}`,'property-note'));
-        const effective=field(card,'Effective drill diameter · '+n.id,sizing.selected==null?'Unresolved':sizing.selected.toFixed(2),()=>{});effective.disabled=true;
-      }else edit('Engineer override drill diameter · '+n.id,n.diameter,v=>{n.diameter=v;n.routing_variant=null;},null,true);
-      edit('Velocity limit m/s · '+n.id,n.velocity_limit||6,v=>{n.velocity_limit=v;n.routing_variant=null;},null,true);edit('Drilling mode · '+n.id,n.drilling_mode||'orthogonal',v=>{n.drilling_mode=v;n.routing_variant=null;},{orthogonal:'Orthogonal only','allow-angled':'Allow angled proposals',simplest:'Prefer simplest manufacturable proposal'});edit('First routing axis · '+n.id,n.preferred_axis||'auto',v=>{n.preferred_axis=v;n.routing_variant=null;},{auto:'Compare all axes',x:'X',y:'Y',z:'Z'});edit('Entry preference · '+n.id,n.entry_preference||'nearest',v=>{n.entry_preference=v;n.routing_variant=null;},{nearest:'Nearest / reuse port',negative:'Negative face',positive:'Positive face'});edit('Flow L/min · '+n.id,n.flow_lpm,v=>{n.flow_lpm=v||null;n.routing_variant=null;},null,'optional');edit('Pressure bar · '+n.id,n.pressure_bar,v=>n.pressure_bar=v||null,null,'optional');
+      let sizingNote,drillInput;const effectiveNote=element('p','Loading effective net conditions…','property-note');card.append(effectiveNote);
+      effectiveRequest.then(result=>{if(get()!==owner||JSON.stringify(owner)!==signature||!effectiveNote.isConnected)return;const row=result.nets.find(row=>row.id===n.id),e=row.effective;const sizing=row.sizing;if(drillInput){drillInput.value=sizing.diameter_mm?.toFixed(2)||'Unresolved';sizingNote.textContent=sizing.required_diameter_mm?'Calculated hydraulic minimum: Ø'+sizing.required_diameter_mm.toFixed(2)+' mm; selected drill Ø'+sizing.diameter_mm?.toFixed(2)+' mm':sizing.reason||'Flow unspecified; no hydraulic minimum inferred.';}const source=s=>s==='net'?'Net override':s==='project'?'Project default':'Unspecified';effectiveNote.textContent=['pressure_bar','flow_lpm','velocity_limit','drilling_mode'].map((k,i)=>'Effective '+['pressure','flow','velocity limit','drilling mode'][i]+': '+(e[k]??'Unspecified')+' '+['bar','L/min','m/s',''][i]+' — '+source(e[['pressure_source','flow_source','velocity_source','drilling_mode_source'][i]])).join('\n')+'\nProject defaults: '+(result.project_defaults.pressure_bar??'Unspecified')+' bar / '+(result.project_defaults.flow_lpm??'Unspecified')+' L/min; '+result.project_defaults.velocity_limit+' m/s; '+result.project_defaults.drilling_mode;}).catch(error=>{if(effectiveNote.isConnected)effectiveNote.textContent=error.message;});
+      if(n.diameter_mode==='automatic'){sizingNote=element('p','Calculating hydraulic sizing…','property-note');card.append(sizingNote);drillInput=field(card,'Effective drill diameter · '+n.id,'Unresolved',()=>{});drillInput.disabled=true;}else edit('Engineer override drill diameter · '+n.id,n.diameter,v=>{n.diameter=v;n.routing_variant=null;},null,true);
+      edit('Velocity limit override / m/s · '+n.id,n.velocity_limit??'',v=>{n.velocity_limit=v;n.routing_variant=null;},null,'optional');edit('Drilling mode override · '+n.id,n.drilling_mode||'',v=>{n.drilling_mode=v||null;n.routing_variant=null;},{'':'Use project default',orthogonal:'Orthogonal only','allow-angled':'Allow angled proposals',simplest:'Prefer simplest manufacturable proposal'});edit('First routing axis · '+n.id,n.preferred_axis||'auto',v=>{n.preferred_axis=v;n.routing_variant=null;},{auto:'Compare all axes',x:'X',y:'Y',z:'Z'});edit('Entry preference · '+n.id,n.entry_preference||'nearest',v=>{n.entry_preference=v;n.routing_variant=null;},{nearest:'Nearest / reuse port',negative:'Negative face',positive:'Positive face'});edit('Flow override / L/min · '+n.id,n.flow_lpm,v=>{n.flow_lpm=v||null;n.routing_variant=null;},null,'optional');edit('Pressure override / bar · '+n.id,n.pressure_bar,v=>n.pressure_bar=v||null,null,'optional');
       if(n.routing==='automatic')action(card,'Refine / Freeze '+displayNetName(get(),n.id)+' for manual editing',guard(async()=>{if(await adoptRoute(n.id))nets();else throw Error($('notice').textContent);}));
       else action(card,'Return '+displayNetName(get(),n.id)+' to automatic routing',()=>{change(()=>returnNetToAutomatic(get(),n.id));nets();});
     }
     const route=resolved();if(route){const details=element('details');details.append(element('summary','Inspect generated drilling coordinates'));for(const f of route.features.filter(f=>f.route_net)){const row=element('div',null,'port-row');row.append(element('p',`${featureLabel(f,route)} · ${displayNetName(route,f.route_net)} · ${f.face} U${f.u.toFixed(2)} V${f.v.toFixed(2)} · Ø${f.diameter} × ${f.depth.toFixed(2)}`));action(row,'Refine / Edit in 3D',guard(async()=>{if(await adoptRoute(f.route_net,f.id))dialog.close();else throw Error($('notice').textContent);}));details.append(row);}content.append(details);}
   }
   $('nets-open').onclick=nets;
+  $('project-settings').onclick=projectSettings(ctx,{open});
 
   function schematic(){
     open('Schematic Intent');const d=get(),intent=d.schematic_intent;
@@ -179,7 +174,7 @@ export function workflows(ctx){
       const input=field(content,'Search cavity',query,value=>query=value),results=element('div');content.append(results);
       const current=()=>get()===owner&&owner.features.includes(feature)&&dialog.open&&results.isConnected;
       const search=async()=>{const token=++request;results.replaceChildren(element('p','Searching usable cavities…','loading-state'));
-        try{const response=await api('/api/catalog?'+new URLSearchParams({kind:'cavity',unit:owner.project_context||'metric',status:'usable',q:query,limit:30}));
+        try{const response=await api('/api/catalog?'+new URLSearchParams({kind:'cavity',status:'usable',q:query,limit:30}));
           if(token!==request||!current())return;results.replaceChildren();let count=0;
           for(const row of response.items||[]){if(!row.usable||!row.active)continue;count++;const card=element('section',null,'library-card');results.append(card);
             card.append(element('h3',row.name),element('p',`${row.unit_system.toUpperCase()} · ${row.manufacturer||'Manufacturer unspecified'} · ${row.family||'Family unspecified'} · ${row.id}`));

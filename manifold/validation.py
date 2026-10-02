@@ -1,3 +1,4 @@
+from .engineering_conditions import effective_net,material_strength,required_wall
 from .timing import timed,phase
 """Deterministic BRep checks. No mesh or colour is used for validation."""
 from itertools import combinations
@@ -16,9 +17,9 @@ def validate(design, g, definitions=None):
     threads=thread_definitions_for_design(design);policy=manufacturing_policy()
     checks = []
     threshold = design.rules.minimum_overlap_volume
-    wall = design.rules.minimum_wall
+    wall = design.rules.minimum_wall or 0
     by_id = {f.id: f for f in design.features}
-    by_net = {net.id:net for net in design.nets}
+    by_net = {net.id:effective_net(design,net) for net in design.nets}
     automatic_nets = {net.id for net in design.nets if net.routing == 'automatic'}
     route_geometry_rules = {
         'circuit_intersection', 'declared_connection', 'connection_opening_area',
@@ -45,19 +46,6 @@ def validate(design, g, definitions=None):
 
     def port_diameter(feature):
         return definitions[feature.port_definition_id].zones[0].diameter if feature.port_definition_id else feature.diameter
-    def pressure_ligament(feature):
-        nets={feature.route_net,feature.frozen_net,feature.circuit,*feature.circuits.values()}-{None}
-        pressure=max((by_net[n].pressure_bar or 0 for n in nets if n in by_net),default=0)/10 # bar -> MPa
-        if not pressure or design.rules.allowable_stress_mpa is None:return 0
-        allowable=design.rules.allowable_stress_mpa/design.rules.pressure_safety_factor
-        if allowable<=pressure:return wall
-        if feature.kind=='cavity' and feature.definition:
-            active=[z.diameter for z in definitions[feature.definition].zones if feature.circuits.get(z.id) in nets]
-            diameter=max(active,default=max((z.diameter for z in definitions[feature.definition].zones),default=0))
-        elif feature.definition:diameter=max((z.diameter for z in definitions[feature.definition].zones),default=port_diameter(feature))
-        else:diameter=feature.diameter or 0
-        radius=diameter/2
-        return radius*(math.sqrt((allowable+pressure)/(allowable-pressure))-1)
     graph = {k: set() for k in g.nodes}
     overlaps = {}
 
@@ -66,15 +54,16 @@ def validate(design, g, definitions=None):
                            required=required, status='PASS' if passed else severity, message=message, unit=unit,
                            repair_domain='routing' if not passed and routing_repairable(rule,items) else None))
 
-    for net in design.nets:
+    strength=material_strength(design)
+    for net in by_net.values():
         if not net.pressure_bar:continue
-        if design.rules.allowable_stress_mpa is None:
-            result('pressure_strength',[net.id],f'{net.pressure_bar:g} bar; allowable material stress missing','Declared allowable stress and safety factor',False,
-                   'Design pressure cannot be checked until an allowable material stress is declared. Material grade is never inferred.')
+        if strength["design_strength_mpa"] is None:
+            result('pressure_strength',[net.id],f'{net.pressure_bar:g} bar; applicable yield/proof strength missing','Resolved yield/proof strength and safety factor',False,
+                   'Design pressure cannot be checked without an applicable resolved source yield/proof strength or an explicit legacy basis override.')
         else:
-            allowable=design.rules.allowable_stress_mpa/design.rules.pressure_safety_factor
+            allowable=strength["design_strength_mpa"]
             result('pressure_strength',[net.id],net.pressure_bar/10,round(allowable,5),net.pressure_bar/10+EPS<allowable,
-                   'Design pressure must remain below allowable stress after the declared safety factor; wall checks use a thick-cylinder ligament screen.',unit='MPa')
+                   'Design pressure must remain below PMC calculated design strength after the project safety factor; wall checks use a thick-cylinder ligament screen.',unit='MPa')
 
     def overlap(a, b):
         key = tuple(sorted((a, b)))
@@ -87,7 +76,7 @@ def validate(design, g, definitions=None):
     # Check each actual flow node as well as its intersections. Frozen/overridden
     # bores and immutable source windows remain subject to the same flow demand.
     for node,shape in g.nodes.items():
-        net=next((n for n in design.nets if n.id==g.circuits[node]),None)
+        net=by_net.get(g.circuits[node])
         if not net or not net.flow_lpm:continue
         f=by_id[node.split(':')[0]]
         area=opening_area(shape,shape,[g.placements[f.id]['direction']])
@@ -109,7 +98,7 @@ def validate(design, g, definitions=None):
                    'Every physical contact must be explicitly listed in connects_to.')
             if volume >= threshold and same:
                 from .flow import opening_area, required_area
-                net = next((n for n in design.nets if n.id == g.circuits[a]), None)
+                net = by_net.get(g.circuits[a])
                 if net and net.flow_lpm:
                     area = opening_area(g.nodes[a], g.nodes[b], [g.placements[x.split(':')[0]]['direction'] for x in (a,b)])
                     required = required_area(net.flow_lpm, net.velocity_limit)
@@ -150,7 +139,8 @@ def validate(design, g, definitions=None):
         volume = sa.intersect(sb).Volume()
         if fa.kind=='mounting' or fb.kind=='mounting':
             distance=sa.distance(sb)
-            result('mounting_separation',[a,b],distance,wall,volume<=EPS and distance+EPS>=wall,
+            required=required_wall(design,fa,fb,definitions=definitions)
+            result('mounting_separation',[a,b],distance,required,volume<=EPS and distance+EPS>=required,
                    'Non-hydraulic mounting cuts must retain the minimum wall to every other cut; hydraulic contact cannot authorize them.',unit='mm')
             continue
         for port, other in ((fa,fb),(fb,fa)):
@@ -174,7 +164,7 @@ def validate(design, g, definitions=None):
             result('cavity_collision', [a, b], volume, 0, volume <= EPS, 'Cartridge cutting volumes must not intersect.', unit='mm³')
         if volume <= EPS or both_cavities:
             distance = sa.distance(sb)
-            required=max(wall,pressure_ligament(fa),pressure_ligament(fb))
+            required=required_wall(design,fa,fb,definitions=definitions)
             result('minimum_feature_wall', [a, b], distance, round(required,5), distance + EPS >= required,
                    'Solid distance between non-connected cutting volumes.', unit='mm')
         if (fa.kind == 'cavity') != (fb.kind == 'cavity') and volume > EPS:
@@ -209,7 +199,7 @@ def validate(design, g, definitions=None):
         for face, margin in margins.items():
             exit_face={'top':'bottom','bottom':'top','front':'back','back':'front','left':'right','right':'left'}[f.face] if f.kind=='mounting' and f.through else None
             if face != f.face and face!=exit_face:
-                required=max(wall,pressure_ligament(f))
+                required=required_wall(design,f,definitions=definitions)
                 result('external_wall', [f.id, face], margin, round(required,5), margin + EPS >= required,
                        'Remaining stock to a non-entry face (includes drill tip).', unit='mm')
         outside = max(0.0, shape.Volume() - shape.intersect(g.block).Volume())

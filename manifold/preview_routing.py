@@ -1,3 +1,4 @@
+from .engineering_conditions import effective_net
 """Transient, source-checked incremental proposals. Never used by Validate/Build."""
 from typing import Literal, Annotated
 from pydantic import Field
@@ -45,6 +46,7 @@ def _routing_state(design, moved=()):
     pose={'u','v','face','rotation','direction'}
     features={f.id:f.model_dump(exclude=pose if f.id in moved else set()) for f in design.features}
     return dict(dimensions=(design.block.length,design.block.width,design.block.height),
+                project_defaults=design.project_defaults.model_dump(),material_id=design.block.material_id,
                 unit=design.project_context,rules=design.rules.model_dump(),constraints=design.constraints.model_dump(),
                 nets=[n.model_dump() for n in design.nets],features=features,
                 engravings=[r.model_dump() for r in design.engravings],
@@ -63,7 +65,7 @@ def _seed_routes(request):
     if _routing_state(design,changed)!=_routing_state(context.source,changed):return None
     original=resolve_parents(context.source)
     proposal=context.proposal
-    if proposal.block!=original.block or proposal.rules!=original.rules or proposal.constraints!=original.constraints:return None
+    if proposal.block!=original.block or proposal.rules!=original.rules or proposal.constraints!=original.constraints or proposal.project_defaults!=original.project_defaults:return None
     if [(n.id,n.members,n.routing,n.flow_lpm,n.velocity_limit) for n in proposal.nets]!=[
             (n.id,n.members,n.routing,n.flow_lpm,n.velocity_limit) for n in original.nets]:return None
     by_id={f.id:f for f in proposal.features}
@@ -134,16 +136,17 @@ def resolve_preview(request):
         selected={}
         for net in sorted(target.nets,key=lambda n:n.id):
             if net.id not in active:continue
+            effective=effective_net(target,net)
             if time.monotonic()>=local_deadline:return None,selected,set()
             net.routing_variant=None
             if tools is None:tools=tool_definitions('drill')
-            net.diameter=route_sizing(net,tools=tools,required_depth=0,preferred_unit=target.project_context)['diameter_mm']
+            net.diameter=route_sizing(effective,tools=tools,required_depth=0,preferred_unit=target.project_context)['diameter_mm']
             options=[]
             variant=context.variants.get(net.id)
             # Regenerate an unchanged-priority current template before opening
             # a neighbourhood. This preview remains explicitly NOT OPTIMIZED;
             # hard screening and exact pruning still decide its admissibility.
-            if variant and not net.flow_lpm:
+            if variant and not effective.flow_lpm:
                 route=route_from_variant(target,net,variant,definitions,threads,modifiers)
                 if (route is not None and all(f.face not in target.constraints.forbidden_drilling_faces for f in route)
                         and not route_obstructions(target,net,route,threads,definitions,modifiers)):
@@ -157,12 +160,12 @@ def resolve_preview(request):
             options=route_options(target,net,definitions=definitions,thread_definitions=threads,
                                   modifier_definitions=modifiers,snapshot=snapshot,
                                   seed=options[0] if options else None)
-            if net.flow_lpm:
+            if effective.flow_lpm:
                 sized=[]
                 for option in options:
                     for _ in range(12):
                         from .geometry import tip_depth
-                        try:sizing=route_sizing(net,tools=tools,required_depth=max((f.depth+tip_depth(f) for f in option['route']),default=0),preferred_unit=target.project_context)
+                        try:sizing=route_sizing(effective,tools=tools,required_depth=max((f.depth+tip_depth(f) for f in option['route']),default=0),preferred_unit=target.project_context)
                         except ValueError:break
                         if all(abs(f.diameter-sizing['diameter_mm'])<1e-9 for f in option['route']):
                             option['hard_failures']=len(route_obstructions(target,net,option['route'],threads,definitions,modifiers))
@@ -196,7 +199,7 @@ def resolve_preview(request):
             for net in local.nets:
                 if net.id in active:
                     net.routing_variant=None
-                    net.diameter=route_sizing(net,tools=tools,required_depth=0,preferred_unit=local.project_context)['diameter_mm']
+                    net.diameter=route_sizing(effective_net(local,net),tools=tools,required_depth=0,preferred_unit=local.project_context)['diameter_mm']
             pair=_complete_route_combination(local,definitions,threads,modifiers,snapshot,net_ids=active,deadline=local_deadline)
             if pair:
                 local.features.extend(f for option in pair.values() for f in option['route'])

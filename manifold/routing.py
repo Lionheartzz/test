@@ -1,3 +1,4 @@
+from .engineering_conditions import effective_net,required_wall,planning_wall,wall_unresolved
 from .timing import timed,phase
 """Deterministic orthogonal route proposals. Only the BRep validator grants PASS."""
 import hashlib
@@ -78,6 +79,7 @@ def _axial_connector_path(start, end, order, bends, axial_axis):
 
 
 def propose(design, net, order, entry=None, detour='direct', definitions=None, safe_planes=None, *, terminal_overrides=None, connector_bends=None):
+    net=effective_net(design,net)
     if definitions is None:
         from .engineering_db import definitions_for_design
         definitions=definitions_for_design(design)
@@ -95,7 +97,7 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None, s
         current=sum((point[i]-origin[i])*direction[i] for i in range(3))
         # Turn away from the port only after clearing its protected machining
         # body. The coaxial terminal drilling itself remains open.
-        depth=max(window_end,current)+cut_radius+net.diameter/2+design.rules.minimum_wall
+        depth=max(window_end,current)+cut_radius+net.diameter/2+planning_wall(design,net,definitions)
         return tuple(point[i]+direction[i]*(depth-current) for i in range(3))
     lines = {}
     for a,b in pairs:
@@ -235,7 +237,7 @@ def obstacle_safe_planes(design, net, definitions, thread_definitions=None, modi
     points = terminal_points(design, definitions)
     terminals = [points[m] for m in net.members if m in points]
     center = [sum(p[i] for p in terminals)/len(terminals) for i in range(3)] if terminals else [v/2 for v in dimensions(design.block)]
-    margin = max(12, net.diameter/2 + design.rules.minimum_wall + .1)
+    margin = max(12, net.diameter/2 + planning_wall(design,net,definitions) + .1)
     limits = dimensions(design.block)
     planes = [{side: [] for side in 'pm'} for _ in range(3)]
     automatic = {n.id for n in design.nets if n.routing == 'automatic'}
@@ -257,7 +259,7 @@ def obstacle_safe_planes(design, net, definitions, thread_definitions=None, modi
                 low = min(low, origin[axis]-other.clearance_diameter/2)
                 high = max(high, origin[axis]+other.clearance_diameter/2)
             for side, edge in (('m', low), ('p', high)):
-                coordinate = edge + (-1 if side == 'm' else 1)*(net.diameter/2 + design.rules.minimum_wall + .1)
+                coordinate = edge + (-1 if side == 'm' else 1)*(net.diameter/2 + planning_wall(design,net,definitions) + .1)
                 if (margin <= coordinate <= limits[axis]-margin and
                         (coordinate < center[axis] if side == 'm' else coordinate > center[axis])):
                     planes[axis][side].append(round(coordinate, 6))
@@ -311,6 +313,7 @@ def cylinder_bounds(feature, block, start, end, diameter):
 
 
 def simple_routes(design,net,definitions=None):
+    net=effective_net(design,net)
     """Single-entry proposals may exploit offset intersection; exact checks decide adequacy."""
     if definitions is None:
         from .engineering_db import definitions_for_design
@@ -417,8 +420,8 @@ def proximity_risk(design, net, route, definitions=None,thread_definitions=None,
         u,v,axis,sign = FACE_AXES[bore.face]
         rb=cylinder_bounds(bore,design.block,0,bore.depth,bore.diameter)
         for i in (u,v):
-            risk += max(0,design.rules.minimum_wall-min(a[i],dims[i]-a[i])+radius)*4
-        risk += max(0,design.rules.minimum_wall-(dims[axis]-b[axis] if sign>0 else b[axis]))*4
+            risk += max(0,planning_wall(design,net,definitions)-min(a[i],dims[i]-a[i])+radius)*4
+        risk += max(0,planning_wall(design,net,definitions)-(dims[axis]-b[axis] if sign>0 else b[axis]))*4
         for other in design.features:
             if other.suppressed or other.route_net == net.id:
                 continue
@@ -436,14 +439,14 @@ def proximity_risk(design, net, route, definitions=None,thread_definitions=None,
                         penetration = min(min(x[1],y[1])-max(x[0],y[0]) for x,y in zip(rb,cb))
                         risk += max(0,penetration)*8
                     else:
-                        risk += max(0,design.rules.minimum_wall-clearance)*(8 if clearance<0 else 1)
+                        risk += max(0,planning_wall(design,net,definitions)-clearance)*(8 if clearance<0 else 1)
             else:
                 if other.circuit == net.id:
                     continue
                 other_diameter=feature_bore_diameter(other,thread_definitions)
                 c,d = segment(other,design.block,diameter=other_diameter)
                 clearance = segment_distance(a,b,c,d)-radius-other_diameter/2
-                risk += max(0,design.rules.minimum_wall-clearance)*(10 if clearance<0 else 1)
+                risk += max(0,planning_wall(design,net,definitions)-clearance)*(10 if clearance<0 else 1)
         if bore.plugged:
             for other in design.features:
                 if other.suppressed or other.face != bore.face:
@@ -472,7 +475,7 @@ def route_margin(design, route):
                 clearances.extend([min(lo,a[axis],b[axis]),dims[axis]-max(hi,a[axis],b[axis])])
             else:
                 clearances.append(dims[axis]-max(hi,b[axis]) if sign>0 else min(lo,b[axis]))
-    target=design.rules.minimum_wall+design.constraints.preferred_wall_margin
+    target=max((required_wall(design,f) for f in route),default=design.rules.minimum_wall or 0)+(design.constraints.preferred_wall_margin or 0)
     penalty=sum(max(0,target-c)**2 for c in clearances)*2
     return dict(target_mm=target,estimated_min_wall_mm=min(clearances) if clearances else None,margin_penalty=round(penalty,6))
 
@@ -807,7 +810,8 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
     failures = set()
     obstacles=[f for f in design.features if f.route_net!=net.id]+route
     for bore in route:
-        if route_margin(design,[bore])['estimated_min_wall_mm'] < design.rules.minimum_wall-1e-6:
+        if wall_unresolved(design,bore,definitions=definitions):failures.add(('pressure_strength',bore.id))
+        if route_margin(design,[bore])['estimated_min_wall_mm'] < required_wall(design,bore,definitions=definitions)-1e-6:
             failures.add(('external_wall',bore.id))
         if bore.plugged:
             plug_bounds=cylinder_bounds(bore,design.block,0,bore.plug_length,bore.diameter)
@@ -857,7 +861,7 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
                         near_assigned = True
                         break
             for whole_cut, own_window in protected(other):
-                threshold = 0 if own_window and near_assigned else design.rules.minimum_wall
+                threshold = 0 if own_window and near_assigned else required_wall(design,bore,other,definitions=definitions)
                 if _cuts_too_close(route_cuts, whole_cut, design.block, threshold):
                     failures.add(('source_protected' if threshold==0 else 'source_wall',
                                   *sorted((bore.id, other.id))))
@@ -866,7 +870,7 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
             if other.suppressed or other.id == bore.id or other.definition or other.circuit == net.id:
                 continue
             for whole_cut in cuts(other):
-                if _cuts_too_close(route_cuts, whole_cut, design.block, design.rules.minimum_wall):
+                if _cuts_too_close(route_cuts, whole_cut, design.block, required_wall(design,bore,other,definitions=definitions)):
                     failures.add(('cross_net_wall', *sorted((bore.id, other.id))))
                     break
         if bore.depth < 2*radius:continue
@@ -889,7 +893,7 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
             if other.depth < 2*r:continue
             c,d=segment(other,design.block,r,other.depth-r)
             clearance=segment_distance(a,b,c,d)-radius-r
-            if clearance < design.rules.minimum_wall-1e-6:
+            if clearance < required_wall(design,bore,other,definitions=definitions)-1e-6:
                 failures.add(('feature_wall' if other.circuit==net.id else 'cross_net_wall',*sorted((bore.id,other.id))))
     return failures
 
@@ -1076,6 +1080,7 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
 
 
 def route_candidate_catalog(design, net, definitions, thread_definitions, modifier_definitions, *, expanded=False, cache=None):
+    net=effective_net(design,net)
     """Raw source strategies, before any shortlist or simplification."""
     orders = list(itertools.permutations(range(3)))
     if net.preferred_axis != 'auto':
@@ -1112,6 +1117,7 @@ def route_candidate_catalog(design, net, definitions, thread_definitions, modifi
 def route_options(design, net, *, expanded=False, definitions=None,thread_definitions=None,modifier_definitions=None,
                   snapshot=None, seed=None):
     from copy import deepcopy
+    net=effective_net(design,net)
     cache_key=(design.model_dump_json(),net.model_dump_json(),tuple(net.members),expanded,
                (seed['key'],tuple(f.model_dump_json() for f in seed['route'])) if seed else None)
     if snapshot is not None and cache_key in snapshot.options:
@@ -1200,6 +1206,7 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
 
 
 def route_from_variant(design, net, variant, definitions, threads=None, modifiers=None):
+    net=effective_net(design,net)
     """Shared regeneration for global selection and incremental current templates."""
     if variant.startswith('axial_'):
         from .cavity_access import axial_route
@@ -1228,7 +1235,7 @@ def resize_route(design, net, option, diameter, definitions, threads=None, modif
 
 def _complete_route_combination(design, definitions, thread_definitions, modifier_definitions, snapshot=None, net_ids=None, deadline=None, excluded=None):
     """Bounded backtracking across individually clear automatic routes."""
-    nets = sorted((n for n in design.nets if n.routing == 'automatic' and (net_ids is None or n.id in net_ids)), key=lambda n:n.id)
+    nets = sorted((effective_net(design,n) for n in design.nets if n.routing == 'automatic' and (net_ids is None or n.id in net_ids)), key=lambda n:n.id)
     if len(nets)<2 or any(n.routing_variant or n.flow_lpm for n in nets):
         return None
     automatic = {n.id for n in nets}
@@ -1337,7 +1344,11 @@ def _proposal_source_key(design):
 
 @timed('route.proposal')
 def _resolve_proposals(design, *, snapshots=None):
-    signature=_proposal_source_key(design)
+    authored=design
+    inherited={n.id:{k:getattr(n,k) for k in ("pressure_bar","flow_lpm","velocity_limit","drilling_mode")} for n in design.nets}
+    design=design.model_copy(deep=True)
+    design.nets=[effective_net(design,n) for n in design.nets]
+    signature=_proposal_source_key(authored)
     resolved = resolve_parents(design)
     from .engineering_db import definitions_for_design,thread_definitions_for_design,modifier_definitions_for_design,tool_definitions
     definitions=definitions_for_design(resolved)
@@ -1487,6 +1498,8 @@ def _resolve_proposals(design, *, snapshots=None):
     active = {f.id for f in resolved.features if not f.suppressed}
     for f in resolved.features:
         f.connects_to = [t for t in f.connects_to if t.split(':')[0] in active]
+    for n in resolved.nets:
+        for k,v in inherited[n.id].items():setattr(n,k,v)
     return resolved, candidates
 
 

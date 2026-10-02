@@ -5,7 +5,7 @@ import {uuidToken} from './crypto-utils.js';
 export function aiDesign(ctx,open){
   const {$,element,field,action,api,post,get,state}=ctx,content=$('workflow-content');
   let active=null,inputs=null,run=null,dirty=false,pending=false,provider='configured',providers=[],activeJob=null,jobTimer=null;
-  const fresh=()=>({title:'New hydraulic analysis',documents:(get()?.schematic_intent?.assets||[]).map(asset=>({id:'DOC_'+asset.sha256.slice(0,24),asset,page_count:asset.media_type.startsWith('image/')?1:null})),engineering_requirements:'',project_context:get()?.project_context||'metric',linked_project_id:state()?.project_id||null});
+  const fresh=()=>({title:'New hydraulic analysis',documents:(get()?.schematic_intent?.assets||[]).map(asset=>({id:'DOC_'+asset.sha256.slice(0,24),asset,page_count:asset.media_type.startsWith('image/')?1:null})),engineering_requirements:'',project_context:get()?.project_context||'metric',linked_project_id:state()?.project_id||null,project_engineering:get()?JSON.parse(JSON.stringify(get())):null});
   const here=()=>$('workflow-dialog').open&&$('workflow-title').textContent.startsWith('AI Design');
   const guard=fn=>async()=>{if(pending)return;pending=true;content.querySelectorAll('button,input,select,textarea').forEach(x=>x.disabled=true);$('workflow-error').textContent='';try{await fn();}catch(e){$('workflow-error').textContent=e.message;}finally{pending=false;if(here())content.querySelectorAll('button,input,select,textarea').forEach(x=>x.disabled=false);}};
   const touched=()=>{dirty=true;const status=content.querySelector('.ai-save-state');if(status)status.textContent='Inputs changed · save before analysis';};

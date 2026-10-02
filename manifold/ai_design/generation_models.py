@@ -23,6 +23,8 @@ class ThreadedMountingHole(Strict):
 
 
 class GenerationOptions(Strict):
+    preferred_component_face: Face | None = None
+    preferred_port_face: Face | None = None
     bindings: dict[Key, Binding] = Field(default_factory=dict, max_length=12)
     port_definitions: dict[Key, Binding] = Field(default_factory=dict, max_length=24)
     provisional_ports: dict[Key, str] = Field(default_factory=dict,max_length=24)
@@ -36,7 +38,7 @@ class GenerationOptions(Strict):
     drilling_diameter: float = Field(default=8, ge=3, le=32)
     port_diameter: float = Field(default=12, ge=4, le=50)
     port_depth: float = Field(default=12, ge=6, le=50)
-    minimum_wall: float = Field(default=7, ge=3, le=30)
+    minimum_wall: float | None = Field(default=None, gt=0, le=30)
     max_attempts: int = Field(default=4, ge=1, le=6)
 
 

@@ -134,8 +134,13 @@ def analyze(key,expected,provider_key):
     provider=providers[provider_key]
     documents=verified_documents(inputs)
     from ..engineering_facts import ai_context
+    context=ai_context(inputs.engineering_requirements)
+    if inputs.project_engineering:
+        from ..engineering_conditions import project_engineering_context
+        context['project_engineering']=project_engineering_context(inputs.project_engineering)
+        context['instruction']+=' Project engineering defaults are not net overrides; preserve explicit null inheritance.'
     request=AnalysisRequest(inputs=inputs.model_copy(deep=True),documents=documents,result_schema=HydraulicRepresentation.model_json_schema(),
-                            engineering_facts_context=ai_context(inputs.engineering_requirements))
+                            engineering_facts_context=context)
     run_id=uuid.uuid4().hex
     run=dict(schema_version=1,id=run_id,task_id=key,created_at=now(),input_revision=digest(record['inputs']),inputs=record['inputs'],
              provider=dict(id=provider.id,model=provider.model,is_mock=provider.is_mock,contract_version=1),status='failed',result=None,error=None)

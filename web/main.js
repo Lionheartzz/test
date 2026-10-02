@@ -11,7 +11,7 @@ import {pose,axes} from './kinematics.js';
 import {workflows} from './workflows.js';
 import {projectLibrary} from './project-library.js';
 import {hydrateDesign,cloneDesign} from './domain.js';
-import {setDesignPriority,selectEngineeringMaterial,appendMaterialGroups,validStockSizes,selectRawStock,setEnvelopeMaximum,customPortDescription} from './engineering-inputs.js';
+import {selectEngineeringMaterial,appendMaterialGroups,validStockSizes,selectRawStock,customPortDescription} from './engineering-inputs.js';
 import {displayIdentity,displayRuleName,displayInterfaceName,displayNetName} from './presentation.js';
 import {engineeringFactsUI} from './engineering-facts-ui.js';
 import {createStudioShell} from './studio-shell.js';
@@ -284,9 +284,8 @@ function renderTree(){
 }
 let inspectorKind='block';
 const inspectorGroups={
-  block:{'Project name':'Block dimensions','Length X / mm':'Block dimensions','Width Y / mm':'Block dimensions','Height Z / mm':'Block dimensions',
-    'Engineering material':'Material & stock','Raw stock / standard blank':'Material & stock',
-    'Allowable material stress / MPa':'Engineering rules','Pressure safety factor':'Engineering rules','Preferred extra wall margin / mm':'Engineering rules','Minimum wall / mm':'Engineering rules','Design priority':'Engineering rules','Maximum X / mm':'Advanced project constraints','Maximum Y / mm':'Advanced project constraints','Maximum Z / mm':'Advanced project constraints'},
+  block:{'Length X / mm':'Block dimensions','Width Y / mm':'Block dimensions','Height Z / mm':'Block dimensions',
+    'Engineering material':'Material & stock','Raw stock / standard blank':'Material & stock'},
   cavity:{'Face':'Position','Change cavity definition':'Definition & cartridge','Assign compatible cartridge':'Definition & cartridge'},
   port:{'Face':'Position','Hydraulic net':'Hydraulic & machining','Diameter / mm':'Hydraulic & machining','Cylinder depth / mm':'Hydraulic & machining','Entry closure':'Hydraulic & machining','Plug engagement / mm':'Hydraulic & machining'},
   drilling:{'Face':'Position','Hydraulic net':'Hydraulic & machining','Diameter / mm':'Hydraulic & machining','Cylinder depth / mm':'Hydraulic & machining','Drill direction X,Y,Z (blank = face normal)':'Hydraulic & machining','Drill point angle / degrees':'Hydraulic & machining'},
@@ -398,14 +397,13 @@ function finishSelection(kind,previous){
 function select(id){if(!draft)return;inspectorKind=id==='block'?'block':draft.features.find(item=>item.id===id)?.kind||'generated';const previous=selection;if(id!==previous)viewer?.setSecondary([]);const displayed=currentDisplayedDesign(),generated=displayed?.features.find(f=>f.id===id&&f.route_net&&!draft.features.some(x=>x.id===id));if(generated){const label=featureLabel(generated,displayed),netLabel=displayNetName(displayed,generated.route_net);selection=id;viewer?.select(id);$('selection-label').textContent=label;$('selection-kind').textContent='GENERATED ROUTE';const form=$('inspector');form.replaceChildren(element('h3',label),element('p',`${netLabel} hydraulic route · ${generated.face} · Ø${generated.diameter} × ${generated.depth.toFixed(2)} mm`),element('p','Refine this route to keep its current segments and drag drilling handles. Connected branches are extended where possible; exact checks decide whether the edited route still works.'));action(form,'Refine in 3D',()=>adoptRoute(generated.route_net,id));finishSelection('generated',previous);return;}selection=draft.features.some(f=>f.id===id)?id:'block';viewer?.select(selection);$('selection-label').textContent=selection==='block'?'':featureLabel(draft.features.find(f=>f.id===selection),draft);for(const b of document.querySelectorAll('[data-feature]'))b.classList.toggle('active',b.dataset.feature===selection);$('select-block').classList.toggle('active',selection==='block');const form=$('inspector');form.replaceChildren();form.onsubmit=e=>e.preventDefault();
 if(selection==='block'){
   $('selection-kind').textContent='STOCK';form.append(element('div','MANIFOLD','inspector-title'));
-  prop(form,'Project name',draft.name,v=>draft.name=v);
   for(const [key,label]of [['length','Length X / mm'],['width','Width Y / mm'],['height','Height Z / mm']])prop(form,label,draft.block[key],v=>draft.block[key]=v,null,true);
   const note=(text,group)=>{const row=element('p',text,'property-note');row.dataset.inspectorGroup=group;form.append(row);};
   if(!draft.block.material_id)note(`Legacy material: ${draft.block.material} — select an Engineering material.`,'Material & stock');
   if(materialCatalog.length){
     const materialInput=field(form,'Engineering material',draft.block.material_id||'',value=>{
       const material=materialCatalog.find(row=>row.id===value);
-      if(change(()=>{if(!material)throw Error('Select an active engineering material.');selectEngineeringMaterial(draft,material);},{kind:'none'}))select('block');
+      if(change(()=>{if(!material)throw Error('Select an active engineering material.');selectEngineeringMaterial(draft,material);},{kind:'global'}))select('block');
     },{'':'Select engineering material'});
     appendMaterialGroups(materialInput,materialCatalog,draft.block.material_id);
     materialInput.options[0].disabled=true;
@@ -420,17 +418,7 @@ if(selection==='block'){
       }
     }
   }else note('Engineering material library is unavailable. Retry after the library is available.','Material & stock');
-  prop(form,'Allowable material stress / MPa',draft.rules.allowable_stress_mpa??'',value=>draft.rules.allowable_stress_mpa=value,null,'optional');
-  prop(form,'Pressure safety factor',draft.rules.pressure_safety_factor??2,value=>draft.rules.pressure_safety_factor=value,null,true);
-  prop(form,'Preferred extra wall margin / mm',draft.constraints.preferred_wall_margin,value=>draft.constraints.preferred_wall_margin=value,null,true);
-  prop(form,'Minimum wall / mm',draft.rules.minimum_wall,value=>draft.rules.minimum_wall=value,null,true);
-  prop(form,'Design priority',draft.constraints.priority,value=>setDesignPriority(draft,value),{compact:'Compact envelope',fewer_plugs:'Fewer plugs',simple_machining:'Simpler machining',short_drills:'Shorter drillings'});
   blockMachiningSummary(form);
-  for(const [axis,label]of ['Maximum X / mm','Maximum Y / mm','Maximum Z / mm'].entries()){
-    const value=draft.constraints.envelope_max?.[axis];
-    prop(form,label,value===2000?'':value??'',maximum=>setEnvelopeMaximum(draft,axis,maximum),null,'optional');
-  }
-  note('Optional maximum finished block dimensions. Blank axes have no additional limit within the 2000 mm application range.','Advanced project constraints');
 }
 else{const f=draft.features.find(f=>f.id===selection);const p=pose(f,draft.block),uv=axes[f.face];form.append(element('p',`Origin XYZ: ${p.origin.map(x=>x.toFixed(3)).join(', ')} mm · U=+${'XYZ'[uv[0]]}, V=+${'XYZ'[uv[1]]} · inward ${p.direction.join(', ')}`,'property-note'));$('selection-kind').textContent=f.kind.toUpperCase();form.append(element('div',featureLabel(f,draft),'inspector-title'));if(f.frozen_net)form.append(element('p',`Refined ${displayNetName(draft,f.frozen_net)} route. Drag anywhere along the drilling to check changes.${!f.plugged?' This entry uses a fixed external port; lateral moves may invalidate its closure.':''}`,'property-note'));const bar=element('div',null,'action-row');form.append(bar);action(bar,'Duplicate',()=>change(()=>{const copy=structuredClone(f);copy.id=newId(f.kind==='cavity'?'CV':f.kind==='port'?f.circuit.slice(0,36):f.kind==='mounting'?'MNT':'DRILL');copy.parent_id=null;copy.schematic_id='';copy.connects_to=[];[copy.u,copy.v]=clamp(copy,draft,copy.u+25,copy.v+20);draft.features.push(copy);selection=copy.id;}));action(bar,f.suppressed?'Restore':'Suppress',()=>change(()=>f.suppressed=!f.suppressed));action(bar,f.frozen_net?'Delete & Return to Automatic Routing':'Delete',()=>f.frozen_net?rerouteNet(f.frozen_net):remove(f.id));prop(form,'Face',f.face,v=>{f.face=v;if(f.kind==='mounting'&&f.through)f.depth=[draft.block.length,draft.block.width,draft.block.height][axes[f.face][2]];[f.u,f.v]=clamp(f,draft,f.u,f.v);},faces);const row=element('div',null,'field-row');form.append(row);prop(row,'Position U / mm',f.u,v=>{[f.u,f.v]=clamp(f,draft,v,f.v);},null,true);prop(row,'Position V / mm',f.v,v=>{[f.u,f.v]=clamp(f,draft,f.u,v);},null,true);
 if(f.kind==='cavity'){action(form,'Change cavity definition',()=>workflowHandlers.changeCavityDefinition(f));form.append(element('p','Cartridge: '+(f.cartridge_id||'None'),'property-note'));action(form,'Assign compatible cartridge',()=>assignCartridge(f));for(const [index,key] of Object.keys(f.interface_nets||{}).entries())prop(form,`${displayInterfaceName(draft,f.id,key,{index})} → Net`,f.interface_nets[key],v=>f.interface_nets[key]=v,Object.fromEntries(draft.nets.map(n=>[n.id,n.label||n.id])));const def=draft.library.find(d=>d.id===f.cavity_id);form.append(element('p',`${def.manufacturer||'Manufacturer unspecified'} · ${def.family||'Family unspecified'}\n${def.label}\n${def.stages.map(s=>`Ø${s.diameter.toFixed(4)} / ${s.start.toFixed(4)}–${s.end.toFixed(4)} mm`).join('\n')}`,'property-note'));}

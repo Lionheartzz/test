@@ -275,7 +275,7 @@ class HydraulicNet(Strict):
     label: str = Field(default='', max_length=120)
     members: list[str] = Field(default_factory=list, max_length=60, exclude=True)
     routing: Literal['manual', 'automatic'] = 'manual'
-    drilling_mode: Literal['orthogonal','allow-angled','simplest'] = 'orthogonal'
+    drilling_mode: Literal['orthogonal','allow-angled','simplest'] | None = None
     diameter: Positive = 8
     diameter_mode: Literal['automatic','manual'] = 'automatic'
 
@@ -293,7 +293,7 @@ class HydraulicNet(Strict):
     color: str | None = Field(default=None, pattern=r'^#[0-9a-fA-F]{6}$')
     flow_lpm: float | None = Field(default=None, gt=0, le=10000)
     pressure_bar: float | None = Field(default=None, gt=0, le=2000)
-    velocity_limit: float = Field(default=6, gt=0, le=100)
+    velocity_limit: float | None = Field(default=None, gt=0, le=100)
     routing_variant: str | None = Field(default=None, pattern=r'^([xyz]{3}:(nearest|positive|negative):(direct|offset_[xyz]_[pm]2?)|simple_[0-9]+|axial_[0-9]+_[01]:[xyz]{3}:(nearest|positive|negative)(?::(?:c[0-9]+_[xyz]_|j[0-9]+_)[0-9]+(?:\.[0-9]{1,6})?(?:\+(?:c[0-9]+_[xyz]_|j[0-9]+_)[0-9]+(?:\.[0-9]{1,6})?){0,2})?)$')
 
 
@@ -335,11 +335,11 @@ class SchematicComponent(Strict):
 
 
 class DesignConstraints(Strict):
-    preferred_wall_margin: float = Field(default=4, ge=0, le=50)
+    preferred_wall_margin: float | None = Field(default=None, ge=0, le=50)
     envelope_max: tuple[Positive, Positive, Positive] | None = None
-    envelope_min: tuple[Positive, Positive, Positive] | None = None
+    envelope_min: tuple[Coordinate, Coordinate, Coordinate] | None = None
     required_feature_faces: dict[Identifier, Face] = Field(default_factory=dict, max_length=120)
-    preferred_component_faces: list[Face] = Field(default_factory=lambda: ['top'])
+    preferred_component_faces: list[Face] = Field(default_factory=list)
     preferred_port_faces: dict[Circuit, Face] = Field(default_factory=dict)
     priority: Literal['compact', 'fewer_plugs', 'simple_machining', 'short_drills'] = 'fewer_plugs'
     standard_drills: list[Positive] = Field(default_factory=lambda: [4, 5, 6, 8, 10, 12, 16, 20])
@@ -360,7 +360,7 @@ class SchematicIntent(Strict):
 
 
 class Rules(Strict):
-    minimum_wall: Positive = 7
+    minimum_wall: Positive | None = None
     minimum_overlap_volume: float = Field(default=0.1, ge=0.01, le=10)
     max_depth_diameter_ratio: Positive = 20
     minimum_access_gap: Positive = 2
@@ -428,11 +428,40 @@ class BlockModifier(Strict):
         return self
 
 
+class ProjectEngineeringDefaults(Strict):
+    pressure_bar: float | None = Field(default=None, gt=0, le=2000)
+    flow_lpm: float | None = Field(default=None, gt=0, le=10000)
+    velocity_limit: float = Field(default=6, gt=0, le=100)
+    drilling_mode: Literal['orthogonal','allow-angled','simplest'] = 'orthogonal'
+
+
+def upgrade_project_v2(value):
+    """Pure explicit version adapter. Never edits a project file or master DB.
+
+    V2 omitted values meant concrete defaults, not inheritance. Materialize
+    those old defaults once; only V3 nullable overrides mean inheritance.
+    """
+    if not isinstance(value,dict) or value.get('schema_version',2)!=2:return value
+    from copy import deepcopy
+    value=deepcopy(value);value['schema_version']=3
+    value.setdefault('rules',{}).setdefault('minimum_wall',7)
+    value.setdefault('constraints',{}).setdefault('preferred_wall_margin',4)
+    value['constraints'].setdefault('preferred_component_faces',['top'])
+    if not value.get('nets'):
+        circuits={f.get('circuit') for f in value.get('features',[]) if f.get('kind')=='port'}-{None}
+        circuits.update(n for f in value.get('features',[]) for n in f.get('interface_nets',{}).values())
+        value['nets']=[dict(id=n,velocity_limit=6,drilling_mode='orthogonal') for n in sorted(circuits)]
+    for net in value.get('nets',[]):
+        net.setdefault('velocity_limit',6);net.setdefault('drilling_mode','orthogonal')
+    return value
+
+
 class Design(Strict):
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     name: str = Field(min_length=1, max_length=120)
     units: Literal['mm'] = 'mm'
     project_context: Literal['metric', 'inch'] = 'metric'
+    project_defaults: ProjectEngineeringDefaults = Field(default_factory=ProjectEngineeringDefaults)
     block: Block
     rules: Rules = Field(default_factory=Rules)
     features: list[Feature] = Field(default_factory=list, max_length=120)
@@ -443,6 +472,10 @@ class Design(Strict):
     origin: DesignOrigin = Field(default_factory=DesignOrigin)
     engravings: list[Engraving] = Field(default_factory=list,max_length=80)
     block_modifiers: list[BlockModifier] = Field(default_factory=list,max_length=40)
+
+    @model_validator(mode='before')
+    @classmethod
+    def upgrade_version(cls,value):return upgrade_project_v2(value)
 
     @property
     def components(self):return self.schematic_intent.components if self.schematic_intent else []

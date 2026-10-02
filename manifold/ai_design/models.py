@@ -1,7 +1,7 @@
 """Versioned circuit/intent contract, independent of physical manifold placement."""
 from typing import Annotated, Literal
 from pydantic import Field, model_validator
-from ..schema import Strict, SchematicAsset, Face
+from ..schema import Strict, SchematicAsset, Face, Design
 
 Key=Annotated[str,Field(pattern=r'^[A-Za-z][A-Za-z0-9_-]{0,63}$')]
 Digest=Annotated[str,Field(pattern=r'^[0-9a-f]{64}$')]
@@ -24,6 +24,7 @@ class TaskInput(Strict):
     engineering_requirements: str = Field(default='',max_length=20000)
     project_context: Literal['metric','inch'] = 'metric'
     linked_project_id: RecordId | None = None
+    project_engineering: Design | None = None
 
     @model_validator(mode='after')
     def unique_documents(self):

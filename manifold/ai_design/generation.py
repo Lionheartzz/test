@@ -220,7 +220,7 @@ def fid(generation_id, key, prefix):
 
 def candidate(plan, generation_id, variant):
     options, settings, inputs, result = (plan[x] for x in ('options','settings','inputs','result'))
-    wall = options.minimum_wall
+    wall = options.minimum_wall or (inputs.project_engineering.rules.minimum_wall if inputs.project_engineering else None) or 0
     aliases = {}
     for row in [*plan['components'], *plan['external']]:
         definition = row['definition']
@@ -238,7 +238,7 @@ def candidate(plan, generation_id, variant):
     base = [max(80,cols*clearance+wall*2), max(80,rows*clearance+wall*2), max(70,max(depths or [25])+wall*2+12)]
     # Non-top mounting consumes depth along its own inward axis.
     for c in plan['components']:
-        face = settings['component_faces'].get(c['id'],'top')
+        face = settings['component_faces'].get(c['id'],options.preferred_component_face or 'top')
         axis = FACE_AXES[face][2]
         base[axis] = max(base[axis], max(s.end for s in c['definition'].stages)+wall*2+12)
     scale = (1, 1.18, 1.35, 1.5, 1.7, 1.9)[variant]
@@ -246,15 +246,23 @@ def candidate(plan, generation_id, variant):
     block = dict(zip(('length','width','height'),sizes))
     block['material'] = settings['material']
     if settings.get('material_id'):block['material_id']=settings['material_id']
+    elif inputs.project_engineering and settings['material']=='Unspecified - review required':
+        block['material']=inputs.project_engineering.block.material
+        if inputs.project_engineering.block.material_id:block['material_id']=inputs.project_engineering.block.material_id
     assets=[d.asset.model_dump() for d in inputs.documents]
-    raw = dict(schema_version=2,name=(inputs.title[:100] + ' - AI Draft'), project_context=inputs.project_context, block=block,
-               features=[], nets=[],schematic_intent=dict(assets=assets,components=[]), rules=dict(minimum_wall=wall),
+    raw = dict(schema_version=3,name=(inputs.title[:100] + ' - AI Draft'), project_context=inputs.project_context, block=block,
+               features=[], nets=[],schematic_intent=dict(assets=assets,components=[]), rules=dict(minimum_wall=options.minimum_wall),
                constraints=dict(envelope_max=settings['maximum'],envelope_min=settings['minimum'],
                    forbidden_drilling_faces=settings['forbidden'],priority=settings['priority'],
                    notes='AI-generated draft from the current normalized schematic intent.'))
     design = Design.model_validate(raw)
-    stress=(settings.get('engineering_facts') or {}).get('facts',{}).get('allowable_stress_mpa',{})
-    if stress.get('status')=='SOURCE_BACKED':design.rules.allowable_stress_mpa=stress['value']
+    if inputs.project_engineering:
+        design.project_defaults=inputs.project_engineering.project_defaults.model_copy(deep=True)
+        design.rules=inputs.project_engineering.rules.model_copy(deep=True)
+        design.constraints.preferred_wall_margin=inputs.project_engineering.constraints.preferred_wall_margin
+        design.constraints.priority=inputs.project_engineering.constraints.priority
+        if inputs.project_engineering.constraints.envelope_max:design.constraints.envelope_max=tuple(min(a,b) for a,b in zip(settings['maximum'],inputs.project_engineering.constraints.envelope_max))
+        if inputs.project_engineering.constraints.envelope_min:design.constraints.envelope_min=tuple(max(a,b) for a,b in zip(settings['minimum'],inputs.project_engineering.constraints.envelope_min))
     if settings['material']!='Unspecified - review required' and not settings.get('material_id'):
         from ..schema import EngineeringReview
         design.review_items.append(EngineeringReview(id='AI_MATERIAL_REVIEW',kind='component',subject='block',
@@ -270,7 +278,7 @@ def candidate(plan, generation_id, variant):
         used_nets.add(name)
     groups = {}
     for component in plan['components']:
-        groups.setdefault(settings['component_faces'].get(component['id'],'top'),[]).append(component)
+        groups.setdefault(settings['component_faces'].get(component['id'],options.preferred_component_face or 'top'),[]).append(component)
     for face,group in groups.items():
         u_axis,v_axis,_,_=FACE_AXES[face]
         local_cols=max(1,math.ceil(math.sqrt(len(group))))
@@ -298,7 +306,7 @@ def candidate(plan, generation_id, variant):
         key=p['id'];source_net=plan['port_net'][key]
         net=next(n for n in result['nets'] if n['id']==source_net)
         targets=[terminal_map[m] for m in net['members'] if m in terminal_map]
-        face=settings['port_faces'].get(key,default_faces[(i+variant//2)%4])
+        face=settings['port_faces'].get(key,options.preferred_port_face or default_faces[(i+variant//2)%4])
         u_axis,v_axis,axis,sign=FACE_AXES[face]
         target=points[targets[0]] if targets else tuple(s/2 for s in sizes)
         u,v=target[u_axis],target[v_axis]
@@ -332,7 +340,6 @@ def candidate(plan, generation_id, variant):
                 f.u,f.v=clamp_placement(f,design,f.u,f.v+(f.clearance_diameter+previous.clearance_diameter)/2+wall,snap=0,definitions=by_definition)
         used_ports.append(f);design.features.append(f);terminal_map[key]=f.id;feature_map[key]=f.id
         if key in settings['hard_port_faces']:design.constraints.required_feature_faces[f.id]=face
-        design.constraints.preferred_port_faces[f.circuit]=face
     for index,row in enumerate(plan['mounting'],1):
         hole=row['hole'];axis=FACE_AXES[hole.face][2];through_depth=sizes[axis] if hole.through else hole.depth
         feature=Feature(id=fid(generation_id,f'MOUNTING_{index}','MNT'),kind='mounting',face=hole.face,u=hole.u,v=hole.v,
@@ -344,7 +351,15 @@ def candidate(plan, generation_id, variant):
     for net in result['nets']:
         flow=parameter_for(result,settings['flows'],net)
         pressure=parameter_for(result,settings['pressures'],net)
-        required=math.sqrt(4*(flow/60000)/6/math.pi)*1000 if flow else 0
+        from ..engineering_conditions import effective_conditions
+        prototype=HydraulicNet(id=net_ids[net['id']],flow_lpm=flow,pressure_bar=pressure)
+        if inputs.project_engineering:
+            previous=next((n for n in inputs.project_engineering.nets if n.id==prototype.id),None)
+            if previous:
+                for field in ('flow_lpm','pressure_bar','velocity_limit','drilling_mode'):
+                    if getattr(prototype,field) is None:setattr(prototype,field,getattr(previous,field))
+        conditions=effective_conditions(design,prototype)
+        required=math.sqrt(4*(conditions['flow_lpm']/60000)/conditions['velocity_limit']/math.pi)*1000 if conditions['flow_lpm'] else 0
         from ..engineering_db import select_tool
         tool=select_tool(max(options.drilling_diameter,required),0,unit=inputs.project_context)
         if not tool:
@@ -352,7 +367,7 @@ def candidate(plan, generation_id, variant):
         diameter=tool['diameter_mm']
         design.nets.append(HydraulicNet(id=net_ids[net['id']],label=str(library.value(result,net['id'],'label') or net['id'])[:120],
             members=[terminal_map[p] for p in net['members']],routing='automatic',diameter=diameter,
-            flow_lpm=flow,pressure_bar=pressure))
+            flow_lpm=prototype.flow_lpm,pressure_bar=prototype.pressure_bar,velocity_limit=prototype.velocity_limit,drilling_mode=prototype.drilling_mode))
     return Design.model_validate(design.model_dump()),feature_map,terminal_map
 
 

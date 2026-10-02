@@ -78,6 +78,34 @@ def reading(text='P on left.'):
                 requirements=[dict(quote=text,category='port_face',targets=['P'],property='preferred_face',operator='equal',value='left')])
 
 
+def test_generation_preferences_stay_request_only_and_hard_faces_win(client):
+    from manifold.schema import Design
+    from manifold.engineering_conditions import effective_conditions
+    task,run=analyzed(client,requirements='')
+    inputs=TaskInput.model_validate(task['inputs'])
+    inputs.project_engineering=Design(schema_version=3,name='Context',
+        block=dict(length=120,width=120,height=100,material='Exact',material_id='material_rev2_b94740bd5246a06e64a9defb'),
+        project_defaults=dict(pressure_bar=250,flow_lpm=60,velocity_limit=6,drilling_mode='orthogonal'),
+        rules=dict(pressure_safety_factor=2.5,minimum_wall=5),
+        nets=[dict(id='NET_P'),dict(id='NET_T',pressure_bar=30,flow_lpm=80,velocity_limit=4,drilling_mode='simplest')])
+    request=selection_request(task,run,preferred_component_face='front',preferred_port_face='left',placement_decision='QA request only.')
+    plan=generation.prepare(inputs,run['result'],request.options)
+    assert not plan['blocked']
+    # A resolved required face remains stronger than a request preference.
+    plan['settings']['port_faces']['EXT_P']='right';plan['settings']['hard_port_faces']['EXT_P']='right'
+    design,features,terminals=generation.candidate(plan,'0'*32,0)
+    by_id={f.id:f for f in design.features}
+    assert by_id[features['VALVE_RV1']].face=='front'
+    assert by_id[features['EXT_P']].face=='right' and by_id[features['EXT_T']].face=='left'
+    assert design.constraints.required_feature_faces[features['EXT_P']]=='right'
+    assert design.constraints.preferred_component_faces==[] and design.constraints.preferred_port_faces=={}
+    p,t=design.nets
+    assert p.pressure_bar is None and p.flow_lpm is None and p.velocity_limit is None and p.drilling_mode is None
+    assert effective_conditions(design,p)['pressure_bar']==250
+    assert (t.pressure_bar,t.flow_lpm,t.velocity_limit,t.drilling_mode)==(30,80,4,'simplest')
+    assert design.rules.pressure_safety_factor==2.5 and design.rules.minimum_wall==5
+
+
 def test_semantic_contract_computes_ids_and_exact_requirement_offsets(client):
     original='  P on left.\nKeep coils accessible.'
     task=TaskInput.model_validate(inputs(client,original))

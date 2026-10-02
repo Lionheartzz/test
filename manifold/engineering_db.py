@@ -875,7 +875,7 @@ def materials(*, include_legacy=False, current_id=None, connection: sqlite3.Conn
             selection_reason='Legacy unspecified grade/state; retained for existing projects' if is_legacy else
                 (facts['identity']['reason'] if facts and facts['identity'] else 'Exact source-backed grade/state/standard/form not established'),
             engineering_defaults=dict(allowable_stress_mpa=stress.get('value') if stress.get('status')=='SOURCE_BACKED' else None,
-                pressure_safety_factor=2, minimum_wall=7, preferred_wall_margin=4),
+                ),
             engineering_facts_summary=facts, supplier_stock_count=supplier_counts.get(research_id,0),
             surface_treatments=treatments.get(research_id,[])[:6], surface_treatments_total=len(treatments.get(research_id,[])))
         result.append(value)

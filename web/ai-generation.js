@@ -11,7 +11,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
   let options={},optionRun=null,screen=0,busy=false;
   const here=()=>$('workflow-dialog').open&&$('workflow-title').textContent.startsWith('AI Design');
   const safe=fn=>async()=>{try{await fn();}catch(e){$('workflow-error').textContent=e.message;}};
-  function reset(run){if(optionRun!==run.id){optionRun=run.id;options={bindings:{},port_definitions:{},provisional_ports:{},threaded_mounting_holes:[],mounting_decision:'',net_overrides:{},component_faces:{},port_faces:{},topology_decision:'',placement_decision:'',drilling_diameter:8,port_diameter:12,port_depth:12,minimum_wall:7,max_attempts:4};}}
+  function reset(run){if(optionRun!==run.id){optionRun=run.id;options={preferred_component_face:null,preferred_port_face:null,bindings:{},port_definitions:{},provisional_ports:{},threaded_mounting_holes:[],mounting_decision:'',net_overrides:{},component_faces:{},port_faces:{},topology_decision:'',placement_decision:'',drilling_diameter:8,port_diameter:12,port_depth:12,minimum_wall:null,max_attempts:4};}}
   function check(parent,label,value,onChange){const wrap=element('label',null,'ai-check'),input=element('input');input.type='checkbox';input.checked=value;input.setAttribute('aria-label',label);input.onchange=()=>onChange(input.checked);wrap.append(input,document.createTextNode(label));parent.append(wrap);return input;}
 
   async function settings(onSaved){
@@ -75,6 +75,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
       const list=element('ul');for(const message of plan.blocked)list.append(element('li',message));summary.append(list);content.append(summary);
       if(attempted){summary.focus();summary.scrollIntoView({block:'start'});}
     }
+    const placement=element('section',null,'library-card');content.append(placement);placement.append(element('h3','AI generation placement preferences'));const preferences={...faceOptions,'':'Auto'};field(placement,'Preferred valve / cartridge face',options.preferred_component_face||'',v=>options.preferred_component_face=v||null,preferences);field(placement,'Preferred external port face',options.preferred_port_face||'',v=>options.preferred_port_face=v||null,preferences);placement.append(element('p','Used before generation. Existing authored geometry is never moved by these preferences.'));
     content.append(element('h3','Cartridges and hydraulic windows'));
     if(plan.material_engineering_facts)engineeringFactsUI(ctx,content,plan.material_engineering_facts,{title:'Proposed material engineering data'});
     if(!plan.components.length)content.append(element('p','No cartridges in this circuit. A port/distribution block can be generated if the net topology is usable.'));
@@ -121,7 +122,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
     field(topology,'Topology correction decision',options.topology_decision,v=>options.topology_decision=v);
     field(content,'Placement override decision',options.placement_decision,v=>options.placement_decision=v).placeholder='Required only when overriding proposed component/port faces';
     const dimensions=element('details');dimensions.append(element('summary','Draft geometry assumptions and search budget'));content.append(dimensions);
-    for(const [key,label]of [['drilling_diameter','Minimum proposed drilling diameter (mm)'],['port_diameter','Provisional port bore diameter (mm)'],['port_depth','Provisional port entry depth (mm)'],['minimum_wall','Minimum wall (mm)'],['max_attempts','Maximum layout attempts']])field(dimensions,label,options[key],v=>options[key]=v,null,true);
+    for(const [key,label]of [['drilling_diameter','Minimum proposed drilling diameter (mm)'],['port_diameter','Provisional port bore diameter (mm)'],['port_depth','Provisional port entry depth (mm)'],['max_attempts','Maximum layout attempts']])field(dimensions,label,options[key],v=>options[key]=v,null,true);
     dimensions.append(element('p','These are visible prototype geometry choices, not vendor specifications. Flow requirements may increase drilling size. Source cavity geometry is never resized.'));
     content.append(element('h3','How your requirements will be used'));
     for(const row of plan.dispositions){const card=element('div',null,'library-card');card.append(element('strong',`${row.property} · ${row.status.replaceAll('_',' ')}`),element('p',row.message));content.append(card);}
