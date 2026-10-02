@@ -1,9 +1,10 @@
 """Small model-facing contract. PMC owns IDs, references, hashes and text offsets."""
 import re
 from typing import Literal
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 from ..schema import Strict
-from .models import Scalar, Text, HydraulicRepresentation, TaskInput, MountingRequirement
+from .models import Scalar, Text, Evidence, HydraulicRepresentation, TaskInput, MountingRequirement
+from .diagnostics import NormalizationFailure
 
 
 class Source(Strict):
@@ -45,8 +46,21 @@ class PortReading(Strict):
     specification: Observation = Field(default_factory=Observation)
     parameters: list[Parameter] = Field(default_factory=list, max_length=20)
 
+    @field_validator('net', mode='before')
+    @classmethod
+    def infer_unattributed_net(cls, value):
+        # Grouping labels can be AI abstractions; this exception applies only to nets.
+        if isinstance(value, dict) and value.get('value') is not None:
+            source = value.get('source', {})
+            if isinstance(source, dict) and source.get('kind', 'unknown') == 'unknown':
+                return {**value, 'status': 'uncertain',
+                        'source': {**source, 'kind': 'ai_inference'}}
+        return value
+
     @model_validator(mode='after')
     def connection_semantics(self):
+        if self.net.value is not None and self.net.source.kind == 'ai_inference':
+            self.net = self.net.model_copy(update={'status': 'uncertain'})
         if self.disposition=='unknown' and self.net.value is not None:self.disposition='connected'
         if self.disposition=='connected' and self.net.value is None:raise ValueError('Connected port needs a hydraulic net')
         if self.disposition in ('blocked','terminated') and self.net.value is not None:raise ValueError('Blocked or terminated port cannot belong to a hydraulic net')
@@ -122,6 +136,8 @@ INSTRUCTIONS = '''You interpret hydraulic schematics and the engineer's original
 Return ONE JSON object matching the provided CircuitReading schema. Read all supplied pages together.
 Use the same short net name for every terminal on one physically connected schematic line; different
 lines must have different names. Crossing lines are not connected unless the symbol/junction shows it.
+Visible source-backed connections may use schematic provenance. AI-created net groupings must use
+source.kind=ai_inference and status=uncertain; never return a non-null net with unknown provenance.
 Set disposition=blocked only for an explicit blocked/plugged symbol and terminated only for an explicit
 termination. Unreadable or unconnected-looking terminals remain unknown; never turn unknown into blocked.
 Represent each cartridge/component separately with all its hydraulic ports; do NOT connect different
@@ -189,88 +205,105 @@ def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, iden
     result = dict(components=[], ports=[], nets=[], claims=[], evidence=[], design_intent=[],
                   unresolved=[], warnings=list(reading.warnings))
     groups = {}
+    port_locations = []
 
     def unresolved(description, subject=None):
         result['unresolved'].append(dict(id=f'U{len(result["unresolved"])+1}', reason='review_required',
                                          description=description, subject_ids=[subject] if subject else []))
 
-    def evidence(source):
+    def normalization_category(location):
+        if location and location.startswith('requirements['):
+            return 'requirement_normalization_invalid'
+        if location and location.startswith(('components[', 'external_ports[')):
+            return 'topology_normalization_invalid'
+        return 'other_normalization_error'
+
+    def evidence(source, location=None):
         key = f'E{len(result["evidence"])+1}'
         entry = dict(id=key, kind=source.kind, quote=source.quote)
         if source.document is not None:
             if source.document > len(inputs.documents):
-                raise ValueError('Source document does not exist')
+                raise NormalizationFailure('source_document_invalid', location)
             doc = inputs.documents[source.document - 1]
-            if not source.page or page_counts and source.page > page_counts[doc.id]:
-                raise ValueError('Source page does not exist')
+            if not source.page or page_counts is not None and (doc.id not in page_counts or source.page > page_counts[doc.id]):
+                raise NormalizationFailure('source_page_invalid', location)
             entry.update(document_id=doc.id, page=source.page, bbox=source.bbox)
-        if source.kind == 'schematic' and (source.document is None or source.page is None):
-            raise ValueError('Schematic facts need document and page')
+        if source.document is None and (source.kind == 'schematic' or source.page is not None):
+            raise NormalizationFailure('source_document_invalid', location)
+        if source.kind == 'schematic' and not source.quote.strip():
+            raise NormalizationFailure(normalization_category(location), location)
         if source.kind == 'user_requirement':
             start = inputs.engineering_requirements.find(source.quote)
             if not source.quote or start < 0:
-                raise ValueError('User source quote is not in the original instruction')
+                raise NormalizationFailure('user_quote_not_exact', location)
             entry['requirement_span'] = [start, start + len(source.quote)]
+        try:
+            Evidence.model_validate(entry)
+        except ValidationError:
+            raise NormalizationFailure(normalization_category(location), location) from None
         result['evidence'].append(entry)
         return key
 
-    def claim(subject, predicate, observation, unit=''):
+    def claim(subject, predicate, observation, unit='', *, location=None):
         key = f'K{len(result["claims"])+1}'
         origin = observation.source.kind if observation.value is not None else 'unknown'
-        ids = [evidence(observation.source)] if observation.source.kind != 'unknown' else []
+        ids = [evidence(observation.source, location)] if observation.source.kind != 'unknown' else []
         status = 'unresolved' if observation.value is None else 'confirmed' if observation.status == 'clear' and origin != 'ai_inference' else 'uncertain'
         result['claims'].append(dict(id=key, subject_id=subject, predicate=predicate, value=observation.value,
                                      unit=unit, kind=origin, status=status, confidence=observation.confidence,
                                      evidence_ids=ids, explanation='Model observation; engineer acceptance is separate.'))
         return key
 
-    def label_claim(subject, label, source):
+    def label_claim(subject, label, source, location=None):
         if source.kind == 'unknown':
             source = Source(kind='ai_inference', quote='')
-        return claim(subject, 'label', Observation(value=label, status='uncertain', source=source))
+        return claim(subject, 'label', Observation(value=label, status='uncertain', source=source), location=location)
 
-    def port(p, key, owner=None):
-        ids = [label_claim(key, p.label, p.net.source), claim(key, 'net_assignment', p.net),
-               claim(key, 'port_specification', p.specification)]
-        ids += [claim(key, x.name, x.reading, x.unit) for x in p.parameters]
+    def port(p, key, owner=None, *, location):
+        ids = [label_claim(key, p.label, p.net.source, location), claim(key, 'net_assignment', p.net, location=location),
+               claim(key, 'port_specification', p.specification, location=location)]
+        ids += [claim(key, x.name, x.reading, x.unit, location=location) for x in p.parameters]
         result['ports'].append(dict(id=key, component_id=owner, claim_ids=ids,disposition=p.disposition))
+        port_locations.append(location)
         if p.disposition=='connected' and p.net.value is not None:
-            groups.setdefault(p.net.value, []).append((key, p.net))
+            groups.setdefault(p.net.value, []).append((key, p.net, location))
         elif p.disposition=='unknown':
             unresolved(f'{p.label}: hydraulic connection is unknown; confirm it before generation.', key)
 
     for i, component in enumerate(reading.components, 1):
         key = f'C{i}'
+        location = f'components[{i - 1}]'
         for index, field in identity_omissions:
             if index == i - 1:
                 unresolved(f'{field}: unsupported model value discarded because provenance was missing. Confirm from source or correct through engineer review before product selection.', key)
-        ids = [label_claim(key, component.label, component.source)]
-        ids += [claim(key, name, getattr(component, name)) for name in ('functional_type', 'manufacturer', 'model', 'cavity')]
-        ids += [claim(key, x.name, x.reading, x.unit) for x in component.parameters]
+        ids = [label_claim(key, component.label, component.source, location)]
+        ids += [claim(key, name, getattr(component, name), location=location) for name in ('functional_type', 'manufacturer', 'model', 'cavity')]
+        ids += [claim(key, x.name, x.reading, x.unit, location=location) for x in component.parameters]
         ports = [f'C{i}P{j}' for j in range(1, len(component.ports) + 1)]
         result['components'].append(dict(id=key, port_ids=ports, claim_ids=ids))
-        for key_port, p in zip(ports, component.ports):
-            port(p, key_port, key)
+        for j, (key_port, p) in enumerate(zip(ports, component.ports)):
+            port(p, key_port, key, location=f'{location}.ports[{j}]')
     for i, p in enumerate(reading.external_ports, 1):
-        port(p, f'EXT{i}')
+        port(p, f'EXT{i}', location=f'external_ports[{i - 1}]')
     for i, (name, members) in enumerate(groups.items(), 1):
         key = f'N{i}'
-        origins = {obs.source.kind for _, obs in members}
+        origins = {obs.source.kind for _, obs, _ in members}
         origin = next(iter(origins)) if len(origins) == 1 else 'ai_inference'
-        sources = [evidence(obs.source) for _, obs in members if obs.source.kind != 'unknown']
+        sources = [evidence(obs.source, location) for _, obs, location in members if obs.source.kind != 'unknown']
         connection_key = f'K{len(result["claims"])+1}'
         result['claims'].append(dict(id=connection_key, subject_id=key, predicate='connection', value='connected',
-                                     kind=origin, status='confirmed' if all(obs.status == 'clear' for _, obs in members) else 'uncertain',
+                                     kind=origin, status='confirmed' if origin in ('schematic', 'user_requirement') and all(obs.status == 'clear' for _, obs, _ in members) else 'uncertain',
                                      evidence_ids=sources[:20]))
         label_key = label_claim(key, name, Source(kind='ai_inference'))
-        result['nets'].append(dict(id=key, members=[p for p, _ in members], claim_ids=[connection_key, label_key]))
+        result['nets'].append(dict(id=key, members=[p for p, _, _ in members], claim_ids=[connection_key, label_key]))
 
     covered = set()
     for i, requirement in enumerate(reading.requirements, 1):
         key = f'I{i}'
         source = Source(kind='user_requirement', quote=requirement.quote)
         k = claim(key, requirement.property, Observation(value=requirement.value,
-                  status='uncertain' if requirement.value is not None else 'unknown', source=source), requirement.unit)
+                  status='uncertain' if requirement.value is not None else 'unknown', source=source), requirement.unit,
+                  location=f'requirements[{i - 1}]')
         start = inputs.engineering_requirements.find(requirement.quote)
         covered.update(range(start, start + len(requirement.quote)))
         result['design_intent'].append(dict(id=key, category=requirement.category, property=requirement.property,
@@ -283,4 +316,21 @@ def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, iden
             unresolved('Instruction not fully interpreted: ' + match.group().strip())
     for message in reading.unresolved:
         unresolved(message)
-    return HydraulicRepresentation.model_validate(result)
+    try:
+        return HydraulicRepresentation.model_validate(result)
+    except ValidationError as exc:
+        # Classify contract-owned paths only; discard arbitrary error bodies/inputs.
+        errors = exc.errors(include_input=False, include_context=False, include_url=False)
+        path = errors[0]['loc'] if errors else ()
+        if path and path[0] == 'design_intent':
+            location = f'requirements[{path[1]}]' if len(path) > 1 and type(path[1]) is int else None
+            raise NormalizationFailure('requirement_normalization_invalid', location) from None
+        if path and path[0] in ('components', 'ports', 'nets'):
+            location = None
+            if len(path) > 1 and type(path[1]) is int:
+                if path[0] == 'components' and 0 <= path[1] < len(reading.components):
+                    location = f'components[{path[1]}]'
+                elif path[0] == 'ports' and 0 <= path[1] < len(port_locations):
+                    location = port_locations[path[1]]
+            raise NormalizationFailure('topology_normalization_invalid', location) from None
+        raise NormalizationFailure('other_normalization_error') from None

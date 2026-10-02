@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from .providers import ProviderResponse, ProviderFailure
 from .semantic import CircuitReading, INSTRUCTIONS, normalize, prompt_schema
 from .documents import render
-from .diagnostics import Diagnostics, Attempt, TOKENS, aggregate, normalize_usage
+from .diagnostics import Diagnostics, Attempt, NormalizationDetail, NormalizationFailure, TOKENS, aggregate, normalize_usage
 from .transport_controls import reasoning_parameters
 from .validation_details import safe_validation_errors
 from .identity_admission import recover_unknown_identity
@@ -114,7 +114,9 @@ class MultimodalProvider:
                 attempt['phase'] = 'normalization'
                 try:
                     result = normalize(reading, request.inputs, pages_by_doc, identity_omissions)
-                except (ValueError, TypeError, KeyError):
+                except (ValueError, TypeError, KeyError) as exc:
+                    detail = exc.detail if isinstance(exc, NormalizationFailure) else NormalizationDetail(category='other_normalization_error')
+                    attempt['normalization_error'] = detail.model_dump()
                     raise ProviderFailure('NORMALIZATION_FAILED') from None
                 if time.monotonic() > deadline:
                     raise ProviderFailure('PROVIDER_TIMEOUT')
@@ -132,7 +134,8 @@ class MultimodalProvider:
                 if index == settings.contract_retries or exc.code not in ('INVALID_STRUCTURED_OUTPUT','NORMALIZATION_FAILED'):
                     raise
                 # Opt-in fresh contract attempt. Never replay the response or reasoning text.
-                errors = json.dumps(attempt['validation_errors'],ensure_ascii=False,separators=(',',':'))
+                errors = json.dumps(dict(validation_errors=attempt['validation_errors'],
+                    normalization_error=attempt['normalization_error']),ensure_ascii=False,separators=(',',':'))
                 messages = [*messages, dict(role='user', content='The preceding request failed semantic contract validation. '
                     'Return one schema-valid JSON object with exact original requirement quotes, valid source pages '
                     'and null for unknown observations. Do not include extra properties. '

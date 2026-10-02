@@ -26,6 +26,21 @@ class ValidationDetail(Strict):
     action: Literal['rejected','normalized'] = 'rejected'
 
 
+class NormalizationDetail(Strict):
+    category: Literal['source_document_invalid', 'source_page_invalid', 'user_quote_not_exact',
+                      'topology_normalization_invalid', 'requirement_normalization_invalid',
+                      'other_normalization_error']
+    # Only contract-owned fields and bounded array indices; never provider labels/text.
+    location: str | None = Field(default=None, max_length=80,
+        pattern=r'^(?:requirements\[[0-9]{1,3}\]|components\[[0-9]{1,3}\](?:\.ports\[[0-9]{1,3}\])?|external_ports\[[0-9]{1,3}\])$')
+
+
+class NormalizationFailure(ValueError):
+    def __init__(self, category, location=None):
+        self.detail = NormalizationDetail(category=category, location=location)
+        super().__init__(self.detail.category)
+
+
 class Attempt(Strict):
     index: int = Field(ge=1)
     phase: Phase = 'provider_call'
@@ -44,6 +59,7 @@ class Attempt(Strict):
     usage_final: bool = False
     validation_error_count: int | None = Field(default=None, ge=0)
     validation_errors: list[ValidationDetail] = Field(default_factory=list)
+    normalization_error: NormalizationDetail | None = None
     stream_completed: bool | None = None
 
 
@@ -63,7 +79,7 @@ class Diagnostics(Strict):
     max_tokens_parameter: Literal['max_tokens', 'max_completion_tokens'] = 'max_tokens'
     stream: bool = False
     timeout_seconds: float = Field(default=120, gt=0)
-    prompt_revision: Literal['circuit-reading-1-compact-v2', 'circuit-reading-1-compact-v3', 'circuit-reading-1-compact-v4', 'circuit-reading-1-compact-v5'] = 'circuit-reading-1-compact-v5'
+    prompt_revision: Literal['circuit-reading-1-compact-v2', 'circuit-reading-1-compact-v3', 'circuit-reading-1-compact-v4', 'circuit-reading-1-compact-v5', 'circuit-reading-1-compact-v6'] = 'circuit-reading-1-compact-v6'
     prompt_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     schema_chars: int = Field(default=0, ge=0)
     text_chars: int = Field(default=0, ge=0)
