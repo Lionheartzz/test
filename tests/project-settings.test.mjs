@@ -10,7 +10,8 @@ test('Project Settings owns engineering inputs and excludes generation and imple
   const element=(tag,text)=>({tag,text,children:[],append(...n){this.children.push(...n);nodes.push(...n);}}),content=element('div');
   const show=projectSettings({get:()=>d,$:()=>content,element,field:(_,label,value,onChange)=>{const field={value,onChange};fields.set(label,field);return field;},change:fn=>{fn();return true;}},{open:title=>assert.equal(title,'Project Settings')});show();
   for(const label of ['Project unit preference','Default design pressure / bar','Default flow / L/min','Default velocity limit / m/s',
-    'Pressure safety factor','Minimum wall / ligament (optional) / mm','Preferred wall margin (optional) / mm','Design priority','Default drilling mode','Minimum X / mm','Maximum Z / mm'])assert(fields.has(label),label);
+    'Pressure safety factor','Minimum wall / ligament (optional) / mm','Preferred wall margin (optional) / mm','Design priority','Default drilling mode'])assert(fields.has(label),label);
+  for(const axis of ['X','Y','Z'])for(const bound of ['Minimum','Maximum'])assert(!fields.has(bound+' '+axis+' / mm'));
   assert(![...fields.keys()].some(label=>/face|OCCT|overlap|attempt|timeout|stress/i.test(label)));
   fields.get('Default design pressure / bar').onChange(250);assert.equal(d.project_defaults.pressure_bar,250);
   assert.equal(d.nets[0].routing_variant,null);assert.equal(d.nets[1].routing_variant,'fixed');

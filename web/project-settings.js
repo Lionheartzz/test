@@ -1,4 +1,4 @@
-import {setDesignPriority,setEnvelopeMaximum} from './engineering-inputs.js';
+import {setDesignPriority} from './engineering-inputs.js';
 
 export function projectSettings(ctx,{open}){
   const {get,field,element,change,$}=ctx;
@@ -12,14 +12,6 @@ export function projectSettings(ctx,{open}){
     const general=section('General');edit(general,'Project name',d.name,v=>d.name=v);
     edit(general,'Project unit preference',d.project_context,v=>d.project_context=v,{metric:'Metric',inch:'Imperial'});
     general.append(element('p','Controls defaults and ordering. Metric and inch standards may be mixed.','property-note'));
-    for(const [index,axis]of ['X','Y','Z'].entries()){
-      edit(general,'Maximum '+axis+' / mm',d.constraints.envelope_max?.[index]===2000?'':d.constraints.envelope_max?.[index]??'',v=>setEnvelopeMaximum(d,index,v),null,'optional');
-      edit(general,'Minimum '+axis+' / mm',d.constraints.envelope_min?.[index]||'',v=>{
-        const values=[...(d.constraints.envelope_min||[0,0,0])];values[index]=v??0;
-        if(values.some(x=>!Number.isFinite(x)||x<0||x>2000))throw Error('Minimum envelope must be between 0 and 2000 mm.');
-        d.constraints.envelope_min=values.some(Boolean)?values:null;
-      },null,'optional');
-    }
     const hydraulic=section('Hydraulic defaults');
     for(const [key,label,numeric]of [['pressure_bar','Default design pressure / bar','optional'],['flow_lpm','Default flow / L/min','optional'],['velocity_limit','Default velocity limit / m/s',true]])
       edit(hydraulic,label,d.project_defaults[key]??'',v=>d.project_defaults[key]=v,null,numeric);
