@@ -58,6 +58,14 @@ def start(task_id,operation,payload):
     return read(key)
 
 
+def delete_task(task_id):
+    service.identifier(task_id)
+    with _guard:
+        if _active and read(_active)['task_id']==task_id:
+            raise service.Conflict('This AI Design has a queued or running operation. Wait for it to finish before deleting it.')
+        return service.delete_owned(task_id)
+
+
 def _execute(record):
     global _active
     def update(message):

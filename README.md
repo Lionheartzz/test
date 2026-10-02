@@ -54,6 +54,8 @@ Studio 的 **Project → Project Settings** 管理项目名称、单位偏好、
 
 ## AI Design · 原理图生成可编辑三维草稿
 
+**AI Design** 总是进入 **Management**：查看分析状态、图纸摘要与生成草稿数量，显式 Open/New 或删除 workspace。未保存编辑通过 Resume 保留；删除不会移除已保存的 Manifold Project 或共享图纸，运行中的任务不能删除。工程解析区分来源身份、兼容关系与可执行定义；相同规格的端口共用一次工程选择，只合并真正等价的加工/安装定义。当前数据缺口与验收见 [AI management and resolution](AI_MANAGEMENT_RESOLUTION_REPORT.md)。
+
 从 **AI Design → Provider settings** 自行填写 API 地址、多模态模型名和密钥，没有预设厂商或模型。上传 PDF / PNG / JPEG，输入工程要求，选择配置的模型并点击 **Analyze & create manifold draft**。确认未解决的孔腔选择和液压窗口映射后，系统使用已有库几何、自动布置/布线和精确校验生成草稿；通过 **Open draft in Manifold Studio** 进入普通项目编辑、保存和校验。
 
 当前支持 Chat Completions 图像输入接口。所选图纸和要求会发送给你配置的服务；凭据仅存服务器本机忽略目录，不随项目导出。AI 分析仅使用已配置的真实提供者；未配置时请先完成 Provider settings。模拟提供者和样例原理图仅保留在开发测试目录，不提供正式界面入口。第一版最多 4 个插装阀，采用有限候选搜索；未知接口、兼容性和无法执行的要求保留人工审核。已测试本地模拟服务传输及实际孔腔 CAD 流程，未验证付费远端模型识别准确率。

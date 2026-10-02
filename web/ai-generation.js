@@ -5,7 +5,7 @@ export async function inspectGeneratedDraft(packet,post){
   return {design:inspection.design,definitions:inspection.engineering?.definitions||{},threads:inspection.engineering?.threads||{}};
 }
 
-export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) {
+export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, onPreflight=()=>{}}) {
   const {$,element,field,action,api,post,newProject}=ctx, content=$('workflow-content');
   const faceOptions={'':'Use interpreted requirements / proposal',top:'Top',bottom:'Bottom',left:'Left',right:'Right',front:'Front',back:'Back'};
   let options={},optionRun=null,screen=0,busy=false;
@@ -17,7 +17,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
   async function settings(onSaved){
     const token=++screen;open('AI Design · Provider settings');content.classList.add('ai-content');
     content.append(element('p','Configure your own multimodal endpoint and model. Credentials stay in this computer’s private local settings file and are never exported with a project.'));
-    const current=await api('/api/ai-design/settings');if(token!==screen||!here())return;
+    const current=await api('/api/ai-design/settings');if(token!==screen||!here()||$('workflow-title').textContent!=='AI Design · Provider settings')return;
     if(current.configuration_warning)content.append(element('p',current.configuration_warning,'review-warning'));
     const form=element('section',null,'ai-inputs');content.append(form);
     const value=Object.fromEntries(Object.entries(current).filter(([key])=>!['ready','key_present','configuration_warning'].includes(key)));value.api_key='';
@@ -50,8 +50,8 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
     form.append(element('p','Streaming must be supported by the endpoint. Usage may arrive only at the end; interrupted calls can still have unavailable totals. Auth, HTTP, timeout and truncation failures are never automatically retried.','property-note'));
     for(const [name,label]of [['timeout_seconds','Total provider timeout (seconds)'],['max_pages','Maximum pages per analysis'],['image_max_side','Maximum image side (pixels)']])field(form,label,value[name],v=>value[name]=v,null,true);
     form.append(element('p','The selected provider must support image_url data images. PDFs are rendered locally into pages. Files and original requirements are sent only when you start an analysis. Changing the endpoint requires entering its key again.','property-note'));
-    action(form,'Save provider settings',safe(async()=>{const raw=tokens.value.trim();if(raw&&(!/^[0-9]+$/.test(raw)||BigInt(raw)<1n))throw Error('Maximum output tokens must be a positive whole number, or blank for the provider default.');value.max_tokens=raw||null;const result=await post('/api/ai-design/settings',value);key.value='';value.api_key='';await onSaved(result);if(here())back();}));
-    if(current.key_present)action(form,'Forget stored API key',safe(async()=>{await post('/api/ai-design/settings/clear-key',{});await onSaved({ready:false});if(here())back();}));
+    action(form,'Save provider settings',safe(async()=>{const raw=tokens.value.trim();if(raw&&(!/^[0-9]+$/.test(raw)||BigInt(raw)<1n))throw Error('Maximum output tokens must be a positive whole number, or blank for the provider default.');value.max_tokens=raw||null;const result=await post('/api/ai-design/settings',value);key.value='';value.api_key='';await onSaved(result);if(here()&&$('workflow-title').textContent==='AI Design · Provider settings')back();}));
+    if(current.key_present)action(form,'Forget stored API key',safe(async()=>{await post('/api/ai-design/settings/clear-key',{});await onSaved({ready:false});if(here()&&$('workflow-title').textContent==='AI Design · Provider settings')back();}));
     action(form,'Back to analysis',back);
   }
 
@@ -61,7 +61,8 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
     reset(run);const token=++screen;open('AI Design · Create manifold draft');content.classList.add('ai-content');
     content.append(element('p','Resolving existing library data and engineering requirements…','loading-state'));
     const plan=await post(`/api/ai-design/tasks/${task.id}/generation/preflight`,{expected_revision:task.revision,run_id:run.id,options});
-    if(token!==screen||!here())return;
+    if(token!==screen||!here()||$('workflow-title').textContent!=='AI Design · Create manifold draft')return;
+    onPreflight(task,plan);
     renderPlan(task,run,plan);
     if(autoGenerate&&plan.ready)await generate(task,run);
   }
@@ -71,7 +72,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
     action(content,'Back to hydraulic analysis',back);
     content.append(element('p',`${run.provider.is_mock?'MOCK analysis':'AI analysis'} · ${run.provider.id} / ${run.provider.model}. The result will open as an editable Draft, with exact checks and unresolved engineering decisions visible.`,'ai-provider-note'));
     if(plan.blocked.length){const summary=element('section',null,'ai-blocked');summary.setAttribute('role','alert');summary.tabIndex=-1;
-      summary.append(element('h3',attempted?`Draft not generated · ${plan.blocked.length} blockers remain`:`Draft generation needs ${plan.blocked.length} decisions`),element('p','Resolve the items below, then recheck or generate again. Your saved analysis is retained; no new AI call is needed.'));
+      summary.append(element('h3',attempted?`Draft not generated · ${plan.blocked.length} blockers remain`:`Draft generation needs ${plan.blocked.length} decision${plan.blocked.length===1?'':'s'}`),element('p','Resolve the items below, then recheck or generate again. Your saved analysis is retained; no new AI call is needed.'));
       const list=element('ul');for(const message of plan.blocked)list.append(element('li',message));summary.append(list);content.append(summary);
       if(attempted){summary.focus();summary.scrollIntoView({block:'start'});}
     }
@@ -81,6 +82,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
     if(!plan.components.length)content.append(element('p','No cartridges in this circuit. A port/distribution block can be generated if the net topology is usable.'));
     for(const component of plan.components){
       const card=element('section',null,'library-card');content.append(card);card.append(element('h4',component.label+(component.model?' · '+component.model:'')));
+      const conditions=Object.entries(component.recognized_facts||{}).filter(([key,value])=>value!=null&&/pressure|flow|passage|bore/i.test(key));if(conditions.length)card.append(element('p','Recognized schematic: '+conditions.map(([key,value])=>key.replaceAll('_',' ')+': '+value).join(' · ')));
       const binding=options.bindings[component.id],definition=component.definition;
       const choice=component.choices.find(row=>row.cartridge_id===component.cartridge_id);
       if(choice?.engineering_facts)engineeringFactsUI(ctx,card,choice.engineering_facts,{title:'Cartridge engineering data'});
@@ -101,13 +103,28 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
       field(card,'Mounting face · '+component.label,options.component_faces[component.id]||'',v=>{if(v)options.component_faces[component.id]=v;else delete options.component_faces[component.id];},faceOptions);
     }
     content.append(element('h3','External ports'));
+    const grouped=new Set();
+    for(const group of plan.external_port_groups||[]){
+      if(!group.normalized)continue;
+      const rows=plan.external_ports.filter(p=>group.port_ids.includes(p.id));
+      const selected=rows.every(p=>options.port_definitions[p.id])&&new Set(rows.map(p=>options.port_definitions[p.id].definition_key)).size===1;
+      const card=element('section',null,'library-card');content.append(card);card.append(element('h4',group.specification+' external port definition'),element('p','Applies to: '+group.labels.join(', ')));
+      if(!group.unresolved_ids.length&&!selected){card.append(element('p',group.code==='resolved'?'Resolved: '+group.canonical.label:'Individual engineering choices retained.'));continue;}
+      const ids=selected?group.port_ids:group.unresolved_ids;ids.forEach(id=>grouped.add(id));
+      if(selected){card.append(element('p','Selected: '+rows[0].definition.label));field(card,'Port definition decision · '+group.specification,options.port_definitions[ids[0]].decision||'',v=>{for(const id of ids)options.port_definitions[id].decision=v;});action(card,'Clear selected '+group.specification,()=>{for(const id of ids)delete options.port_definitions[id];prepare().catch(e=>$('workflow-error').textContent=e.message);});}
+      else{card.append(element('p',group.logical_count?'Multiple non-equivalent engineering definitions. Choose one.':'No complete usable source definition is available.','review-warning'));}
+      const select=async choice=>{for(const id of ids){delete options.provisional_ports[id];options.port_definitions[id]={definition_key:choice.key,definition_sha256:choice.sha256,zone_ports:{},decision:''};}await prepare();};
+      for(const choice of group.choices)action(card,'Use '+choice.label+' · '+choice.unit,safe(()=>select(choice)));
+      librarySearch(card,task,'external-port',group.specification,select);
+    }
+
     for(const port of plan.external_ports){
       const card=element('section',null,'library-card');content.append(card);card.append(element('h4',port.label),element('p','Schematic specification: '+(port.specification||'Unknown')));
-      if(port.definition){card.append(element('p','Selected: '+port.definition.label));if(options.port_definitions[port.id]){field(card,'Port definition decision · '+port.label,options.port_definitions[port.id].decision||'',v=>options.port_definitions[port.id].decision=v);action(card,'Clear selected definition · '+port.label,()=>{delete options.port_definitions[port.id];prepare().catch(e=>$('workflow-error').textContent=e.message);});}}
-      else if(port.standard)card.append(element('p','REVIEW REQUIRED · This explicit '+port.standard+' requirement needs a complete matching SQLite external-port definition. A straight bore is not equivalent.','error'));
-      else{card.append(element('p',port.provisional?'One-off Custom Straight Bore selected; thread and fitting compatibility remain intentionally unresolved.':'No standard identity was supplied. You may explicitly select a one-off Custom Straight Bore with an engineering decision.'));if(port.provisional){field(card,'Provisional straight-bore decision · '+port.label,options.provisional_ports[port.id]||'',v=>options.provisional_ports[port.id]=v);action(card,'Cancel provisional straight bore',()=>{delete options.provisional_ports[port.id];prepare().catch(e=>$('workflow-error').textContent=e.message);});}else action(card,'Choose One-off Custom Straight Bore · '+port.label,()=>{options.provisional_ports[port.id]='';prepare().catch(e=>$('workflow-error').textContent=e.message);});}
+      if(port.definition){card.append(element('p','Selected: '+port.definition.label));if(options.port_definitions[port.id]&&!grouped.has(port.id)){field(card,'Port definition decision · '+port.label,options.port_definitions[port.id].decision||'',v=>options.port_definitions[port.id].decision=v);action(card,'Clear selected definition · '+port.label,()=>{delete options.port_definitions[port.id];prepare().catch(e=>$('workflow-error').textContent=e.message);});}}
+      else if(port.standard&&!grouped.has(port.id))card.append(element('p','REVIEW REQUIRED · This explicit '+port.standard+' requirement needs a complete matching SQLite external-port definition. A straight bore is not equivalent.','error'));
+      else if(!port.standard){card.append(element('p',port.provisional?'One-off Custom Straight Bore selected; thread and fitting compatibility remain intentionally unresolved.':'No standard identity was supplied. You may explicitly select a one-off Custom Straight Bore with an engineering decision.'));if(port.provisional){field(card,'Provisional straight-bore decision · '+port.label,options.provisional_ports[port.id]||'',v=>options.provisional_ports[port.id]=v);action(card,'Cancel provisional straight bore',()=>{delete options.provisional_ports[port.id];prepare().catch(e=>$('workflow-error').textContent=e.message);});}else action(card,'Choose One-off Custom Straight Bore · '+port.label,()=>{options.provisional_ports[port.id]='';prepare().catch(e=>$('workflow-error').textContent=e.message);});}
       field(card,'Port face · '+port.label,options.port_faces[port.id]||'',v=>{if(v)options.port_faces[port.id]=v;else delete options.port_faces[port.id];},faceOptions);
-      librarySearch(card,task,'external-port',port.label,async choice=>{delete options.provisional_ports[port.id];options.port_definitions[port.id]={definition_key:choice.key,definition_sha256:choice.sha256,zone_ports:{},decision:''};await prepare();});
+      if(!grouped.has(port.id))librarySearch(card,task,'external-port',port.label,async choice=>{delete options.provisional_ports[port.id];options.port_definitions[port.id]={definition_key:choice.key,definition_sha256:choice.sha256,zone_ports:{},decision:''};await prepare();});
     }
     if(plan.mounting_requirements?.length||options.threaded_mounting_holes.length){const mounting=element('section');content.append(element('h3','Threaded mounting holes'),mounting);mounting.append(element('p','Thread identity and every U/V position are engineer-entered. The generator never invents a bolt pattern.'));for(const [index,row] of options.threaded_mounting_holes.entries()){const card=element('div',null,'library-card'),resolved=plan.mounting_holes?.[index];mounting.append(card);card.append(element('strong',resolved?.thread?.display_name||row.thread_definition_id));field(card,'Face',row.face,v=>row.face=v,faceOptions);field(card,'U / mm',row.u,v=>row.u=v,null,true);field(card,'V / mm',row.v,v=>row.v=v,null,true);field(card,'Drill depth / mm',row.depth,v=>row.depth=v,null,true);field(card,'Thread depth / mm',row.thread_depth,v=>row.thread_depth=v,null,true);field(card,'Termination',String(row.through),v=>row.through=v==='true',{false:'Blind',true:'Through'});action(card,'Remove mounting hole',()=>{options.threaded_mounting_holes.splice(index,1);prepare().catch(e=>$('workflow-error').textContent=e.message);});}
       const editor=element('details');editor.append(element('summary','Add explicitly positioned threaded mounting hole'));mounting.append(editor);api('/api/threads?usable_only=true&limit=500').then(response=>{const preferred=task.inputs?.project_context==='inch'?'UNC':'Metric';let family=response.families.includes(preferred)?preferred:response.families[0]||'',native='',threadId='',face='top',u=0,v=0,depth=20,threadDepth=16,through=false;const draw=()=>{editor.querySelectorAll(':scope > :not(summary)').forEach(node=>node.remove());field(editor,'Thread standard / family',family,value=>{family=value;threadId='';draw();},Object.fromEntries(response.families.map(value=>[value,value])));field(editor,'Native standard',native,value=>{native=value;threadId='';draw();},{'':'All',metric:'Metric-native',inch:'Inch-native'});const rows=response.items.filter(row=>row.normalized_family===family&&(!native||row.unit_system===native));if(!rows.some(row=>row.id===threadId))threadId=rows[0]?.id||'';field(editor,'Thread',threadId,value=>threadId=value,Object.fromEntries(rows.map(row=>[row.id,row.display_name+' · '+row.unit_system+' native'])));field(editor,'Face',face,value=>face=value,faceOptions);field(editor,'U / mm',u,value=>u=value,null,true);field(editor,'V / mm',v,value=>v=value,null,true);field(editor,'Drill depth / mm',depth,value=>depth=value,null,true);field(editor,'Thread depth / mm',threadDepth,value=>threadDepth=value,null,true);field(editor,'Termination',String(through),value=>through=value==='true',{false:'Blind',true:'Through'});action(editor,'Add resolved mounting hole',()=>{if(!threadId)throw Error('Select a source-backed thread.');options.threaded_mounting_holes.push({thread_definition_id:threadId,face,u,v,depth,thread_depth:threadDepth,through});prepare().catch(e=>$('workflow-error').textContent=e.message);});};draw();}).catch(e=>editor.append(element('p',e.message,'error')));field(mounting,'Mounting-hole engineering decision',options.mounting_decision,v=>options.mounting_decision=v);}
@@ -163,7 +180,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob}) 
       const job=await post(`/api/ai-design/tasks/${task.id}/generation/jobs`,payload);
       const result=await watchJob(job,progress);
       await refreshTask(task.id);
-      if(here())showPacket(result);
+      if(here()&&$('workflow-title').textContent==='AI Design · Create manifold draft')showPacket(result);
     }finally{busy=false;if(here())content.querySelectorAll('button,input,select,textarea').forEach(e=>e.disabled=false);}
   }
 

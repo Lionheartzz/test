@@ -97,8 +97,9 @@ def prepare(inputs, result, options):
         raise ValueError('Provisional-port choice refers to a missing external port')
     for component in result['components']:
         key = component['id']
-        choices = library.candidates(inputs, result, component)
-        resolution = library.resolution_status(inputs, result, component, choices)
+        identity=library.component_identity(result,component)
+        choices = library.candidates(inputs, result, component,identity)
+        resolution = library.resolution_status(inputs, result, component, choices,identity)
         selected = options.bindings.get(key)
         automatic = False
         if selected:
@@ -129,46 +130,51 @@ def prepare(inputs, result, options):
         cartridge_id=next((row.get('cartridge_id') for row in choices if definition and row['key']=='db:'+definition.id),None)
         components.append(dict(id=key, label=library.value(result,key,'label') or key,
                                model=library.identity_value(result,key,'model') or '',
+                               recognized_facts=dict(component.get('facts',{})),
                                cartridge_id=cartridge_id,
                                function=library.value(result,key,'functional_type') or '',
                                choices=choices, definition=definition, mapping=dict(mapping or {}),
                                automatic=automatic, decision=decision, resolution=resolution))
-    external = []
+    external = [];spec_resolutions={};port_groups={};port_blocks={}
     for port in result['ports']:
-        if port['component_id'] is not None or port.get('disposition') in ('blocked','terminated'):
-            continue
-        selected = options.port_definitions.get(port['id'])
+        if port['component_id'] is not None or port.get('disposition') in ('blocked','terminated'):continue
+        selected=options.port_definitions.get(port['id'])
         specification=library.value(result,port['id'],'port_specification') or ''
-        automatic=False
-        definition = library.load(inputs, selected.definition_key, selected.definition_sha256) if selected else None
-        if not definition and specification:
-            matches=library.exact_port_candidates(inputs,specification)
-            preferred=[row for row in matches if row['unit']==inputs.project_context]
-            unique=preferred if len(preferred)==1 else matches if len(matches)==1 else []
-            if unique:
-                definition=library.load(inputs,unique[0]['key'],unique[0]['sha256']);automatic=True
-        if definition and (definition.kind != 'external-port' or len(definition.zones) != 1):
+        normalized=library.normalized_port_specification(specification)
+        group_key=normalized or ('unspecified',port['id'])
+        if group_key not in spec_resolutions:spec_resolutions[group_key]=library.resolve_port_specification(inputs,specification)
+        resolution=spec_resolutions[group_key]
+        group=port_groups.setdefault(group_key,dict(id='PORTSPEC_'+service.digest(group_key)[:12],**resolution,port_ids=[],labels=[],unresolved_ids=[]))
+        label=library.value(result,port['id'],'label') or port.get('facts',{}).get('net_assignment') or port['id']
+        group['port_ids'].append(port['id']);group['labels'].append(label)
+        automatic=False;definition=library.load(inputs,selected.definition_key,selected.definition_sha256) if selected else None
+        if not definition and resolution['canonical']:
+            chosen=resolution['canonical'];definition=library.load(inputs,chosen['key'],chosen['sha256']);automatic=True
+        if definition and (definition.kind!='external-port' or len(definition.zones)!=1):
             raise ValueError('External ports require a source external-port definition with one hydraulic interface')
-        if definition and selected and not selected.decision.strip():
-            blocked.append(f'{port["id"]}: confirm the external-port definition choice.')
         requested_standard,requested_size=library.port_standard(specification)
-        if definition and requested_standard:
-            if not requested_size or definition.id not in {
-                    row['key'][3:] for row in library.exact_port_candidates(inputs,specification)}:
-                blocked.append(f'{port["id"]}: selected port conflicts with explicit source standard “{specification}”. Correct the source requirement before selecting a different standard.')
+        if definition and selected and not selected.decision.strip():
+            port_blocks.setdefault((group_key,selected.definition_key,'decision'),[]).append(label)
+        if definition and requested_standard and (not requested_size or definition.id not in {
+                row['key'][3:] for row in library.exact_port_candidates(inputs,specification)}):
+            blocked.append(f'{label}: selected port conflicts with explicit source standard “{specification}”. Correct the source requirement before selecting a different standard.')
         provisional=port['id'] in options.provisional_ports
-        if provisional and library.port_standard(specification)[0]:
-            blocked.append(f'{port["id"]}: explicit standard {specification} cannot be replaced by a straight bore. Resolve a complete matching port definition.')
+        if provisional and requested_standard:
+            blocked.append(f'{label}: explicit standard {specification} cannot be replaced by a straight bore. Resolve a complete matching port definition.')
         if provisional and not options.provisional_ports[port['id']].strip():
-            blocked.append(f'{port["id"]}: explicit one-off straight-bore use requires an engineering decision.')
+            blocked.append(f'{label}: explicit one-off straight-bore use requires an engineering decision.')
         if not definition and not provisional:
-            detail=(f'No unique usable complete SQLite port matches “{specification}”.' if specification else
-                    'No complete external-port definition was selected.')
-            blocked.append(f'{port["id"]}: {detail} Select a standard/custom SQLite port or explicitly approve a one-off Custom Straight Bore.')
-        external.append(dict(id=port['id'], label=library.value(result,port['id'],'label') or port['id'],
-                             specification=library.value(result,port['id'],'port_specification') or '',
-                             definition=definition, decision=selected.decision if selected else options.provisional_ports.get(port['id'],' ' if automatic else ''),
-                             automatic=automatic,provisional=provisional,standard=library.port_standard(specification)[0]))
+            group['unresolved_ids'].append(port['id']);port_blocks.setdefault((group_key,'','missing'),[]).append(label)
+        external.append(dict(id=port['id'],label=label,specification=specification,definition=definition,
+            decision=selected.decision if selected else options.provisional_ports.get(port['id'],' ' if automatic else ''),
+            automatic=automatic,provisional=provisional,standard=requested_standard,resolution=resolution,group_id=group['id']))
+    for (key,choice,reason),labels in port_blocks.items():
+        resolution=spec_resolutions[key];label=resolution['specification'] or ', '.join(labels)
+        if reason=='decision':detail='Confirm the selected external-port definition choice.'
+        elif resolution['code']=='port_specification_ambiguous':detail='Multiple non-equivalent engineering definitions exist. Choose one.'
+        elif resolution['normalized']:detail='No usable complete source-backed external-port definition is available.'
+        else:detail='No complete external-port definition was selected. Select an existing definition or explicitly approve a one-off Custom Straight Bore.'
+        blocked.append(f'{label} · applies to {", ".join(labels)}: {detail}')
     from ..engineering_db import thread_definition
     mounting=[]
     if options.threaded_mounting_holes and not options.mounting_decision.strip():
@@ -196,7 +202,7 @@ def prepare(inputs, result, options):
             else:
                 row.update(status='applied', message='Targets remain distinct nets; cross-net physical intersections fail deterministic validation.')
     return dict(inputs=inputs, result=result, settings=settings, blocked=blocked, components=components,
-                external=external,mounting=mounting, port_net=port_net, options=options)
+                external=external,port_groups=port_groups,mounting=mounting, port_net=port_net, options=options)
 
 
 def preflight(key, request):
@@ -206,7 +212,7 @@ def preflight(key, request):
         return {**{k:v for k,v in row.items() if k != 'definition'},
                 'definition': library.summary('',row['definition']) if row['definition'] else None}
     return dict(ready=not plan['blocked'], blocked=plan['blocked'], components=[entry(c) for c in plan['components']],
-                external_ports=[entry(p) for p in plan['external']], dispositions=plan['settings']['dispositions'],
+                external_ports=[entry(p) for p in plan['external']], external_port_groups=list(plan['port_groups'].values()), dispositions=plan['settings']['dispositions'],
                 mounting_requirements=plan['settings']['mounting_requirements'],mounting_holes=[dict(hole=row['hole'].model_dump(),thread=row['thread']) for row in plan['mounting']],
                 ports=[dict(id=p['id'], component_id=p['component_id'], label=library.value(result,p['id'],'label') or p['id'],
                             net=plan['port_net'].get(p['id']),disposition=p.get('disposition','unknown')) for p in result['ports']],

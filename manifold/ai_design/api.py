@@ -41,6 +41,9 @@ def save(payload:SaveRequest):return call(service.save,payload.inputs,payload.ta
 @router.get('/tasks/{key}')
 def get(key:str):return call(lambda:service.snapshot(service.read(key)))
 
+@router.delete('/tasks/{key}')
+def delete(key:str):return call(jobs.delete_task,key)
+
 @router.post('/tasks/{key}/analyze')
 def analyze(key:str,payload:RunRequest):return call(service.analyze,key,payload.expected_revision,payload.provider)
 

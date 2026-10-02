@@ -111,9 +111,35 @@ def list_tasks():
     for item in folder().glob('*.json'):
         try:
             record=read(item.stem);state=snapshot(record)
-            rows.append(dict(id=record['id'],title=record['inputs']['title'],updated_at=record['updated_at'],documents=len(record['inputs']['documents']),stale=state['stale'],latest_run=record.get('latest_run'),latest_attempt=state['latest_attempt']))
+            rows.append(dict(id=record['id'],title=record['inputs']['title'],updated_at=record['updated_at'],documents=len(record['inputs']['documents']),
+                document_names=[d['asset']['name'] for d in record['inputs']['documents']],
+                generated_draft_count=sum(g['status']=='draft' for g in record.get('generations',[])),
+                latest_generation=record.get('generations',[])[-1] if record.get('generations') else None,
+                stale=state['stale'],latest_run=record.get('latest_run'),latest_attempt=state['latest_attempt']))
         except (ValueError,OSError,KeyError):continue
     return sorted(rows,key=lambda r:r['updated_at'],reverse=True)
+
+
+def delete_owned(key):
+    """Called under the AI job guard; shared assets and Manifold projects stay intact."""
+    import shutil
+    identifier(key)
+    task=path(key);outputs=store.OUTPUT/'ai-design'/key
+    if task.is_symlink() or outputs.is_symlink() or outputs.resolve()!=(store.OUTPUT/'ai-design').resolve()/key:
+        raise ValueError('Invalid AI workspace storage path')
+    with store.project_lock():
+        read(key)  # Missing workspace returns 404 before any removal.
+        owned_jobs=[]
+        from . import jobs
+        for item in (store.OUTPUT/'ai-jobs').glob('*.json'):
+            try:
+                record=json.loads(item.read_text(encoding='utf-8'))
+                if record.get('task_id')==key and item.stem==identifier(record['id']) and not item.is_symlink():owned_jobs.append(item)
+            except (ValueError,OSError,KeyError):continue
+        if outputs.exists():shutil.rmtree(outputs)
+        task.unlink()
+        for item in owned_jobs:item.unlink()
+    return dict(deleted=True,task_id=key)
 
 
 def load_run(key,run_id):

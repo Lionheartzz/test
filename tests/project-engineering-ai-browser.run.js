@@ -7,9 +7,9 @@ async page => {
   try{
     assert((await(await page.request.get(base+'/api/health')).json()).network.qa_isolated,'Isolated QA only');
     // Start with the completed, transparently marked test analysis. No model call.
-    if(await dialog.isHidden()){await page.getByRole('button',{name:'AI Design',exact:true}).click();await dialog.getByRole('heading',{name:'AI Design · Analysis workspaces',exact:true}).waitFor();}
+    if(await dialog.isHidden()){await page.getByRole('button',{name:'AI Design',exact:true}).click();await dialog.getByRole('heading',{name:'AI Design · Management',exact:true}).waitFor();}
     const create=dialog.getByRole('button',{name:'Create manifold draft',exact:true});
-    if(await dialog.getByRole('heading',{name:'AI Design · Analysis workspaces',exact:true}).count()){await dialog.getByRole('heading',{name:'Generation QA',exact:true}).locator('..').getByRole('button',{name:'Open analysis',exact:true}).click();await create.waitFor();}
+    if(await dialog.getByRole('heading',{name:'AI Design · Management',exact:true}).count()){await dialog.getByRole('heading',{name:'Generation QA',exact:true}).locator('..').getByRole('button',{name:'Open',exact:true}).click();await create.waitFor();}
     const returnToAnalysis=dialog.getByRole('button',{name:'Return to analysis',exact:true});if(await returnToAnalysis.count()){await returnToAnalysis.click();await create.waitFor();}
     if(await create.count())await create.click();await dialog.getByLabel('Preferred valve / cartridge face',{exact:true}).waitFor();
     if(!await dialog.getByLabel('VALVE_RV1 · window port1 → schematic port',{exact:true}).count()){
@@ -46,7 +46,7 @@ async page => {
     await page.waitForFunction(()=>document.querySelector('#dirty-dot')?.getAttribute('aria-label')==='Draft saved');
     const pose=JSON.stringify(saved.design.features.map(f=>[f.id,f.face,f.u,f.v]));
     await page.getByRole('button',{name:'AI Design',exact:true}).click();
-    await dialog.getByRole('heading',{name:'Generation QA',exact:true}).locator('..').getByRole('button',{name:'Open analysis',exact:true}).click();await create.waitFor();
+    await dialog.getByRole('heading',{name:'Generation QA',exact:true}).locator('..').getByRole('button',{name:'Open',exact:true}).click();await create.waitFor();
     await create.click();
     await dialog.getByLabel('Preferred valve / cartridge face',{exact:true}).selectOption('back');
     await dialog.getByLabel('Preferred external port face',{exact:true}).selectOption('right');await close();

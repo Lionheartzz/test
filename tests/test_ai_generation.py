@@ -279,7 +279,15 @@ def test_ai_mounting_and_provisional_ports_keep_explicit_engineering_standards(c
     automatic=generation.prepare(inputs_model,result,GenerationOptions(
         provisional_ports={'EXT_T':'Engineer approved a one-off bore.'}))
     resolved_port=next(row for row in automatic['external'] if row['id']=='EXT_P')
-    assert resolved_port['automatic'] and resolved_port['definition'].unit_system=='metric'
+    # Unit preference can choose inside an equivalent group, never across
+    # materially different source machining definitions.
+    from manifold.ai_design.library_resolution import resolve_port_specification
+    resolution=resolve_port_specification(inputs_model,'1/4-18 NPT')
+    if resolution['logical_count']==1:
+        assert resolved_port['automatic'] and resolved_port['definition'].unit_system=='metric'
+    else:
+        assert resolution['logical_count']>1 and not resolved_port['automatic'] and resolved_port['definition'] is None
+        assert any('Multiple non-equivalent' in row for row in automatic['blocked'])
     unified=next(row for row in search_threads('',usable_only=True,limit=500)
                  if row['display_name']=='3/8-16 UNC-2B' and row['unit_system']=='inch')
     options=GenerationOptions(

@@ -1,0 +1,176 @@
+{
+  "source": {
+    "task_id": "5c6769d0d15c4c78a81cd0fd4ef83217",
+    "run_id": "80cd97f2044247c29c7c659fdcdbf6c3",
+    "asset_sha256": "a6b511454517d487c04e96dc4974b223efc3ec0dca084021b67cea32896c4d3b",
+    "note": "Saved provider analysis of actual supplied schematic; no model call in regression tests."
+  },
+  "result": {
+    "schema_version": 2,
+    "components": [
+      {
+        "id": "C1",
+        "port_ids": [
+          "C1P1",
+          "C1P2",
+          "C1P3"
+        ],
+        "label": null,
+        "facts": {
+          "functional_type": null,
+          "manufacturer": null,
+          "model": "RDHA-LCN",
+          "cavity": null,
+          "crack_pressure": 280.0,
+          "P1_bore": 12.0,
+          "P2_bore": 12.0
+        },
+        "identity_valid": {
+          "manufacturer": false,
+          "model": true,
+          "cavity": false
+        }
+      }
+    ],
+    "ports": [
+      {
+        "id": "C1P1",
+        "component_id": "C1",
+        "label": null,
+        "facts": {
+          "net_assignment": "P",
+          "port_specification": null
+        },
+        "disposition": "connected",
+        "fact_kinds": {
+          "label": "schematic",
+          "net_assignment": "schematic",
+          "port_specification": "unknown"
+        },
+        "fact_units": {
+          "label": "",
+          "net_assignment": "",
+          "port_specification": ""
+        }
+      },
+      {
+        "id": "C1P2",
+        "component_id": "C1",
+        "label": null,
+        "facts": {
+          "net_assignment": "A",
+          "port_specification": null
+        },
+        "disposition": "connected",
+        "fact_kinds": {
+          "label": "schematic",
+          "net_assignment": "schematic",
+          "port_specification": "unknown"
+        },
+        "fact_units": {
+          "label": "",
+          "net_assignment": "",
+          "port_specification": ""
+        }
+      },
+      {
+        "id": "C1P3",
+        "component_id": "C1",
+        "label": null,
+        "facts": {
+          "net_assignment": "T1",
+          "port_specification": null
+        },
+        "disposition": "connected",
+        "fact_kinds": {
+          "label": "schematic",
+          "net_assignment": "schematic",
+          "port_specification": "unknown"
+        },
+        "fact_units": {
+          "label": "",
+          "net_assignment": "",
+          "port_specification": ""
+        }
+      },
+      {
+        "id": "EXT1",
+        "component_id": null,
+        "label": null,
+        "facts": {
+          "net_assignment": "P",
+          "port_specification": "1/4\" BSPP"
+        },
+        "disposition": "connected",
+        "fact_kinds": {
+          "label": "schematic",
+          "net_assignment": "schematic",
+          "port_specification": "schematic"
+        },
+        "fact_units": {
+          "label": "",
+          "net_assignment": "",
+          "port_specification": ""
+        }
+      },
+      {
+        "id": "EXT2",
+        "component_id": null,
+        "label": null,
+        "facts": {
+          "net_assignment": "A",
+          "port_specification": "1/4\" BSPP"
+        },
+        "disposition": "connected",
+        "fact_kinds": {
+          "label": "schematic",
+          "net_assignment": "schematic",
+          "port_specification": "schematic"
+        },
+        "fact_units": {
+          "label": "",
+          "net_assignment": "",
+          "port_specification": ""
+        }
+      }
+    ],
+    "nets": [
+      {
+        "id": "N1",
+        "members": [
+          "C1P1",
+          "EXT1"
+        ],
+        "label": "N1"
+      },
+      {
+        "id": "N2",
+        "members": [
+          "C1P2",
+          "EXT2"
+        ],
+        "label": "N2"
+      },
+      {
+        "id": "N3",
+        "members": [
+          "C1P3"
+        ],
+        "label": "N3"
+      }
+    ],
+    "design_intent": [],
+    "unresolved": [
+      {
+        "id": "UNRESOLVED_KB_ab861dc170dc2e43224e4527",
+        "subject_ids": [
+          "C1"
+        ],
+        "reason": "knowledge_unavailable",
+        "description": "Knowledge Base resolver is not connected. No cavity or rating inferred.",
+        "question": ""
+      }
+    ],
+    "warnings": []
+  }
+}
