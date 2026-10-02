@@ -176,7 +176,7 @@ class Feature(Strict):
     plugged: bool = False
     plug_length: Positive = 8
     clearance_diameter: Positive = 20
-    clearance_height: Positive = 20
+    clearance_height: float = Field(default=20, ge=0, le=2000, allow_inf_nan=False)
     connects_to: list[str] = Field(default_factory=list, max_length=40)
     suppressed: bool = False
     rotation: float = Field(default=0, ge=-360, le=360)
@@ -199,6 +199,10 @@ class Feature(Strict):
     def definition(self):
         return self.cavity_id if self.kind=='cavity' else self.port_definition_id
 
+    @property
+    def thread_only(self):
+        return self.kind=='port' and bool(self.thread_definition_id) and not self.port_definition_id
+
     @definition.setter
     def definition(self,value):
         if self.kind=='cavity':self.cavity_id=value
@@ -214,7 +218,9 @@ class Feature(Strict):
     def preserve_legacy_shape(self,handler):
         value=handler(self)
         if self.kind!='mounting':
-            value.pop('through',None);value.pop('mounting_mode',None);value.pop('thread_definition_id',None);value.pop('thread_depth',None)
+            value.pop('through',None);value.pop('mounting_mode',None)
+            if self.kind!='port' or not self.thread_definition_id:
+                value.pop('thread_definition_id',None);value.pop('thread_depth',None)
         elif self.mounting_mode=='plain':
             value.pop('mounting_mode',None);value.pop('thread_definition_id',None);value.pop('thread_depth',None)
         if self.kind!='drilling':value.pop('closure_definition_id',None)
@@ -224,6 +230,10 @@ class Feature(Strict):
 
     @model_validator(mode='after')
     def fields_for_kind(self):
+        if not self.thread_only and self.clearance_height<=0:
+            raise ValueError('Only a thread-defined draft port may omit its unresolved installation envelope')
+        if self.thread_only and self.thread_depth is not None and (self.depth is None or self.thread_depth>self.depth):
+            raise ValueError('Draft port thread depth cannot exceed its tap-drill depth')
         if self.through and self.kind!='mounting':
             raise ValueError('Only an explicit non-hydraulic mounting hole may declare an opposite-face exit')
         if self.route_net or self.frozen_net:

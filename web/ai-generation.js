@@ -81,7 +81,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
     if(plan.material_engineering_facts)engineeringFactsUI(ctx,content,plan.material_engineering_facts,{title:'Proposed material engineering data'});
     if(!plan.components.length)content.append(element('p','No cartridges in this circuit. A port/distribution block can be generated if the net topology is usable.'));
     for(const component of plan.components){
-      const card=element('section',null,'library-card');content.append(card);card.append(element('h4',component.label+(component.model?' · '+component.model:'')));
+      const card=element('section',null,'library-card');content.append(card);card.append(element('h4',component.label+(component.model&&component.model!==component.label?' · '+component.model:'')));
       const conditions=Object.entries(component.recognized_facts||{}).filter(([key,value])=>value!=null&&/pressure|flow|passage|bore/i.test(key));if(conditions.length)card.append(element('p','Recognized schematic: '+conditions.map(([key,value])=>key.replaceAll('_',' ')+': '+value).join(' · ')));
       const binding=options.bindings[component.id],definition=component.definition;
       const choice=component.choices.find(row=>row.cartridge_id===component.cartridge_id);
@@ -90,13 +90,12 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
       if(definition){
         card.append(element('p',`${definition.label} · ${definition.unit} · ${definition.geometry_status}`));
         if(component.automatic)card.append(element('p','Source-backed candidate and matching numbered windows found. Draft generation keeps the component unconfirmed for engineer review.'));
-        const ports=Object.fromEntries(plan.ports.filter(p=>p.component_id===component.id).map(p=>[p.id,`${p.label} → ${p.net||'Unknown net'}`]));
+        const ports=Object.fromEntries(plan.ports.filter(p=>p.component_id===component.id).map(p=>[p.id,`${p.label} → ${plan.nets.find(n=>n.id===p.net)?.label||'Unknown net'}`]));
         for(const zone of definition.zones){
           const label=`${component.label} · window ${zone.id} → schematic port`;
           if(binding)field(card,label,binding.zone_ports[zone.id]||'',v=>{binding.zone_ports[zone.id]=v;},{'':'Choose a port',...ports});
           else card.append(element('p',label+': '+(ports[component.mapping[zone.id]]||component.mapping[zone.id]||'Unmapped')));
         }
-        if(binding)field(card,`Cavity / mapping decision · ${component.label}`,binding.decision,v=>binding.decision=v).placeholder='Confirm why this cavity and port mapping are appropriate for this draft';
       }else card.append(element('p','No reliable automatic cavity mapping. Choose an existing source or PMC definition; the model cannot invent machining dimensions.'));
       for(const choice of component.choices)action(card,'Use candidate '+choice.label,safe(()=>selectCavity(component,choice,plan)));
       librarySearch(card,task,'cartridge-cavity',component.label,choice=>selectCavity(component,choice,plan));
@@ -108,20 +107,28 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
       if(!group.normalized)continue;
       const rows=plan.external_ports.filter(p=>group.port_ids.includes(p.id));
       const selected=rows.every(p=>options.port_definitions[p.id])&&new Set(rows.map(p=>options.port_definitions[p.id].definition_key)).size===1;
-      const card=element('section',null,'library-card');content.append(card);card.append(element('h4',group.specification+' external port definition'),element('p','Applies to: '+group.labels.join(', ')));
-      if(!group.unresolved_ids.length&&!selected){card.append(element('p',group.code==='resolved'?'Resolved: '+group.canonical.label:'Individual engineering choices retained.'));continue;}
-      const ids=selected?group.port_ids:group.unresolved_ids;ids.forEach(id=>grouped.add(id));
-      if(selected){card.append(element('p','Selected: '+rows[0].definition.label));field(card,'Port definition decision · '+group.specification,options.port_definitions[ids[0]].decision||'',v=>{for(const id of ids)options.port_definitions[id].decision=v;});action(card,'Clear selected '+group.specification,()=>{for(const id of ids)delete options.port_definitions[id];prepare().catch(e=>$('workflow-error').textContent=e.message);});}
-      else{card.append(element('p',group.logical_count?'Multiple non-equivalent engineering definitions. Choose one.':'No complete usable source definition is available.','review-warning'));}
+      const card=element('section',null,'library-card'),thread=group.thread_resolution;content.append(card);card.append(element('h4',group.labels.join(', ')));
+      const ids=group.port_ids;ids.forEach(id=>grouped.add(id));
+      if(thread?.recognized){
+        card.append(element('p','Thread: '+thread.label+(thread.definition?' · recognized':' · needs source resolution')));
+        if(!thread.definition)card.append(element('p','No unique usable thread definition was resolved; review the thread identity/source data.','review-warning'));
+        card.append(element('p','Port machining / sealing form: '+(selected?rows[0].definition.label:rows.some(p=>p.definition)?'Selected individually below':'Not specified by schematic')));
+        if(rows.some(p=>p.state==='thread_defined'))card.append(element('p','Thread-defined ports can enter an editable Draft. Thread depth, sealing, complete machining and installation clearance remain unresolved.','property-note'));
+      }else card.append(element('p','Source specification: '+group.specification),element('p',group.canonical?'Resolved complete definition: '+group.canonical.label:'Select a complete machining definition or review the source standard.'));
+      if(selected)action(card,'Clear complete definition · '+group.specification,()=>{for(const id of ids)delete options.port_definitions[id];prepare().catch(e=>$('workflow-error').textContent=e.message);});
+      const refinement=element('details');refinement.open=!!group.unresolved_ids.length&&!thread?.definition;
+      refinement.append(element('summary',thread?.recognized?'Optional: Select complete port machining definition':'Select complete port machining definition'));card.append(refinement);
+      refinement.append(element('p','These definitions add a complete machining / sealing form. They are not alternative interpretations of the thread requirement.'));
       const select=async choice=>{for(const id of ids){delete options.provisional_ports[id];options.port_definitions[id]={definition_key:choice.key,definition_sha256:choice.sha256,zone_ports:{},decision:''};}await prepare();};
-      for(const choice of group.choices)action(card,'Use '+choice.label+' · '+choice.unit,safe(()=>select(choice)));
-      librarySearch(card,task,'external-port',group.specification,select);
+      for(const choice of group.choices)action(refinement,'Use '+choice.label+' · '+choice.unit,safe(()=>select(choice)));
+      librarySearch(refinement,task,'external-port',group.specification,select);
     }
 
     for(const port of plan.external_ports){
       const card=element('section',null,'library-card');content.append(card);card.append(element('h4',port.label),element('p','Schematic specification: '+(port.specification||'Unknown')));
-      if(port.definition){card.append(element('p','Selected: '+port.definition.label));if(options.port_definitions[port.id]&&!grouped.has(port.id)){field(card,'Port definition decision · '+port.label,options.port_definitions[port.id].decision||'',v=>options.port_definitions[port.id].decision=v);action(card,'Clear selected definition · '+port.label,()=>{delete options.port_definitions[port.id];prepare().catch(e=>$('workflow-error').textContent=e.message);});}}
-      else if(port.standard&&!grouped.has(port.id))card.append(element('p','REVIEW REQUIRED · This explicit '+port.standard+' requirement needs a complete matching SQLite external-port definition. A straight bore is not equivalent.','error'));
+      if(port.definition){card.append(element('p','Complete machining definition: '+port.definition.label));if(options.port_definitions[port.id])action(card,'Clear selected definition · '+port.label,()=>{delete options.port_definitions[port.id];prepare().catch(e=>$('workflow-error').textContent=e.message);});}
+      else if(port.state==='thread_defined')card.append(element('p','Thread: '+port.resolution.thread_resolution.label+' · recognized'),element('p','Port machining / sealing form: Not specified by schematic','property-note'));
+      else if(port.standard&&!grouped.has(port.id))card.append(element('p','REVIEW REQUIRED · This explicit '+port.standard+' requirement needs matching source-backed engineering data. A straight bore is not equivalent.','error'));
       else if(!port.standard){card.append(element('p',port.provisional?'One-off Custom Straight Bore selected; thread and fitting compatibility remain intentionally unresolved.':'No standard identity was supplied. You may explicitly select a one-off Custom Straight Bore with an engineering decision.'));if(port.provisional){field(card,'Provisional straight-bore decision · '+port.label,options.provisional_ports[port.id]||'',v=>options.provisional_ports[port.id]=v);action(card,'Cancel provisional straight bore',()=>{delete options.provisional_ports[port.id];prepare().catch(e=>$('workflow-error').textContent=e.message);});}else action(card,'Choose One-off Custom Straight Bore · '+port.label,()=>{options.provisional_ports[port.id]='';prepare().catch(e=>$('workflow-error').textContent=e.message);});}
       field(card,'Port face · '+port.label,options.port_faces[port.id]||'',v=>{if(v)options.port_faces[port.id]=v;else delete options.port_faces[port.id];},faceOptions);
       if(!grouped.has(port.id))librarySearch(card,task,'external-port',port.label,async choice=>{delete options.provisional_ports[port.id];options.port_definitions[port.id]={definition_key:choice.key,definition_sha256:choice.sha256,zone_ports:{},decision:''};await prepare();});
@@ -134,13 +141,13 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
       options.threaded_mounting_holes.forEach((hole,index)=>field(assignment,'Hole '+(index+1)+' requirement',hole.requirement_id||'',value=>{hole.requirement_id=value||null;},choices));
     }
     const topology=element('details');topology.open=plan.ports.some(p=>!p.net&&!['blocked','terminated'].includes(p.disposition));topology.append(element('summary','Review / correct hydraulic net assignments'));content.append(topology);
-    topology.append(element('p','Net IDs: '+plan.nets.map(n=>n.id+' = '+n.label).join(' · ')));
-    for(const port of plan.ports){if(['blocked','terminated'].includes(port.disposition)){topology.append(element('p',(port.component_id?port.component_id+'.':'')+port.label+' · '+port.disposition+' · no hydraulic net required'));continue;}field(topology,'Net · '+(port.component_id?port.component_id+'.':'')+port.label,options.net_overrides[port.id]||port.net||'',v=>{if(v.trim())options.net_overrides[port.id]=v.trim();else delete options.net_overrides[port.id];});}
+    topology.append(element('p','Hydraulic lines: '+plan.nets.map(n=>n.label).join(' · ')));
+    for(const port of plan.ports){const owner=plan.components.find(c=>c.id===port.component_id)?.label,name=(owner?owner+' · ':'')+port.label;if(['blocked','terminated'].includes(port.disposition)){topology.append(element('p',name+' · '+port.disposition+' · no hydraulic net required'));continue;}field(topology,'Net · '+name,options.net_overrides[port.id]||plan.nets.find(n=>n.id===port.net)?.label||'',v=>{if(v.trim())options.net_overrides[port.id]=v.trim();else delete options.net_overrides[port.id];});}
     field(topology,'Topology correction decision',options.topology_decision,v=>options.topology_decision=v);
     field(content,'Placement override decision',options.placement_decision,v=>options.placement_decision=v).placeholder='Required only when overriding proposed component/port faces';
     const dimensions=element('details');dimensions.append(element('summary','Draft geometry assumptions and search budget'));content.append(dimensions);
-    for(const [key,label]of [['drilling_diameter','Minimum proposed drilling diameter (mm)'],['port_diameter','Provisional port bore diameter (mm)'],['port_depth','Provisional port entry depth (mm)'],['max_attempts','Maximum layout attempts']])field(dimensions,label,options[key],v=>options[key]=v,null,true);
-    dimensions.append(element('p','These are visible prototype geometry choices, not vendor specifications. Flow requirements may increase drilling size. Source cavity geometry is never resized.'));
+    for(const [key,label]of [['drilling_diameter','Minimum proposed drilling diameter (mm)'],['port_diameter','Custom Straight Bore diameter (mm)'],['port_depth','Draft entry depth for thread-only / custom ports (mm)'],['max_attempts','Maximum layout attempts']])field(dimensions,label,options[key],v=>options[key]=v,null,true);
+    dimensions.append(element('p','Entry depth and drill point are editable Draft proposals, not source machining dimensions. Thread-only tap-drill diameter comes from SQLite; thread depth and the complete port form remain unresolved. Flow requirements may increase routing drilling size. Source cavity geometry is never resized.'));
     content.append(element('h3','How your requirements will be used'));
     for(const row of plan.dispositions){const card=element('div',null,'library-card');card.append(element('strong',`${row.property} · ${row.status.replaceAll('_',' ')}`),element('p',row.message));content.append(card);}
     const controls=element('div',null,'action-row');content.append(controls);
@@ -156,7 +163,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
   }
 
   function librarySearch(parent,task,role,label,onSelect){
-    const details=element('details');details.append(element('summary','Search '+(role==='external-port'?'port machining definitions':'existing cavities')));parent.append(details);
+    const details=element('details');details.append(element('summary',role==='external-port'?'Search complete port machining definitions':'Search existing cavities'));parent.append(details);
     let query='';const input=field(details,'Library search · '+label,query,v=>query=v),results=element('div');details.append(results);
     action(details,'Search library · '+label,safe(async()=>{query=input.value;results.replaceChildren(element('p','Searching all source-native standards; project context controls preference only…'));
       const rows=await api(`/api/ai-design/tasks/${task.id}/library-choices?`+new URLSearchParams({q:query,role}));if(!details.isConnected)return;results.replaceChildren();

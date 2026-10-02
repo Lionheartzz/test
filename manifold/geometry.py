@@ -119,7 +119,7 @@ def feature_geometry(design, definitions, thread_definitions, modifier_definitio
         else:
             from .kinematics import FACE_AXES
             cosine=abs(direction[FACE_AXES[f.face][2]])
-            diameter=thread_definitions[f.thread_definition_id]['tap_diameter_mm'] if f.kind=='mounting' and f.mounting_mode=='threaded' else f.diameter
+            diameter=thread_definitions[f.thread_definition_id]['tap_diameter_mm'] if f.thread_only or f.kind=='mounting' and f.mounting_mode=='threaded' else f.diameter
             extension=diameter/2*math.sqrt(max(0,1-cosine*cosine))/cosine if f.direction else 0
             cut = cylinder(origin, direction, diameter, -extension, f.depth)
             tip = 0 if f.kind=='mounting' and f.through else diameter/2/math.tan(math.radians(f.tip_angle/2)) if f.tip_angle!=180 else 0
@@ -143,7 +143,7 @@ def feature_geometry(design, definitions, thread_definitions, modifier_definitio
             else:
                 nodes[f.id] = cut
             circuits[f.id] = f.circuit
-            if f.plugged or f.kind == 'port':
+            if f.plugged or f.kind == 'port' and not f.thread_only:
                 envelopes[f.id] = cylinder(origin, direction, f.clearance_diameter, -f.clearance_height, 0)
         if f.machining_modifiers:
             pieces=[]

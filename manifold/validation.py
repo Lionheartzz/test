@@ -188,6 +188,12 @@ def validate(design, g, definitions=None):
         if f.suppressed:
             continue
         shape = g.cuts[f.id]
+        if f.thread_only:
+            thread=threads[f.thread_definition_id]
+            result('port_machining_form',[f.id],thread['display_name']+' defined; port form unresolved',
+                   'Complete port machining / sealing form and installation clearance',False,
+                   'Thread identity and tap-drill diameter are source-backed. This editable draft does not define sealing, complete port machining or installation clearance; thread depth is unresolved unless explicitly authored.',
+                   severity='WARNING')
         if f.kind=='mounting' and f.through:
             from .kinematics import FACE_AXES,dimensions
             thickness=dimensions(design.block)[FACE_AXES[f.face][2]]

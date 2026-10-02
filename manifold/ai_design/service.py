@@ -46,7 +46,8 @@ def compact_result(result:HydraulicRepresentation):
         rows={}
         for key in ids:
             claim=claims[key]
-            rows[claim.predicate]=claim.value if claim.status=='confirmed' else None
+            # Display labels are metadata, not accepted engineering facts/topology.
+            rows[claim.predicate]=claim.value if claim.predicate=='label' or claim.status=='confirmed' else None
         return rows
     components=[]
     for row in result.components:

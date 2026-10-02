@@ -930,6 +930,12 @@ def validate_references(design, *, connection: sqlite3.Connection | None = None)
             thread=thread_definition(feature.thread_definition_id,connection=connection)
             if not thread["usable"] or thread["tap_diameter_mm"] is None:
                 raise ValueError(f"{feature.id}: thread machining is unusable: {thread['unusable_reason']}")
+        elif feature.thread_only:
+            thread=thread_definition(feature.thread_definition_id,connection=connection)
+            if not thread['active'] or not thread['usable'] or thread['applicability']!='internal' or thread['tap_diameter_mm'] is None:
+                raise ValueError(f"{feature.id}: draft port requires a usable internal source-backed thread definition")
+            if abs(feature.diameter-thread['tap_diameter_mm'])>1e-6:
+                raise ValueError(f"{feature.id}: draft tap-drill diameter must match its SQLite thread definition")
         if feature.closure_definition_id:
             closure=connection.execute("SELECT usable,unusable_reason FROM closure_definitions WHERE id=?",(feature.closure_definition_id,)).fetchone()
             if closure is None:raise ValueError(f"{feature.id}: closure definition does not exist")

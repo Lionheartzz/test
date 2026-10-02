@@ -1,6 +1,6 @@
 """AI engineering-library binding through the same runtime SQLite master."""
 import re
-from ..engineering_db import compatible_logical_cavities,get_definition,normalized_port_family,search_definitions,thread_definition
+from ..engineering_db import compatible_logical_cavities,get_definition,normalized_port_family,search_definitions,search_threads,thread_definition
 from .cartridge_identity import resolve_cartridge_identity
 from .service import digest
 
@@ -80,6 +80,41 @@ def normalized_port_specification(specification):
     return (standard,size,_explicit_pitch(specification))
 
 
+def resolve_thread_specification(specification):
+    """Resolve a pipe-thread identity independently of sealing/port machining."""
+    normalized=normalized_port_specification(specification)
+    standard,size,pitch=normalized or (None,None,None)
+    recognized=standard in ('BSPP','BSPT','NPT','NPTF') and bool(size)
+    label=('G'+size+' BSPP' if standard=='BSPP' else ' '.join(x for x in (size,standard) if x)) or specification
+    if not recognized:
+        return dict(code='thread_not_specified',recognized=False,label=label,definition=None,physical_ids=[])
+    matches=[]
+    for row in search_threads(family=standard,limit=None):
+        if row['applicability']!='internal':continue
+        text=' '.join((row['display_name'],row['pitch_tpi'],standard))
+        if port_standard(text)!=(standard,size):continue
+        if pitch and _explicit_pitch(row['display_name'])!=pitch:continue
+        matches.append(row)
+    # Missing pitch/class is not a contradictory identity. Different explicit
+    # identities remain ambiguous; tap-drill recipes do not imply a sealing form.
+    forms={row['thread_form'] for row in matches if row['usable']}
+    classes={row['thread_class'] for row in matches if row['usable'] and row['thread_class']}
+    pitches={_explicit_pitch(row['display_name']) for row in matches if row['usable']} - {None}
+    usable=[row for row in matches if row['usable'] and row['tap_diameter_mm'] is not None]
+    if len(forms)>1 or len(classes)>1 or len(pitches)>1:
+        code,chosen='thread_identity_ambiguous',None
+    elif usable:
+        designation='G'+size if standard=='BSPP' else size+' '+standard
+        # Stable source-backed tap-drill proposal, not an assertion that all
+        # source tap diameters or complete port forms are interchangeable.
+        chosen=min(usable,key=lambda row:(norm(row['display_name'])!=norm(designation),bool(row['thread_class']),row['id']))
+        code='resolved'
+    else:
+        code,chosen='thread_machining_unavailable' if matches else 'thread_definition_missing',None
+    return dict(code=code,recognized=True,label=label,definition=chosen,
+                physical_ids=sorted(row['id'] for row in matches))
+
+
 def port_equivalence_signature(definition):
     """Compare executable mm geometry, installation and machining, not labels/IDs."""
     data=definition.model_dump();standard,size=port_standard(definition.thread_note or definition.label)
@@ -116,6 +151,7 @@ def port_equivalence_signature(definition):
 
 def resolve_port_specification(inputs,specification):
     normalized=normalized_port_specification(specification)
+    thread=resolve_thread_specification(specification)
     rows=exact_port_candidates(inputs,specification) if normalized else []
     groups={}
     for row in rows:
@@ -129,9 +165,11 @@ def resolve_port_specification(inputs,specification):
     choices.sort(key=lambda row:(row['unit']!=inputs.project_context,row['label'],row['key']))
     standard,size,_=normalized or (None,None,None)
     label=('G'+size+' BSPP' if standard=='BSPP' else ' '.join(x for x in (size,standard) if x)) or specification
-    return dict(code='resolved' if len(choices)==1 else 'port_specification_ambiguous' if choices else 'port_definition_missing',
+    code=(('thread_defined' if thread['code']=='resolved' else thread['code']) if thread['recognized'] else
+          'resolved' if len(choices)==1 else 'port_specification_ambiguous' if choices else 'port_definition_missing')
+    return dict(code=code,thread_resolution=thread,
                 specification=label,normalized=normalized,physical_count=len(rows),logical_count=len(choices),choices=choices,
-                canonical=choices[0] if len(choices)==1 else None)
+                canonical=choices[0] if len(choices)==1 and not thread['recognized'] else None)
 
 
 def load(inputs,key,sha=None):
@@ -151,6 +189,17 @@ def value(result,subject,predicate):
 def identity_value(result,subject,predicate):
     row=next((row for row in result['components'] if row['id']==subject),None)
     return row.get('facts',{}).get(predicate) if row and row.get('identity_valid',{}).get(predicate) else None
+
+
+def display_label(result,row):
+    label=value(result,row['id'],'label')
+    if label and label!=row['id']:return str(label)
+    if row in result['components']:
+        return str(identity_value(result,row['id'],'model') or 'Component '+str(result['components'].index(row)+1))
+    if row in result['ports']:
+        peers=[p for p in result['ports'] if p['component_id']==row['component_id']]
+        return str(label if label and label!=row['id'] else ('External port ' if row['component_id'] is None else 'Port ')+str(peers.index(row)+1))
+    return str(label or 'Hydraulic line '+str(result['nets'].index(row)+1))
 
 
 def component_identity(result,component):

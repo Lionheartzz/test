@@ -87,7 +87,7 @@ def prepare(inputs, result, options):
         if port.get('disposition','unknown')=='unknown' and port['id'] in port_net:port['disposition']='connected'
     for port in result['ports']:
         if port.get('disposition','unknown') in ('connected','unknown') and port['id'] not in port_net:
-            blocked.append(str(library.value(result, port['id'], 'label') or port['id']) + ': choose a hydraulic net for the unknown connection.')
+            blocked.append(library.display_label(result,port) + ': choose a hydraulic net for the unknown connection.')
     components = []
     known_components = {c['id'] for c in result['components']}
     known_external = {p['id'] for p in result['ports'] if p['component_id'] is None}
@@ -97,6 +97,7 @@ def prepare(inputs, result, options):
         raise ValueError('Provisional-port choice refers to a missing external port')
     for component in result['components']:
         key = component['id']
+        label=library.display_label(result,component)
         identity=library.component_identity(result,component)
         choices = library.candidates(inputs, result, component,identity)
         resolution = library.resolution_status(inputs, result, component, choices,identity)
@@ -108,9 +109,7 @@ def prepare(inputs, result, options):
             decision = selected.decision.strip()
             resolution = {**resolution, 'code': 'manual_selection',
                           'message': 'An existing cavity has been selected explicitly.',
-                          'action': 'Confirm the engineering decision and complete the hydraulic window mapping.'}
-            if not decision:
-                blocked.append(f'{library.value(result,key,"label") or key}: confirm the selected cavity and interface mapping.')
+                          'action': 'Complete the hydraulic window mapping.'}
         else:
             chosen, _ = library.automatic_choice(inputs, choices)
             mapping = library.matching_zones(result, component, chosen['zones']) if chosen else None
@@ -121,14 +120,16 @@ def prepare(inputs, result, options):
                 decision = row['reason'] + '; exact port-number/window labels matched by PMC. Engineer review remains required.'
             else:
                 definition, mapping, decision = None, {}, ''
-                blocked.append(f'{library.value(result,key,"label") or key}: {resolution["message"]} {resolution["action"]}')
+                blocked.append(f'{label}: {resolution["message"]} {resolution["action"]}')
         if definition:
             if definition.kind != 'cavity':
                 raise ValueError('An external-port definition cannot be used as a cartridge cavity')
+            if not definition.active or not definition.usable:
+                blocked.append(f'{label}: selected cavity geometry is unavailable: {definition.unusable_reason}')
             if set(mapping) != {z.id for z in definition.zones} or set(mapping.values()) != set(component['port_ids']) or len(set(mapping.values())) != len(mapping):
-                blocked.append(f'{key}: map every cavity window to exactly one distinct schematic component port.')
+                blocked.append(f'{label}: map every cavity window to exactly one distinct schematic component port.')
         cartridge_id=next((row.get('cartridge_id') for row in choices if definition and row['key']=='db:'+definition.id),None)
-        components.append(dict(id=key, label=library.value(result,key,'label') or key,
+        components.append(dict(id=key, label=label,
                                model=library.identity_value(result,key,'model') or '',
                                recognized_facts=dict(component.get('facts',{})),
                                cartridge_id=cartridge_id,
@@ -145,33 +146,37 @@ def prepare(inputs, result, options):
         if group_key not in spec_resolutions:spec_resolutions[group_key]=library.resolve_port_specification(inputs,specification)
         resolution=spec_resolutions[group_key]
         group=port_groups.setdefault(group_key,dict(id='PORTSPEC_'+service.digest(group_key)[:12],**resolution,port_ids=[],labels=[],unresolved_ids=[]))
-        label=library.value(result,port['id'],'label') or port.get('facts',{}).get('net_assignment') or port['id']
+        label=library.display_label(result,port)
         group['port_ids'].append(port['id']);group['labels'].append(label)
         automatic=False;definition=library.load(inputs,selected.definition_key,selected.definition_sha256) if selected else None
         if not definition and resolution['canonical']:
             chosen=resolution['canonical'];definition=library.load(inputs,chosen['key'],chosen['sha256']);automatic=True
         if definition and (definition.kind!='external-port' or len(definition.zones)!=1):
             raise ValueError('External ports require a source external-port definition with one hydraulic interface')
+        if definition and (not definition.active or not definition.usable):
+            blocked.append(f'{label}: selected port machining definition is unavailable: {definition.unusable_reason}')
         requested_standard,requested_size=library.port_standard(specification)
-        if definition and selected and not selected.decision.strip():
-            port_blocks.setdefault((group_key,selected.definition_key,'decision'),[]).append(label)
         if definition and requested_standard and (not requested_size or definition.id not in {
                 row['key'][3:] for row in library.exact_port_candidates(inputs,specification)}):
             blocked.append(f'{label}: selected port conflicts with explicit source standard “{specification}”. Correct the source requirement before selecting a different standard.')
         provisional=port['id'] in options.provisional_ports
+        thread=resolution['thread_resolution']['definition']
         if provisional and requested_standard:
-            blocked.append(f'{label}: explicit standard {specification} cannot be replaced by a straight bore. Resolve a complete matching port definition.')
+            blocked.append(f'{label}: explicit thread/standard {specification} cannot be replaced by a straight bore.')
         if provisional and not options.provisional_ports[port['id']].strip():
             blocked.append(f'{label}: explicit one-off straight-bore use requires an engineering decision.')
-        if not definition and not provisional:
+        if not definition and not thread and not provisional:
             group['unresolved_ids'].append(port['id']);port_blocks.setdefault((group_key,'','missing'),[]).append(label)
         external.append(dict(id=port['id'],label=label,specification=specification,definition=definition,
-            decision=selected.decision if selected else options.provisional_ports.get(port['id'],' ' if automatic else ''),
-            automatic=automatic,provisional=provisional,standard=requested_standard,resolution=resolution,group_id=group['id']))
+            thread=thread,state='full_definition' if definition else 'thread_defined' if thread else 'custom_bore' if provisional else 'unresolved',
+            decision=selected.decision if selected else options.provisional_ports.get(port['id'],''),
+            automatic=automatic or bool(thread and not selected),provisional=provisional,standard=requested_standard,resolution=resolution,group_id=group['id']))
     for (key,choice,reason),labels in port_blocks.items():
         resolution=spec_resolutions[key];label=resolution['specification'] or ', '.join(labels)
-        if reason=='decision':detail='Confirm the selected external-port definition choice.'
-        elif resolution['code']=='port_specification_ambiguous':detail='Multiple non-equivalent engineering definitions exist. Choose one.'
+        if resolution['code']=='thread_identity_ambiguous':detail='Thread identity has conflicting source definitions; resolve the thread requirement.'
+        elif resolution['code']=='thread_machining_unavailable':detail='Thread identity was found, but SQLite has no usable source tap-drill data for an executable draft hole.'
+        elif resolution['code']=='thread_definition_missing':detail='No matching source-backed thread definition is available.'
+        elif resolution['code']=='port_specification_ambiguous':detail='Multiple non-equivalent complete machining definitions exist. Choose one.'
         elif resolution['normalized']:detail='No usable complete source-backed external-port definition is available.'
         else:detail='No complete external-port definition was selected. Select an existing definition or explicitly approve a one-off Custom Straight Bore.'
         blocked.append(f'{label} · applies to {", ".join(labels)}: {detail}')
@@ -214,9 +219,9 @@ def preflight(key, request):
     return dict(ready=not plan['blocked'], blocked=plan['blocked'], components=[entry(c) for c in plan['components']],
                 external_ports=[entry(p) for p in plan['external']], external_port_groups=list(plan['port_groups'].values()), dispositions=plan['settings']['dispositions'],
                 mounting_requirements=plan['settings']['mounting_requirements'],mounting_holes=[dict(hole=row['hole'].model_dump(),thread=row['thread']) for row in plan['mounting']],
-                ports=[dict(id=p['id'], component_id=p['component_id'], label=library.value(result,p['id'],'label') or p['id'],
+                ports=[dict(id=p['id'], component_id=p['component_id'], label=library.display_label(result,p),
                             net=plan['port_net'].get(p['id']),disposition=p.get('disposition','unknown')) for p in result['ports']],
-                nets=[dict(id=n['id'],label=library.value(result,n['id'],'label') or n['id']) for n in result['nets']],
+                nets=[dict(id=n['id'],label=library.display_label(result,n)) for n in result['nets']],
                 material_engineering_facts=plan['settings']['engineering_facts'])
 
 
@@ -335,6 +340,15 @@ def candidate(plan, generation_id, variant):
                           depth=definition.zones[0].end,clearance_diameter=definition.clearance_diameter,
                           clearance_height=definition.clearance_height,tip_angle=180,
                           port_type=definition.label,size=definition.thread_note[:80])
+        elif p.get('thread'):
+            # Only the SQLite tap-drill diameter is source-backed here. Entry
+            # depth/point are editable draft assumptions; thread depth and the
+            # sealing/machining recipe remain unresolved.
+            thread=p['thread']
+            kwargs.update(thread_definition_id=thread['id'],diameter=thread['tap_diameter_mm'],
+                          depth=options.port_depth,clearance_diameter=thread['tap_diameter_mm'],clearance_height=0,
+                          port_type='Thread-defined port - machining / sealing unresolved',
+                          size=p['resolution']['thread_resolution']['label'][:80])
         else:
             kwargs.update(diameter=options.port_diameter,depth=options.port_depth,tip_angle=180,
                           clearance_diameter=max(20,options.port_diameter+6),clearance_height=20,
@@ -345,6 +359,13 @@ def candidate(plan, generation_id, variant):
             if previous.face==face and math.hypot(f.u-previous.u,f.v-previous.v)<(f.clearance_diameter+previous.clearance_diameter)/2+2:
                 f.u,f.v=clamp_placement(f,design,f.u,f.v+(f.clearance_diameter+previous.clearance_diameter)/2+wall,snap=0,definitions=by_definition)
         used_ports.append(f);design.features.append(f);terminal_map[key]=f.id;feature_map[key]=f.id
+        if f.thread_only:
+            from ..schema import EngineeringReview
+            design.review_items.append(EngineeringReview(id=fid(generation_id,key,'THREAD_REVIEW'),kind='dimension',subject=f.id,
+                description=f'{p["label"]}: thread {p["resolution"]["thread_resolution"]["label"]} is source-backed. '
+                            f'Tap-drill Ø{f.diameter:g} mm uses SQLite {f.thread_definition_id}; entry depth {f.depth:g} mm and drill point are draft proposals. '
+                            'Thread depth, sealing/complete port machining and installation clearance remain unresolved.',
+                proposed_value=p['resolution']['thread_resolution']['label']))
         if key in settings['hard_port_faces']:design.constraints.required_feature_faces[f.id]=face
     for index,row in enumerate(plan['mounting'],1):
         hole=row['hole'];axis=FACE_AXES[hole.face][2];through_depth=sizes[axis] if hole.through else hole.depth
