@@ -2,7 +2,7 @@ import {isCavity,isPort} from './definition-role.js';
 import {profileEditor} from './profile.js';
 import {technicalKnowledgeUI} from './technical-knowledge-ui.js';
 
-export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{}}){
+export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{},scrollContainer=()=>ctx.$('workflow-dialog')}){
   const {$,element,field,action,api,post}=ctx,content=$('workflow-content');
   const guard=fn=>async()=>{try{await fn();$('workflow-error').textContent='';}catch(e){$('workflow-error').textContent=e.message;}};
   let generation=0;
@@ -68,8 +68,8 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{}}){
   };
   const selectionState={cavities:{...state.cavities},'external-ports':{...state['external-ports']}};
   const scroll={};
-  function rememberScroll(category){scroll[category]=$('workflow-dialog')?.scrollTop||0;}
-  function restoreScroll(category){const dialog=$('workflow-dialog');if(dialog)dialog.scrollTop=scroll[category]||0;}
+  function rememberScroll(category){scroll[category]=scrollContainer()?.scrollTop||0;}
+  function restoreScroll(category){const container=scrollContainer();if(container)container.scrollTop=scroll[category]||0;}
   function backToCategory(category,options={}){const next={...options,entryCategory:category};delete next.recordId;return library(next);}
   function selectionCallback(port,options){
     if(port)return options.selectionMode==='external-port'?options.onSelect:null;

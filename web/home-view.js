@@ -18,54 +18,41 @@ export function homeIcon(kind){
   const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',icons[kind]||icons.block);svg.append(path);return svg;
 }
 
-export function renderHome({element,action,api,launch,hasProject,returnToDraft,startSetup}){
+export function renderHome({element,action,api,launch,hasProject,returnToDraft,startSetup,navigate}){
   const header=element('header',null,'home-header'),brand=element('div',null,'home-brand');
   brand.append(homeIcon('block'),element('strong','PMC'),element('span','MANIFOLD STUDIO'));
   const statuses=element('div',null,'home-services'),service=element('span','Checking service…'),database=element('span','Checking engineering DB…');
   statuses.setAttribute('role','status');statuses.append(service,database);header.append(brand,statuses);
   const layout=element('div',null,'home-layout'),sidebar=element('nav',null,'home-sidebar'),content=element('div',null,'home-content');sidebar.setAttribute('aria-label','Home navigation');
-  const navigationButtons={};
-  const jump=id=>{
-    const target=layout.querySelector('#'+id);if(!target)return;
-    content.scrollTop=id==='home-start'?0:Math.max(0,content.scrollTop+target.getBoundingClientRect().top-content.getBoundingClientRect().top-16);
-    const focus=target.querySelector('h2')||target;focus.tabIndex=-1;focus.focus({preventScroll:true});
-    for(const button of [navigationButtons.Home,navigationButtons.Projects])button.removeAttribute('aria-current');
-    navigationButtons[id==='home-projects'?'Projects':'Home'].setAttribute('aria-current',id==='home-projects'?'location':'page');
-  };
+  const navigationButtons={},pages=new Map(),scroll=new Map();let current='home';
   for(const [section,entries]of [
     ['WORKSPACE',[
-      ['home','Home',()=>jump('home-start'),false],
-      ['projects','Projects',()=>jump('home-projects'),false],
-      ['new','New Manifold','project-new',false],
-      ['block','Model',()=>{if(hasProject())returnToDraft();},true],
-      ['drawing','Drawing','drawings-open',true],
-      ['ai','AI Design','ai-design-open',false],
+      ['home','Home','home'],['projects','Projects','projects'],['new','New Manifold','new'],
+      ['block','Model','model'],['drawing','Drawing','drawing'],['ai','AI Design','ai'],
     ]],
     ['ENGINEERING',[
-      ['nets','Hydraulic Nets','nets-open',true],
-      ['library','Engineering Library','library-open',false],
-      ['schematic','Schematic','schematic-open',true],
-      ['review','Engineering Review','review-open',true],
+      ['nets','Hydraulic Nets','nets'],['library','Engineering Library','library'],
+      ['schematic','Schematic','schematic'],['review','Engineering Review','review'],
     ]],
   ]){
     sidebar.append(element('span',section,'home-nav-heading'));
-    for(const [icon,label,handler,needsProject]of entries){
-      const button=action(sidebar,'',()=>typeof handler==='function'?handler():launch(handler,button));
+    for(const [icon,label,module]of entries){
+      const button=action(sidebar,'',()=>navigate(module));
       button.append(homeIcon(icon),element('span',label));button.setAttribute('aria-label',label);button.title=label;
-      if(label==='Home'||label==='Projects')navigationButtons[label]=button;
+      navigationButtons[module]=button;
       if(icon==='home')button.setAttribute('aria-current','page');
-      if(needsProject&&!hasProject()){button.disabled=true;button.title=label+' · Open or create a manifold first';}
     }
   }
-  const sidebarNote=element('p',hasProject()?'Current draft stays open while you browse Home.':'Open or create a manifold to use project engineering tools.','home-sidebar-note');sidebar.append(sidebarNote);
+  const sidebarNote=element('p',null,'home-sidebar-note');sidebar.append(sidebarNote);
   const sidebarFoot=element('div',null,'home-sidebar-foot');sidebarFoot.append(element('span','LOCAL WORKSPACE'),element('small','Projects and drawings stay in this workspace.'));sidebar.append(sidebarFoot);
   layout.append(sidebar,content);
   const titlebar=element('div',null,'home-titlebar'),title=element('h1','Start a manifold');title.id='home-start';title.tabIndex=-1;titlebar.append(title);
   const titleActions=element('div',null,'home-title-actions');
   const importButton=action(titleActions,'Import Project',()=>launch('project-import',importButton));importButton.prepend(homeIcon('import'));
-  if(hasProject())action(titleActions,'Return to current draft',returnToDraft).classList.add('home-return');
+  const returnButton=action(titleActions,'Return to current draft',returnToDraft);returnButton.classList.add('home-return');
   titlebar.append(titleActions);content.append(titlebar);
-  const cards=element('div',null,'home-start-cards');content.append(cards);
+  const start=element('section',null,'home-module');start.dataset.module='home';pages.set('home',start);content.append(start);
+  const cards=element('div',null,'home-start-cards');start.append(cards);
   const quick=element('section',null,'home-card home-quick'),quickHead=element('div',null,'home-card-heading');
   const quickTitle=element('h2','Quick block setup');quickHead.append(homeIcon('block'),quickTitle);
   const units=element('select');units.setAttribute('aria-label','Unit context');for(const [value,text]of [['metric','Metric · mm'],['inch','Inch · in']]){const option=element('option',text);option.value=value;units.append(option);}quickHead.append(units);quick.append(quickHead);cards.append(quick);
@@ -92,8 +79,18 @@ export function renderHome({element,action,api,launch,hasProject,returnToDraft,s
   const aiBody=element('div',null,'home-ai-body'),diagram=element('div',null,'home-schematic-icon');diagram.append(homeIcon('schematic'));
   const aiCopy=element('div');aiCopy.append(element('h3','Start with your hydraulic circuit'),element('p','Use your configured AI provider to interpret a schematic and prepare an editable manifold draft.'));aiBody.append(diagram,aiCopy);ai.append(aiBody);
   const aiFoot=element('div',null,'home-ai-footer');aiFoot.append(element('small','Selected documents are sent to your provider.'));
-  const aiButton=action(aiFoot,'Open AI Design',()=>launch('ai-design-open',aiButton));aiButton.append(homeIcon('arrow'));ai.append(aiFoot);cards.append(ai);
-  const projects=element('section',null,'home-projects');projects.id='home-projects';projects.setAttribute('aria-label','Recent projects');content.append(projects);
+  const aiButton=action(aiFoot,'Open AI Design',()=>navigate('ai'));aiButton.append(homeIcon('arrow'));ai.append(aiFoot);cards.append(ai);
+  const projects=element('section',null,'home-projects');projects.id='home-projects';projects.setAttribute('aria-label','Recent projects');start.append(projects);
+  function page(module){if(!pages.has(module)){const pane=element('section',null,'home-module');pane.dataset.module=module;pane.hidden=true;pages.set(module,pane);content.append(pane);}return pages.get(module);}
+  function updateDraft(){returnButton.hidden=!hasProject();sidebarNote.textContent=hasProject()?'Current draft stays open while you browse Home.':'Select a saved project from a management page, or create a new manifold.';}
+  function select(module,label){
+    scroll.set(current,content.scrollTop);const pane=page(module);current=module;
+    for(const [key,node]of pages)node.hidden=key!==module;
+    for(const [key,button]of Object.entries(navigationButtons)){button.removeAttribute('aria-current');if(key===module)button.setAttribute('aria-current','page');}
+    if(module==='home')start.append(projects);else if(module==='projects')pane.append(projects);
+    title.textContent=label;updateDraft();content.scrollTop=scroll.get(module)||0;title.focus({preventScroll:true});return pane;
+  }
+  updateDraft();
   Promise.allSettled([api('/api/health'),api('/api/catalog/manifest')]).then(([health,manifest])=>{
     if(!header.isConnected)return;
     const online=health.status==='fulfilled'&&health.value.service==='pmc-manifold';
@@ -102,5 +99,5 @@ export function renderHome({element,action,api,launch,hasProject,returnToDraft,s
     database.textContent=ready?'ENGINEERING DB READY':'ENGINEERING DB UNAVAILABLE';database.dataset.state=ready?'ready':'error';
     database.title=ready?'SQLite schema '+manifest.value.schema_version:'Engineering database could not be checked. Reload the page to retry.';
   });
-  return {header,layout,projects};
+  return {header,layout,projects,content,page,select,updateDraft};
 }

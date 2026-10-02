@@ -1,4 +1,6 @@
 import {renderHome,homeIcon} from './home-view.js';
+import {projectManagement,projectModules} from './home-project-modules.js';
+import {libraryUI} from './library-ui.js';
 
 export function prefillGuidedBlock($,values){
   const input=label=>[...$('workflow-content').querySelectorAll('input,select')].find(node=>node.getAttribute('aria-label')===label);
@@ -14,8 +16,16 @@ export function prefillGuidedBlock($,values){
 
 export function projectLibrary(ctx){
   const {$,element,action,api,post,openProject,isDirty,hasProject,onDeleted}=ctx;
-  const home=$('project-home');let query='',archived=false,page=0,generation=0;
-  const returnToDraft=()=>{document.body.classList.remove('home');$('select-block').focus({preventScroll:true});};
+  const home=$('project-home');let query='',archived=false,page=0,generation=0,view=null,projectList=null,selected='home',opening=false;
+  let cachedRows=null,rowsRequest=null,rowsGeneration=0,inlineLibrary=null;const moduleViews=new Map();
+  function loadRows(force=false){
+    if(force){cachedRows=null;rowsRequest=null;rowsGeneration++;}
+    if(cachedRows)return Promise.resolve(cachedRows);if(rowsRequest)return rowsRequest;
+    const ticket=rowsGeneration;
+    rowsRequest=api('/api/projects').then(rows=>{if(ticket===rowsGeneration)cachedRows=rows;return rows;}).finally(()=>{if(ticket===rowsGeneration)rowsRequest=null;});return rowsRequest;
+  }
+  async function refreshProjects(){await loadRows(true);view?.updateDraft();await projectList?.refresh();}
+  const returnToDraft=()=>{++generation;document.body.classList.remove('home');$('select-block').focus({preventScroll:true});};
   function launch(id,trigger=document.activeElement){
     const command=$(id);if(command.disabled)return false;
     if(id==='drawings-open')returnToDraft();
@@ -29,9 +39,12 @@ export function projectLibrary(ctx){
     // handlers. The existing five-step workflow remains the only draft creator.
     try{prefillGuidedBlock($,values);}catch(error){$('workflow-error').textContent=error.message+' Please complete step 1 directly.';}
   }
-  async function open(row){
+  async function open(row,module='model',button=null){
+    if(opening)return;
     if(isDirty()&&!confirm('Discard the current unsaved draft and open this project?'))return;
-    try{await openProject(row.id);}catch(error){alert(error.message);}
+    const ticket=generation;opening=true;if(button)button.disabled=true;
+    try{const opened=await openProject(row.id,()=>ticket===generation&&document.body.classList.contains('home'));if(opened===false||ticket!==generation)return;const command={nets:'nets-open',schematic:'schematic-open',review:'review-open'}[module];if(command)launch(command,button);}
+    catch(error){alert(error.message);}finally{opening=false;if(button?.isConnected)button.disabled=false;}
   }
   function drawings(row){
     if(isDirty()&&!confirm('Leave the unsaved manifold draft and open project drawings?'))return;
@@ -40,17 +53,17 @@ export function projectLibrary(ctx){
   async function manage(row,op){
     let name;
     if(['rename','duplicate'].includes(op)){name=prompt('Project name',op==='duplicate'?row.name+' copy':row.name);if(!name?.trim())return;name=name.trim();}
-    try{await post(`/api/projects/${row.id}/manage`,{expected_revision:row.revision,action:op,name:name||null});await show();}catch(error){alert(error.message);}
+    try{await post(`/api/projects/${row.id}/manage`,{expected_revision:row.revision,action:op,name:name||null});await refreshProjects();}catch(error){alert(error.message);}
   }
   async function remove(row){
     const name=prompt(`Permanently delete “${row.name}” with its drawings and revision history? This cannot be undone. Shared PMC/MDTools records, assets and immutable build evidence are retained. Type the exact project name to confirm.`);
     if(name===null)return;if(name!==row.name){alert('Project name did not match. Nothing was deleted.');return;}
-    try{await post(`/api/projects/${row.id}/delete`,{expected_revision:row.revision,confirm_name:name});onDeleted(row.id);await show();}catch(error){alert(error.message);}
+    try{await post(`/api/projects/${row.id}/delete`,{expected_revision:row.revision,confirm_name:name});onDeleted(row.id);await refreshProjects();}catch(error){alert(error.message);}
   }
   function projectTable(parent){
     const heading=element('div',null,'home-project-heading'),title=element('h2',archived?'Archived projects':'Recent projects');heading.append(title);
     const filters=element('div',null,'home-project-filters'),search=element('input');search.type='search';search.placeholder='Search projects…';search.setAttribute('aria-label','Search saved projects');search.value=query;filters.append(search);
-    const archive=action(filters,archived?'Show active projects':'Show archived projects',()=>{archived=!archived;page=0;show();});archive.setAttribute('aria-pressed',String(archived));heading.append(filters);parent.append(heading);
+    const archive=action(filters,archived?'Show active projects':'Show archived projects',()=>{archived=!archived;page=0;paint();});archive.setAttribute('aria-pressed',String(archived));heading.append(filters);parent.append(heading);
     const frame=element('div',null,'home-table-frame'),table=element('table',null,'home-project-table');table.setAttribute('aria-label','Saved manifold projects');
     const head=element('thead'),headRow=element('tr');for(const text of ['Project','Block / mm','Features','Engineering','Modified','Actions']){const th=element('th',text);th.scope='col';headRow.append(th);}head.append(headRow);table.append(head);const body=element('tbody');table.append(body);frame.append(table);parent.append(frame);
     const footer=element('div',null,'home-table-footer'),count=element('span'),paging=element('div');count.setAttribute('role','status');footer.append(count,paging);parent.append(footer);
@@ -71,6 +84,7 @@ export function projectLibrary(ctx){
     }
     let rows=[];
     function paint(){
+      title.textContent=archived?'Archived projects':'Recent projects';archive.textContent=archived?'Show active projects':'Show archived projects';archive.setAttribute('aria-pressed',String(archived));
       if(menu.matches(':popover-open'))menu.hidePopover();body.replaceChildren();paging.replaceChildren();
       const visible=rows.filter(row=>!!row.archived===archived&&row.name.toLowerCase().includes(query.toLowerCase())).sort((a,b)=>(Date.parse(b.updated_at)||0)-(Date.parse(a.updated_at)||0));
       const size=5;page=Math.max(0,Math.min(page,Math.ceil(visible.length/size)-1));
@@ -89,20 +103,31 @@ export function projectLibrary(ctx){
       if(visible.length>size){action(paging,'Previous',()=>{page--;paint();}).disabled=page===0;action(paging,'Next',()=>{page++;paint();}).disabled=(page+1)*size>=visible.length;}
     }
     search.oninput=()=>{query=search.value;page=0;paint();};
-    const ticket=generation;
+    let request=0;
     async function load(){
+      const ticket=++request;
       body.replaceChildren();table.setAttribute('aria-busy','true');count.textContent='Loading saved projects…';
-      try{const result=await api('/api/projects');if(ticket!==generation||!body.isConnected)return;rows=result;paint();}
-      catch(error){if(ticket!==generation||!body.isConnected)return;const tr=element('tr'),cell=element('td',null,'home-empty error');cell.colSpan=6;cell.append(element('span','Could not load saved projects. '+error.message));action(cell,'Retry loading projects',load);tr.append(cell);body.replaceChildren(tr);count.textContent='Project list unavailable';}
-      finally{table.setAttribute('aria-busy','false');}
+      try{const result=await loadRows();if(ticket!==request||!body.isConnected)return;rows=result;paint();}
+      catch(error){if(ticket!==request||!body.isConnected)return;const tr=element('tr'),cell=element('td',null,'home-empty error');cell.colSpan=6;cell.append(element('span','Could not load saved projects. '+error.message));action(cell,'Retry loading projects',load);tr.append(cell);body.replaceChildren(tr);count.textContent='Project list unavailable';}
+      finally{if(ticket===request)table.setAttribute('aria-busy','false');}
     }
-    return load();
+    load();return {refresh:load,hideMenu:()=>{if(menu.matches(':popover-open'))menu.hidePopover();}};
   }
-  async function show(){
-    ++generation;document.body.classList.add('home');home.replaceChildren();home.setAttribute('aria-label','Engineering Home');
-    const view=renderHome({element,action,api,launch,hasProject,returnToDraft,startSetup});home.append(view.header,view.layout);
-    await projectTable(view.projects);
+  async function show(module='home'){
+    ++generation;selected=module;document.body.classList.add('home');home.setAttribute('aria-label','Engineering Home');
+    if(!view){view=renderHome({element,action,api,launch,hasProject,returnToDraft,startSetup,navigate:id=>show(id).catch(error=>alert(error.message))});home.append(view.header,view.layout);projectList=projectTable(view.projects);}
+    projectList.hideMenu();
+    const titles={home:'Start a manifold',projects:'Projects',new:'New Manifold',ai:'AI Design Management',library:'Engineering Library'};
+    const pane=view.select(module,titles[module]||projectModules[module]?.title||module);
+    if(module==='home'||module==='projects'){await projectList.refresh();return;}
+    if(projectModules[module]){if(!moduleViews.has(module))moduleViews.set(module,projectManagement({element,action,loadRows,onOpen:(row,id,button)=>id==='drawing'?drawings(row):open(row,id,button)},pane,module));await moduleViews.get(module).refresh();return;}
+    if(module==='new'&&!pane.childElementCount){pane.append(element('p','Create a new manifold through the existing five-step engineering setup.','home-module-intro'));const button=action(pane,'Start Guided manifold setup',()=>launch('project-new',button));button.classList.add('primary');return;}
+    if(module==='ai')return ctx.ai.mountManagement(pane,{isCurrent:()=>selected==='ai'&&document.body.classList.contains('home')});
+    if(module==='library'&&!inlineLibrary){const error=element('p',null,'error'),body=element('div');error.setAttribute('role','alert');pane.append(body,error);const inlineContext={...ctx,get:()=>null,$:id=>id==='workflow-content'?body:id==='workflow-error'?error:$(id)};
+      inlineLibrary=libraryUI(inlineContext,{open:title=>{body.replaceChildren();error.textContent='';if(title!=='Engineering Library')body.append(element('h2',title));},insert:()=>{},scrollContainer:()=>view.content});inlineLibrary();}
   }
-  $('projects-open').onclick=show;
+  ctx.ai.setManagementNavigation(()=>{if($('workflow-dialog').open)$('workflow-dialog').close();return show('ai');});
+  $('ai-design-open').onclick=()=>show('ai').catch(error=>alert(error.message));
+  $('projects-open').onclick=()=>{loadRows(true).catch(()=>{});return show('home');};
   return {show};
 }

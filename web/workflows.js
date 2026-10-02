@@ -166,6 +166,7 @@ export function workflows(ctx){
   }
   const ai=aiDesign(ctx,open);$('schematic-open').onclick=schematic;
   return {
+    ai,
     openEngineeringEvidence(options){return library({...options,readOnly:true});},
     changeCavityDefinition(feature){
       const owner=get();let query='',request=0,timer;
