@@ -1,0 +1,2 @@
+.save-toast{position:fixed;top:60px;right:16px;z-index:200;max-width:calc(100vw - 32px);padding:10px 14px;border:1px solid #3e815e;border-radius:8px;background:#173526;color:#ceefd9;box-shadow:0 8px 24px #0005;font:600 12px/1.4 var(--ui-font);pointer-events:none}
+.save-toast[hidden]{display:none}

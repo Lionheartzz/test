@@ -2,6 +2,7 @@ import {engineeringText,engineeringName} from './engineering-labels.js';
 import {createPreviewQueue,EXACT_PREVIEW_CLIENT_TIMEOUT_MS} from './preview-queue.js';
 import {createPreviewRoutingState,previewEditForProperty} from './preview-routing.js';
 import {routingEdit,mergeVisibleRoutes,requireVisibleRoutes,presentationOnly} from './committed-routing.js';
+import {createSaveFeedback} from './save-feedback.js';
 import {createRouteRefineFlight} from './route-refine.js';
 import {streamExactPreview} from './preview-stream.js';
 import {isCavity} from './definition-role.js';
@@ -35,6 +36,7 @@ function markDisplayed(snapshot,source){displayedDraftSignature=JSON.stringify(s
 let materialCatalog=[];
 let modifierCatalog=[];
 const shell=createStudioShell({$});
+const projectSaveFeedback=createSaveFeedback($('save-project'),'✓ Project saved');
 const previewDiagnostics=[];globalThis.__PMC_PREVIEW_TIMINGS=previewDiagnostics;
 function previewTiming(value){const row=Object.fromEntries(Object.entries(value).map(([k,v])=>[k,typeof v==='number'?Math.round(v*100)/100:v]));previewDiagnostics.push(row);if(previewDiagnostics.length>24)previewDiagnostics.shift();}
 function element(tag,text,cls){const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;}
@@ -594,7 +596,7 @@ function currentDesignToCommit(){
   const current=proposal?mergeVisibleRoutes(draft,proposal,{commit:true}):structuredClone(draft);
   requireVisibleRoutes(current);return current;
 }
-async function saveProject(){if(savePending)return savePending;$('save-project').disabled=true;savePending=persistProject();try{return await savePending;}finally{savePending=null;$('save-project').disabled=busy;}}
+async function saveProject(){if(savePending)return savePending;$('save-project').disabled=true;savePending=projectSaveFeedback.run(persistProject);try{return await savePending;}finally{savePending=null;$('save-project').disabled=busy;}}
 $('save-project').onclick=()=>saveProject().catch(e=>notice(e.message,true));
 $('drawings-open').onclick=async()=>{try{if(!state?.project_id||dirty)await saveProject();location.href='/drawing.html?project='+state.project_id;}catch(e){notice(e.message,true);}};
 function newProject(value,definitions={},threads={}){if(busy)return false;if(dirty&&!confirm('Discard the current unsaved draft and start this project?'))return false;++projectEpoch;previewRouting.clear();viewer?.resetTransient();isolateButton.textContent='Isolate';clipEnable.checked=false;clipNotice.hidden=true;draft=hydrateDesign(structuredClone(value),definitions,threads);state={design:draft,revision:'0'.repeat(64),build:null,stale:true};report=null;reportWasDraft=false;reportDesign=null;model=null;resolved=draft;viewer?.setReferences(draft.features);history=[];future=[];selection='block';previews.cancel();lastUsablePreview=null;exactPreview=null;solidStatus();viewMode='review';viewer?.mode('review');shell.syncMode('review');$('review-mode').classList.add('active');for(const key of ['solid','void','features'])$(key+'-mode').classList.remove('active');document.body.classList.remove('home');renderReport();markDirty();renderTree();select('block');viewer?.fit();return true;}

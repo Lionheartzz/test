@@ -6,8 +6,9 @@ export function createDrawingShell(){
   leftToggle.type=rightToggle.type='button';leftToggle.id='drawing-tree-toggle';rightToggle.id='drawing-properties-toggle';
   leftToggle.textContent='Sheets';rightToggle.textContent='Properties';
   leftToggle.setAttribute('aria-controls','drawing-tree-panel');rightToggle.setAttribute('aria-controls','drawing-properties-panel');
-  header.insertBefore(leftToggle,$('create'));header.insertBefore(rightToggle,$('create'));
-  for(const id of ['save','pdf','cancel-job'])header.append($(id));
+  const cluster=header.querySelector('.drawing-header-cluster'),actions=cluster.querySelector('.drawing-header-actions');
+  header.insertBefore(leftToggle,cluster);header.insertBefore(rightToggle,cluster);
+  for(const id of ['save','pdf','cancel-job'])actions.append($(id));
   $('save').classList.add('drawing-head-action');$('pdf').classList.add('drawing-head-action');$('cancel-job').classList.add('drawing-head-action');
   for(const divider of toolbar.querySelectorAll('.divider'))divider.remove();
   const groups=[

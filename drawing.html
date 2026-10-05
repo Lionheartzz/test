@@ -5,8 +5,10 @@
   <a id="back" href="/" aria-label="Workspace Home">PMC <span>MANIFOLD STUDIO</span></a>
   <div class="drawing-menu-host workspace-menu"><button id="workspace-menu-trigger" class="drawing-menu-trigger" aria-expanded="false" aria-controls="workspace-menu">Workspace ▾</button><div id="workspace-menu" class="drawing-menu-popup navigation-popup" hidden><a data-workspace="home">Home</a><a data-workspace="projects">Projects</a><a data-workspace="ai">AI Design</a><a data-workspace="library">Engineering Library</a></div></div>
   <div class="drawing-project-identity"><h1 id="project-title">Opening project…</h1></div>
-  <nav class="project-nav" aria-label="Current project navigation"><a id="drawing-model-open" class="project-nav-tab">Model</a><span class="project-nav-tab" aria-current="page">Drawing</span><div class="drawing-menu-host"><button id="engineering-menu-trigger" class="drawing-menu-trigger project-nav-tab" aria-expanded="false" aria-controls="engineering-menu">Engineering ▾</button><div id="engineering-menu" class="drawing-menu-popup navigation-popup" hidden><a data-engineering="nets">Hydraulic Nets</a><a data-engineering="schematic">Schematic</a><a data-engineering="review">Engineering Review</a></div></div></nav>
-  <button id="create" class="primary">Create Drawing</button>
+  <div class="drawing-header-cluster">
+    <nav class="project-nav" aria-label="Current project navigation"><a id="drawing-model-open" class="project-nav-tab">Model</a><span class="project-nav-tab" aria-current="page">Drawing</span><div class="drawing-menu-host"><button id="engineering-menu-trigger" class="drawing-menu-trigger project-nav-tab" aria-expanded="false" aria-controls="engineering-menu">Engineering ▾</button><div id="engineering-menu" class="drawing-menu-popup navigation-popup" hidden><a data-engineering="nets">Hydraulic Nets</a><a data-engineering="schematic">Schematic</a><a data-engineering="review">Engineering Review</a></div></div></nav>
+    <div class="drawing-header-actions" role="group" aria-label="Drawing actions"><button id="create" class="primary">Create Drawing</button></div>
+  </div>
 </header>
 <div id="message" role="status" tabindex="-1">Loading saved drawings</div>
 <div id="recovery" hidden></div>
