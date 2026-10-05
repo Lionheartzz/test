@@ -57,7 +57,7 @@ class Executor:
         from .engine import assert_engine_current,engine_revision
         from .engineering_db import database_path
         assert_engine_current()
-        limit=limit or (30 if transient else 300)
+        limit=limit or (180 if transient and operation in ('preview','preview-solid','preview-layer') else 30 if transient else 300)
         with self.lock:
             if operation_id:
                 if operation!='build' or transient or not re.fullmatch(r'[0-9a-f]{32}',operation_id):

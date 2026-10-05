@@ -73,7 +73,8 @@ def build_outputs(design, folder, *, engineering_complete=None):
     folder.mkdir(parents=True, exist_ok=False)
     authored = design
     progress('preparing',5)
-    design, routes, g, report = resolve_design(authored,persist=True,prepared=True,step_path=folder/'production.step')
+    from .route_state import validate_current_design
+    design, routes, g, report = validate_current_design(authored,step_path=folder/'production.step')
     rev = revision(authored)
     report['route_proposals'] = routes
     report.update(design_revision=rev, generated_at=datetime.now(timezone.utc).isoformat(),

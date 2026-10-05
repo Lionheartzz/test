@@ -7,8 +7,8 @@ export function projectSettings(ctx,{open}){
     d.project_defaults??={pressure_bar:null,flow_lpm:null,velocity_limit:6,drilling_mode:'orthogonal'};
     const section=name=>{const card=element('section',null,'library-card');card.append(element('h3',name));content.append(card);return card;};
     const edit=(parent,label,value,apply,options=null,numeric=false)=>field(parent,label,value,v=>change(()=>{
-      apply(v);for(const n of d.nets)if(n.routing==='automatic')n.routing_variant=null;
-    }),options,numeric);
+      apply(v);
+    },{kind:'settings',immediate:true}),options,numeric);
     const general=section('General');edit(general,'Project name',d.name,v=>d.name=v);
     edit(general,'Project unit preference',d.project_context,v=>d.project_context=v,{metric:'Metric',inch:'Imperial'});
     general.append(element('p','Controls defaults and ordering. Metric and inch standards may be mixed.','property-note'));

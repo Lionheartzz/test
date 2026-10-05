@@ -8,9 +8,10 @@ from .timing import timed
 
 
 class PreviewEdit(Strict):
-    kind:Literal['global','local','none']='global'
+    kind:Literal['global','local','none','conditions']='global'
     feature_ids:list[Identifier]=Field(default_factory=list,max_length=120)
     affected_nets:list[Circuit]=Field(default_factory=list,max_length=24)
+    resize_nets:list[Circuit]=Field(default_factory=list,max_length=24)
 
 
 class PreviewContext(Strict):
@@ -48,7 +49,7 @@ def _routing_state(design, moved=()):
     return dict(dimensions=(design.block.length,design.block.width,design.block.height),
                 project_defaults=design.project_defaults.model_dump(),material_id=design.block.material_id,
                 unit=design.project_context,rules=design.rules.model_dump(),constraints=design.constraints.model_dump(),
-                nets=[n.model_dump() for n in design.nets],features=features,
+                nets=[n.model_dump(exclude={'route_state','route_issue','routing_variant'}) for n in design.nets],features=features,
                 engravings=[r.model_dump() for r in design.engravings],
                 block_modifiers=[r.model_dump() for r in design.block_modifiers])
 
@@ -64,19 +65,21 @@ def _seed_routes(request):
     if context.edit.kind=='none' and changed:return None
     if _routing_state(design,changed)!=_routing_state(context.source,changed):return None
     original=resolve_parents(context.source)
-    proposal=context.proposal
+    proposal=resolve_parents(context.proposal)
     if proposal.block!=original.block or proposal.rules!=original.rules or proposal.constraints!=original.constraints or proposal.project_defaults!=original.project_defaults:return None
     if [(n.id,n.members,n.routing,n.flow_lpm,n.velocity_limit) for n in proposal.nets]!=[
             (n.id,n.members,n.routing,n.flow_lpm,n.velocity_limit) for n in original.nets]:return None
     by_id={f.id:f for f in proposal.features}
     for feature in original.features:
+        if feature.route_net:continue
         found=by_id.get(feature.id)
         # Exact presentation may add inferred generated contacts. Do not adopt
         # them as authored contacts; use the current authored features below.
         if found is None or found.model_dump(exclude={'connects_to'})!=feature.model_dump(exclude={'connects_to'}):return None
         if not set(feature.connects_to)<=set(found.connects_to):return None
     automatic={n.id for n in design.nets if n.routing=='automatic' and not any(f.frozen_net==n.id for f in design.features)}
-    generated=[f for f in proposal.features if f.id not in ids]
+    generated=[f for f in proposal.features if f.route_net]
+    if any(f.id not in {item.id for item in original.features} and not f.route_net for f in proposal.features):return None
     if any(f.kind!='drilling' or f.route_net not in automatic or f.circuit!=f.route_net or f.frozen_net for f in generated):return None
     if any(len(n.members)>1 and not any(f.route_net==n.id for f in generated) for n in design.nets if n.id in automatic):return None
     return generated,automatic
@@ -89,10 +92,34 @@ def resolve_preview(request):
     snapshot=None
     from .routing import (resolve_design,route_options,route_obstructions,route_objective,
                           proximity_risk,route_from_variant,resize_route,_ProposalSnapshot,_complete_route_combination,_proposal_source_key)
+    from .route_state import pending_nets,route_metadata,refresh_conditions
+    context=request.context
+    if context and context.edit.kind=='conditions' and request.scope==context.scope:
+        from .store import revision
+        # Only this owned source may request resizing. Authored cuts must be
+        # identical; another edit cannot masquerade as hydraulic conditions.
+        source=context.source
+        if revision(source)==context.source_revision and source.features==request.design.features and source.block.length==request.design.block.length and source.block.width==request.design.block.width and source.block.height==request.design.block.height and source.engravings==request.design.engravings and source.block_modifiers==request.design.block_modifiers:
+            from .engineering_conditions import effective_conditions
+            previous={n.id:n for n in source.nets};affected=set();resize=set()
+            rules=source.rules!=request.design.rules or source.block.material_id!=request.design.block.material_id
+            for net in request.design.nets:
+                old=previous.get(net.id)
+                if old is None:continue
+                a=effective_conditions(source,old);b=effective_conditions(request.design,net)
+                if rules or any(a[k]!=b[k] for k in ('pressure_bar','flow_lpm','velocity_limit')) or (old.diameter_mode,old.diameter)!=(net.diameter_mode,net.diameter):affected.add(net.id)
+                if any(a[k]!=b[k] for k in ('flow_lpm','velocity_limit')) or (old.diameter_mode,old.diameter)!=(net.diameter_mode,net.diameter):resize.add(net.id)
+            target=refresh_conditions(request.design,affected,resize)
+            return resolve_parents(target),route_metadata(target),dict(mode='CONDITIONS',recomputed=[],resized_nets=sorted(resize),retained=sorted(n.id for n in target.nets if n.routing=='automatic'),expansions=[])
+    if not pending_nets(request.design):
+        target=resolve_parents(request.design.model_copy(deep=True))
+        return target,route_metadata(target),dict(mode='REUSED',recomputed=[],retained=sorted(n.id for n in target.nets if n.routing=='automatic'),expansions=[])
     def full(reason):
         cache={_proposal_source_key(request.design):snapshot} if snapshot is not None else None
         target,routes=resolve_design(request.design,exact=False,snapshot_cache=cache)
-        return target,routes,dict(mode='GLOBAL',reason=reason,recomputed=sorted(n.id for n in target.nets if n.routing=='automatic'),retained=[],expansions=[])
+        recomputed=pending_nets(request.design)
+        retained={n.id for n in target.nets if n.routing=='automatic'}-recomputed
+        return target,routes,dict(mode='LOCAL' if retained else 'GLOBAL',reason=reason,recomputed=sorted(recomputed),retained=sorted(retained),expansions=[])
     seed=_seed_routes(request)
     if seed is None:return full('No matching current proposal or global edit')
     generated,automatic=seed
@@ -104,13 +131,16 @@ def resolve_preview(request):
     from .engineering_db import definitions_for_design,thread_definitions_for_design,modifier_definitions_for_design,tool_definitions
     from .sizing import route_sizing
     authored=resolve_parents(request.design)
+    authored.features=[f for f in authored.features if not f.route_net]
+    for net in authored.nets:
+        if net.id in active:net.route_state='unresolved'
     definitions=definitions_for_design(authored);threads=thread_definitions_for_design(authored)
     modifiers=modifier_definitions_for_design(authored) if any(f.machining_modifiers for f in authored.features) else {}
     snapshot=_ProposalSnapshot(authored,definitions,threads,modifiers)
     tools=None
     by_id={f.id:f for f in generated}
     expansions=[]
-    baseline=context.proposal
+    baseline=resolve_parents(context.proposal)
     def screen(target,net):
         return route_obstructions(target,net,[f for f in target.features if f.route_net==net.id],threads,definitions,modifiers)
     baseline_failures={n.id:screen(baseline,n) for n in baseline.nets if n.id in automatic}
@@ -212,6 +242,8 @@ def resolve_preview(request):
         active.update(new)
         if active==automatic:break
     if target is None:
+        for net in request.design.nets:
+            if net.id in active:net.route_state='unresolved'
         result=full('Bounded local dependency search could not resolve conflicts')
         result[2]['initial_affected']=sorted(initial);result[2]['expansions']=expansions
         result[2]['fixed_nets_affected']=sorted(fixed)
@@ -222,6 +254,7 @@ def resolve_preview(request):
         if net.id not in automatic:continue
         route=[f for f in target.features if f.route_net==net.id]
         option=selected.get(net.id)
+        if option:net.route_state='proposal';net.route_issue='';net.routing_variant=option['key']
         routes.append(dict(net=net.id,variant=option['key'] if option else 'retained',
             drillings=len(route),plugs=sum(f.plugged for f in route),
             objective=route_objective(target,route,definitions=definitions),

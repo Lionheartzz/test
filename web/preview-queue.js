@@ -1,7 +1,6 @@
 import {randomOwner} from './crypto-utils.js';
 export const EXACT_PREVIEW_IDLE_MS=1500;
-export const EXACT_PREVIEW_CLIENT_TIMEOUT_MS=32000;
-
+export const EXACT_PREVIEW_CLIENT_TIMEOUT_MS=185000;
 // One newest snapshot. The server owns killable CAD workers; abort and explicit
 // invalidation terminate obsolete work instead of merely discarding its result.
 export function createPreviewQueue({post,stream=null,onFast,onExact,onStatus,onError,onProposal=()=>{},onTiming=()=>{},cancelRemote=null,delay=50,exactDelay=EXACT_PREVIEW_IDLE_MS,timeout=EXACT_PREVIEW_CLIENT_TIMEOUT_MS}) {
@@ -17,7 +16,7 @@ export function createPreviewQueue({post,stream=null,onFast,onExact,onStatus,onE
   async function request(url,job,send=post){
     const abort=controller=new AbortController();
     let timer;
-    try{return await Promise.race([send(url,job.design,{signal:abort.signal,preview:{scope:job.scope,context:job.context,exact_idle_ms:url==='/api/preview-solid'?Math.max(0,job.idleDue-Date.now()):0},headers:{'X-PMC-Preview-Owner':owner,'X-PMC-Preview-Version':String(job.version)}}),new Promise((_,reject)=>{abort.signal.addEventListener('abort',()=>reject(Error('Preview superseded')),{once:true});timer=setTimeout(()=>{reject(Error('Exact preview exceeded the interactive time limit. Last usable view retained; retry or Validate.'));abort.abort();if(cancelRemote)Promise.resolve(cancelRemote(owner,job.version)).catch(()=>{});},timeout);})]);}
+    try{return await Promise.race([send(url,job.design,{signal:abort.signal,preview:{scope:job.scope,context:job.context,exact_idle_ms:url==='/api/preview-solid'?Math.max(0,job.idleDue-Date.now()):0},headers:{'X-PMC-Preview-Owner':owner,'X-PMC-Preview-Version':String(job.version)}}),new Promise((_,reject)=>{abort.signal.addEventListener('abort',()=>reject(Error('Preview superseded')),{once:true});timer=setTimeout(()=>{reject(Error('Current exact preview timed out. Saved geometry is retained. Validate provides authoritative engineering results.'));abort.abort();if(cancelRemote)Promise.resolve(cancelRemote(owner,job.version)).catch(()=>{});},timeout);})]);}
     finally{clearTimeout(timer);if(controller===abort)controller=null;}
   }
   const current=job=>latest===job&&job.version===version;
@@ -49,7 +48,8 @@ export function createPreviewQueue({post,stream=null,onFast,onExact,onStatus,onE
     finally{clearTimeout(job.phaseTimer);running=false;arm();}
   }
   return {
-    schedule(design,scope='',context=null){
+    schedule(design,scope='',context=null,{immediate=false}={}){
+      const idleDelay=immediate?0:exactDelay;
       const snapshot=structuredClone(design),seed=structuredClone(context),key=scope+JSON.stringify(snapshot)+(seed?JSON.stringify(seed):'');
       if(latest?.key===key)return;
       void invalidate();++version;clearTimeout(timer);
@@ -58,10 +58,10 @@ export function createPreviewQueue({post,stream=null,onFast,onExact,onStatus,onE
         // server-owned preview context under this current owner/version.  The
         // previous version may already have been cancelled, so it must never
         // be reused for deferred layer requests.
-        latest={design:snapshot,scope,context:seed,key,version,idleDue:Date.now()+exactDelay,stage:stream?'fast':'exact',due:Date.now(),cached:true};
+        latest={design:snapshot,scope,context:seed,key,version,idleDue:Date.now()+idleDelay,stage:stream?'fast':'exact',due:Date.now(),cached:true};
         onExact(cache.result,snapshot,null);onStatus('ready');arm();return;
       }
-      latest={design:snapshot,scope,context:seed,key,version,idleDue:Date.now()+exactDelay,stage:'fast',due:Date.now()+delay};onStatus('queued');arm();
+      latest={design:snapshot,scope,context:seed,key,version,idleDue:Date.now()+idleDelay,stage:'fast',due:Date.now()+(immediate?0:delay)};onStatus('queued');arm();
     },
     cancel(){const cancelled=invalidate();++version;latest=null;clearTimeout(timer);onStatus('idle');return cancelled;}
   };

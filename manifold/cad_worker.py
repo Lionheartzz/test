@@ -25,15 +25,41 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
         proposal=dict(design=resolved.model_dump(),routes=routes,routing_update=update,
                       source_revision=store.revision(design),status='UNVALIDATED_PREVIEW')
         if operation=='preview':return proposal
-        if proposal_ready:proposal_ready(proposal)
+        condition_resize=update['mode']=='CONDITIONS' and bool(update.get('resized_nets'))
+        if proposal_ready and not condition_resize:proposal_ready(proposal)
         if exact_not_before is not None:
             with timing.phase('preview.exact_idle'):
                 time.sleep(max(0,exact_not_before-time.monotonic()))
         geometry=build_geometry(resolved)
         # Presentation may identify terminal route branches from exact contacts.
         # This mutates only the worker's resolved preview copy; it is never saved
-        # into the authored project and does not perform validation.
+        # into the authored project. Condition resizing uses the same BRep for
+        # its acceptance check below; ordinary drag preview stays unvalidated.
         authorize_generated_contacts(resolved,geometry)
+        if condition_resize:
+            # One exact check of resized stored cuts, reusing this preview BRep.
+            # A failed resize restores the old topology, never searches another.
+            checked=validate(resolved,geometry)
+            resized=set(update['resized_nets'])
+            by_id={f.id:f for f in resolved.features}
+            rejected=set()
+            for check in checked['checks']:
+                if check['status']!='FAIL':continue
+                if check['rule'] in ('solid_validity','solid_count'):rejected.update(resized)
+                for item in check.get('items',[]):
+                    if item in resized:rejected.add(item)
+                    feature=by_id.get(str(item).split(':')[0])
+                    if feature and feature.route_net in resized:rejected.add(feature.route_net)
+            if rejected:
+                resolved.features=[f for f in resolved.features if f.route_net not in rejected]
+                resolved.features.extend(f.model_copy(deep=True) for f in request.design.features if f.route_net in rejected)
+                for net in resolved.nets:
+                    if net.id in rejected:
+                        net.route_state='stale';net.route_issue=f'Route {net.id} cannot be safely resized for these conditions. Previous drillings retained; Reroute this net.'
+                geometry=build_geometry(resolved);authorize_generated_contacts(resolved,geometry)
+            from .route_state import route_metadata
+            proposal.update(design=resolved.model_dump(),routes=route_metadata(resolved))
+            if proposal_ready:proposal_ready(proposal)
         try:model=review_model(resolved,geometry,core_only=True)
         except Exception as exc:raise RuntimeError('Exact BRep construction completed; display review unavailable: '+(str(exc) or type(exc).__name__)) from exc
         design_revision=store.revision(design)
@@ -51,7 +77,8 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
         from .optimization import search_routes
         return search_routes(Design.model_validate(payload['design']),payload['max_attempts'])
     if operation=='validate':
-        resolved,routes,_,report=resolve_design(Design.model_validate(payload),prepared=True)
+        from .route_state import validate_current_design
+        resolved,routes,_,report=validate_current_design(Design.model_validate(payload))
         return dict(design=resolved.model_dump(),routes=routes,report=report)
     if operation=='freeze':
         from .route_edit import freeze

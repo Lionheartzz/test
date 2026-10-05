@@ -304,6 +304,8 @@ class HydraulicNet(Strict):
     flow_lpm: float | None = Field(default=None, gt=0, le=10000)
     pressure_bar: float | None = Field(default=None, gt=0, le=2000)
     velocity_limit: float | None = Field(default=None, gt=0, le=100)
+    route_state: Literal['unresolved','proposal','committed','stale'] = 'unresolved'
+    route_issue: str = Field(default='',max_length=500)
     routing_variant: str | None = Field(default=None, pattern=r'^([xyz]{3}:(nearest|positive|negative):(direct|offset_[xyz]_[pm]2?)|simple_[0-9]+|axial_[0-9]+_[01]:[xyz]{3}:(nearest|positive|negative)(?::(?:c[0-9]+_[xyz]_|j[0-9]+_)[0-9]+(?:\.[0-9]{1,6})?(?:\+(?:c[0-9]+_[xyz]_|j[0-9]+_)[0-9]+(?:\.[0-9]{1,6})?){0,2})?)$')
 
 
@@ -466,8 +468,19 @@ def upgrade_project_v2(value):
     return value
 
 
+def upgrade_project(value):
+    value=upgrade_project_v2(value)
+    if not isinstance(value,dict) or value.get('schema_version')!=3:return value
+    from copy import deepcopy
+    value=deepcopy(value);value['schema_version']=4
+    owned={f.get('route_net') for f in value.get('features',[]) if f.get('kind')=='drilling'}-{None}
+    for net in value.get('nets',[]):
+        net.setdefault('route_state','committed' if net.get('routing')=='automatic' and net.get('id') in owned else 'unresolved')
+    return value
+
+
 class Design(Strict):
-    schema_version: Literal[3] = 3
+    schema_version: Literal[4] = 4
     name: str = Field(min_length=1, max_length=120)
     units: Literal['mm'] = 'mm'
     project_context: Literal['metric', 'inch'] = 'metric'
@@ -485,7 +498,7 @@ class Design(Strict):
 
     @model_validator(mode='before')
     @classmethod
-    def upgrade_version(cls,value):return upgrade_project_v2(value)
+    def upgrade_version(cls,value):return upgrade_project(value)
 
     @property
     def components(self):return self.schematic_intent.components if self.schematic_intent else []

@@ -1,6 +1,7 @@
 import {engineeringText,engineeringName} from './engineering-labels.js';
 import {createPreviewQueue,EXACT_PREVIEW_CLIENT_TIMEOUT_MS} from './preview-queue.js';
 import {createPreviewRoutingState,previewEditForProperty} from './preview-routing.js';
+import {routingEdit,mergeVisibleRoutes,requireVisibleRoutes,presentationOnly} from './committed-routing.js';
 import {createRouteRefineFlight} from './route-refine.js';
 import {streamExactPreview} from './preview-stream.js';
 import {isCavity} from './definition-role.js';
@@ -29,6 +30,7 @@ let viewMode='review',lastUsablePreview=null,displayedDraftSignature=null,displa
 let state,draft,report,reportDesign,model,resolved,selection='block',dirty=false,busy=false,externalChange=false,viewer,viewCube,history=[],future=[],dragStart,exactPreview=null;
 const currentDisplayedDesign=()=>viewer?.displayDesign()||draft;
 const previewRouting=createPreviewRoutingState();
+const ownedPreviewSnapshot=snapshot=>draft&&(JSON.stringify(snapshot)===JSON.stringify(draft)||presentationOnly(snapshot,draft))?draft:null;
 function markDisplayed(snapshot,source){displayedDraftSignature=JSON.stringify(snapshot);displayedSource=source;}
 let materialCatalog=[];
 let modifierCatalog=[];
@@ -38,7 +40,7 @@ function previewTiming(value){const row=Object.fromEntries(Object.entries(value)
 function element(tag,text,cls){const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;}
 function notice(message,error=false){$('notice').textContent=message;$('notice').className=error?'error':'';}
 async function api(url,options={}){
-  const limit=['/api/build','/api/optimize-routes'].includes(url)?330000:url==='/api/refine-route'?65000:url==='/api/freeze-net'?35000:['/api/preview','/api/preview-solid'].includes(url)?EXACT_PREVIEW_CLIENT_TIMEOUT_MS:30000;
+  const limit=['/api/build','/api/optimize-routes'].includes(url)?330000:url==='/api/refine-route'?65000:url==='/api/freeze-net'?35000:['/api/preview','/api/preview-solid','/api/preview-layer'].includes(url)?EXACT_PREVIEW_CLIENT_TIMEOUT_MS:30000;
   try{
     const r=await fetch(url,{signal:AbortSignal.timeout(limit),...options});
     if(!r.ok){const b=await r.json().catch(()=>({}));throw Error(typeof b.detail==='string'?b.detail:Array.isArray(b.detail)?b.detail.map(e=>`${(e.loc||[]).filter(x=>x!=='body').join('.')}: ${e.msg}`).join('; '):JSON.stringify(b.detail||r.status));}
@@ -58,15 +60,20 @@ function change(fn,edit={kind:'global'}){if(busy)return false;const before=clone
 const solidOverlay=element('div',null,'viewport-loading');solidOverlay.setAttribute('role','status');solidOverlay.hidden=true;$('viewport').append(solidOverlay);
 function solidStatus(text=''){solidOverlay.hidden=!text;solidOverlay.textContent=text;}
 function previewState(kind,text){$('viewport').dataset.previewState=kind;$('model-info').textContent=text;}
-function showSolid(result,snapshot=draft,context=null){solidStatus();resolved=hydrateDesign({...snapshot,features:result.features},draft.library,draft.threads);viewer?.setReferences(result.features);viewer?.load(result.model,resolved);markDisplayed(snapshot,'proposal');viewer?.setDesign(draft);exactPreview=context&&result.model.deferred_layers?.length?{...context,designRevision:result.design_revision,pending:new Set()}:null;lastUsablePreview={model:result.model,design:resolved,draftSignature:displayedDraftSignature};renderTree();select(selection);renderReport();previewState('exact-proposal','EXACT BREP · CURRENT PROPOSAL · NOT VALIDATED / NOT OPTIMIZED'+(result.model.brep_valid===false?' · BREP TOPOLOGY INVALID':''));notice(result.routing_update?.fixed_nets_affected?.length?'Fixed routing retained: '+result.routing_update.fixed_nets_affected.join(', ')+'. Moved interfaces require Validate before use.':result.model.brep_valid===false?'Exact preview ready. Current proposal has invalid BRep topology; Validate reports engineering failures.':'Exact preview ready. Current proposal is not validated or optimized.');requestLayer(viewMode);}
+function showSolid(result,snapshot=draft,context=null){snapshot=ownedPreviewSnapshot(snapshot);if(!snapshot)return;previewRouting.acceptExact(result,snapshot,String(projectEpoch));solidStatus();resolved=hydrateDesign({...snapshot,features:result.features},draft.library,draft.threads);viewer?.setReferences(result.features);viewer?.load(result.model,resolved);markDisplayed(snapshot,'proposal');viewer?.setDesign(draft);exactPreview=context&&result.model.deferred_layers?.length?{...context,designRevision:result.design_revision,pending:new Set()}:null;lastUsablePreview={model:result.model,design:resolved,draftSignature:displayedDraftSignature};renderTree();select(selection);renderReport();previewState('exact-proposal','EXACT BREP · CURRENT PROPOSAL · NOT VALIDATED / NOT OPTIMIZED'+(result.model.brep_valid===false?' · BREP TOPOLOGY INVALID':''));notice(draft.nets.find(n=>n.route_issue)?.route_issue||(result.routing_update?.fixed_nets_affected?.length?'Fixed routing retained: '+result.routing_update.fixed_nets_affected.join(', ')+'. Moved interfaces require Validate before use.':result.model.brep_valid===false?'Exact preview ready. Current proposal has invalid BRep topology; Validate reports engineering failures.':'Exact preview ready. Current proposal is not validated or optimized.'));requestLayer(viewMode);}
 const previews=createPreviewQueue({post:(url,design,{preview,...options}={})=>post(url,preview?{design,...preview}:design,options),stream:streamExactPreview,
-  onProposal(p,snapshot){if(externalChange)previewRouting.clear();else previewRouting.accept(p,snapshot,String(projectEpoch));if(p.routing_update)previewTiming({kind:'routing-update',...p.routing_update});},
+  onProposal(p,snapshot){const current=ownedPreviewSnapshot(snapshot);if(!current)return;if(externalChange)previewRouting.clear();else previewRouting.accept(p,snapshot,String(projectEpoch),current);if(p.routing_update)previewTiming({kind:'routing-update',...p.routing_update});},
   cancelRemote:(owner,version)=>post('/api/preview-cancel',{owner,version},{signal:AbortSignal.timeout(2000)}),
-  onFast(p,snapshot){exactPreview=null;resolved=hydrateDesign(p.design,draft.library,draft.threads);viewer?.preview(resolved);markDisplayed(snapshot,'proposal');viewer?.setReferences(resolved.features);viewer?.setDesign(draft);lastUsablePreview={design:resolved,draftSignature:displayedDraftSignature};renderTree();select(selection);renderReport();previewState('approximate','APPROXIMATE LIVE VIEW · CURRENT PROPOSAL · NOT VALIDATED');if(p.routing_update?.fixed_nets_affected?.length)notice('Fixed routing retained: '+p.routing_update.fixed_nets_affected.join(', ')+'. Moved interfaces require Validate before use.',true);},
+  onFast(p,snapshot){snapshot=ownedPreviewSnapshot(snapshot);if(!snapshot)return;exactPreview=null;resolved=hydrateDesign(p.design,draft.library,draft.threads);viewer?.preview(resolved);markDisplayed(snapshot,'proposal');viewer?.setReferences(resolved.features);viewer?.setDesign(draft);lastUsablePreview={design:resolved,draftSignature:displayedDraftSignature};renderTree();select(selection);renderReport();previewState('approximate','APPROXIMATE LIVE VIEW · CURRENT PROPOSAL · NOT VALIDATED');if(p.routing_update?.fixed_nets_affected?.length)notice('Fixed routing retained: '+p.routing_update.fixed_nets_affected.join(', ')+'. Moved interfaces require Validate before use.',true);},
   onExact:showSolid,
   onTiming:previewTiming,
-  onStatus(status){solidStatus(status==='exact'?'Computing exact current proposal… Not validated or optimized.':'');if(status==='exact')previewState('computing','APPROXIMATE LIVE VIEW · EXACT BREP COMPUTING · NOT VALIDATED');},
-  onError(error){previewRouting.clear();exactPreview=null;if(lastUsablePreview){const p=lastUsablePreview;if(p.model)viewer?.load(p.model,p.design);else viewer?.preview(p.design);displayedDraftSignature=p.draftSignature;displayedSource='retained';viewer?.setDesign(p.design);renderTree();select(selection);renderReport();}solidStatus();previewState('unavailable','EXACT PREVIEW UNAVAILABLE · PREVIEW FAILED · LAST USABLE VIEW RETAINED · '+(lastUsablePreview?.model?'EXACT':'APPROXIMATE')+' · '+error.message);notice('Preview: '+error.message,true);}
+  onStatus(status){
+    const retained=draft?.nets.every(n=>n.routing!=='automatic'||n.route_state&&n.route_state!=='unresolved');
+    const computing=status==='exact'||retained&&status==='routing';
+    solidStatus(computing?retained?'Computing exact current geometry… Saved routing retained. Not validated.':'Computing exact current proposal… Not validated or optimized.':'');
+    if(computing)previewState('computing',retained?'CURRENT DRAFT CHANGED · SAVED ROUTING RETAINED · CURRENT EXACT PREVIEW COMPUTING · NOT VALIDATED':'APPROXIMATE LIVE VIEW · EXACT BREP COMPUTING · NOT VALIDATED');
+  },
+  onError(error){exactPreview=null;if(lastUsablePreview){const p=lastUsablePreview;if(p.model)viewer?.load(p.model,p.design);else viewer?.preview(p.design);displayedDraftSignature=p.draftSignature;displayedSource=p.draftSignature===JSON.stringify(draft)?'proposal':'retained';viewer?.setDesign(p.design);renderTree();select(selection);renderReport();}solidStatus();previewState('unavailable','CURRENT EXACT PREVIEW UNAVAILABLE · SAVED / LAST USABLE GEOMETRY RETAINED · '+(lastUsablePreview?.model?'EXACT':'APPROXIMATE')+' · '+error.message);notice('Preview: '+error.message,true);}
 });
 async function requestLayer(mode){
   const layer=mode==='void'?'void':mode==='features'?'features':null,token=exactPreview;
@@ -81,19 +88,31 @@ async function requestLayer(mode){
     finally{token.pending.delete(layer);token.layerPromises.delete(layer);}
   })();token.layerPromises.set(layer,promise);return promise;
 }
-function requestSolid(){
+function requestSolid({immediate=false}={}){
   if(!draft||dragStart||busy||routeRefiner?.pending)return;
   if(!dirty&&!state?.stale&&state?.build){exactPreview=null;previews.cancel();if(model){viewer?.load(model,resolved);lastUsablePreview={model,design:resolved,draftSignature:JSON.stringify(draft)};}else{viewer?.preview(resolved);lastUsablePreview={design:resolved,draftSignature:JSON.stringify(draft)};}markDisplayed(draft,'authoritative');viewer?.setDesign(draft);previewState('authoritative','AUTHORITATIVE VALIDATION · '+state.build.status+' · '+(model?'EXACT MACHINED BREP':'EXACT REVIEW UNAVAILABLE · APPROXIMATE VIEW'));return;}
-  previews.schedule(draft,String(projectEpoch),previewRouting.context(String(projectEpoch)));
+  previews.schedule(draft,String(projectEpoch),previewRouting.context(String(projectEpoch)),{immediate});
 }
-function refreshPreview(){
+function refreshPreview({immediate=false}={}){
   solidStatus();
   try{const shown=previewRouting.display(draft,String(projectEpoch));const display=shown===draft?draft:hydrateDesign(shown,draft.library,draft.threads);viewer?.preview(display);markDisplayed(draft,shown===draft?'draft':'pending-routing');viewer?.setReferences(display.features);viewer?.setDesign(draft);previewState('approximate',shown===draft?'APPROXIMATE LIVE VIEW · NOT VALIDATED':'APPROXIMATE LOCAL VIEW · ROUTING UPDATE PENDING · NOT VALIDATED');}
   catch(error){displayedSource='retained';$('model-info').textContent='LAST USABLE VIEW RETAINED · '+error.message;}
   renderTree();select(selection);renderReport();
-  if(dragStart)previews.cancel();else requestSolid();
+  if(dragStart)previews.cancel();else requestSolid({immediate});
 }
-function markDirty(edit={kind:'global'},before=null){if(before)previewRouting.edit(before,draft,edit,String(projectEpoch),{usable:!externalChange&&displayedSource!=='retained'});else previewRouting.clear();previewTiming({kind:'routing-invalidation',edit:edit.kind,reason:previewRouting.reason()});draftCheckedSignature=null;dirty=true;exactPreview=null;viewer?.setIssueMarkers([]);renderHeader();refreshPreview();notice('Draft preview updated. Validate runs exact geometry checks and writes an immutable build.');}
+function markDirty(edit={kind:'global'},before=null){
+  const explicitProposal=edit.kind==='proposal';
+  const proposalRevision=edit.source_revision;
+  if(before)edit=routingEdit(before,draft,edit);
+  if(explicitProposal)previewRouting.seedCommitted(draft,String(projectEpoch),proposalRevision);
+  else if(before)previewRouting.edit(before,draft,edit,String(projectEpoch),{usable:!externalChange&&displayedSource!=='retained'});else previewRouting.clear();
+  previewTiming({kind:'routing-invalidation',edit:edit.kind,reason:previewRouting.reason()});draftCheckedSignature=null;dirty=true;exactPreview=null;viewer?.setIssueMarkers([]);renderHeader();
+  if(edit.kind==='none'&&!explicitProposal){
+    viewer?.setDesign(draft);markDisplayed(draft,displayedSource==='retained'?'retained':'draft');renderReport();
+    previewState('changed','CURRENT DRAFT CHANGED · ROUTE GEOMETRY RETAINED · NOT VALIDATED');
+  }else refreshPreview({immediate:!!edit.immediate});
+  notice(draft.nets.find(n=>n.route_issue)?.route_issue||'Draft updated. Validate checks this geometry; Reroute / Optimize explicitly chooses new routes.');
+}
 try{viewer=createViewer($('viewport'),select,(id,u,v,done)=>{if(busy||routeRefiner?.pending||displayedSource==='retained'&&displayedDraftSignature!==JSON.stringify(draft))return;const f=draft.features.find(f=>f.id===id);if(!f)return;const starting=!dragStart;if(starting){dragStart=cloneDesign(draft);previews.cancel();exactPreview=null;draftCheckedSignature=null;viewer?.setIssueMarkers([]);dirty=true;renderHeader();}f.u=u;f.v=v;$('selection-label').textContent=`${featureLabel(f,draft)} · ${f.face} · U ${u.toFixed(1)} / V ${v.toFixed(1)} mm`;notice('Live position · envelope clamped to face · 1 mm snap · preview is not validated');if(!done){viewer?.updateFeature(draft,id);markDisplayed(draft,'draft');if(starting){renderTree();renderReport();}previewState('approximate','APPROXIMATE LOCAL DRAG · NOT VALIDATED');return;}const baseline=dragStart;history.push(baseline);future=[];dragStart=null;select(id);if(f.frozen_net){previewRouting.clear();refineAfterDrag(baseline,id,u,v);}else markDirty({kind:'local',feature_ids:[id]},baseline);},{onHover:id=>{for(const row of document.querySelectorAll('#feature-tree [data-feature]'))row.classList.toggle('hovered',row.dataset.feature===id);},onViewChange:()=>viewCube?.sync(),onMarkerSelect:id=>{select(id);viewer?.focus(id);}});$('viewport').addEventListener('pmc-viewer-timing',event=>previewTiming(event.detail));}catch(e){notice('WebGL: '+e.message,true);}
 
 const toolbar=document.querySelector('.viewport-toolbar');
@@ -328,7 +347,7 @@ async function assignCartridge(f){
   try{const result=await api('/api/cavities/'+encodeURIComponent(f.cavity_id)+'/cartridges');for(const row of result.items){const card=element('section',null,'library-card');card.append(element('h3',row.model),element('p',`${row.manufacturer||'Manufacturer unspecified'} · ${row.function||'Function unspecified'}`));action(card,'View cartridge',()=>workflowHandlers.openEngineeringEvidence({entryCategory:'cartridges',recordId:row.id}));action(card,'Assign cartridge',()=>{change(()=>f.cartridge_id=row.id);$('workflow-dialog').close();select(f.id);});box.append(card);}if(!result.items.length)box.append(element('p','No compatible cartridges are available. The cavity can remain unassigned.'));}catch(e){$('workflow-error').textContent=e.message;}
 }
 function remove(id){change(()=>{const ids=new Set([id]);let n;do{n=ids.size;for(const f of draft.features)if(ids.has(f.parent_id))ids.add(f.id);}while(ids.size!==n);draft.features=draft.features.filter(f=>!ids.has(f.id));for(const f of draft.features)f.connects_to=f.connects_to.filter(t=>!ids.has(t.split(':')[0]));for(const c of draft.schematic_intent?.components||[])if(ids.has(c.placement_id)){c.placement_id=null;c.cavity_id=null;}selection='block';});}
-function rerouteNet(netId){change(()=>{returnNetToAutomatic(draft,netId);selection='block';});notice(`Net ${netId} returned to automatic routing. A fresh route will be generated by the current preview.`);}
+function rerouteNet(netId){change(()=>{returnNetToAutomatic(draft,netId);selection='block';},{kind:'reroute',affected_nets:[netId],immediate:true});notice(`Net ${netId} returned to automatic routing. A fresh route will be generated by the current preview.`);}
 
 const inspectorOpenByKind=new Map();
 function organizeInspector(kind){
@@ -482,12 +501,45 @@ function renderReport(){
   }
   container.append(table);
 }
-async function load(key=state?.project_id,isCurrent=()=>true){if(!key)return;const preserveView=key===state?.project_id&&!document.body.classList.contains('home');const epoch=++projectEpoch;previewRouting.clear();previews.cancel();const next=await api('/api/projects/'+key);let nr,nm,nd,reviewError;if(next.build)[nr,nm,nd]=await Promise.all(['validation.json','review.json','resolved_design.json'].map(n=>api(`/api/artifacts/${next.build.build_id}/${n}`).catch(()=>null)));if(epoch!==projectEpoch||!isCurrent())return false;lastUsablePreview=null;exactPreview=null;draftCheckedSignature=null;displayedDraftSignature=null;displayedSource='none';if(nm?.geometry_kind==='unavailable'){reviewError=nm.review_error;nm=null;}if(!preserveView){viewer?.resetTransient();isolateButton.textContent='Isolate';clipEnable.checked=false;clipNotice.hidden=true;selection='block';}state=next;const networkLabel=document.querySelector('.local-dot');networkLabel.textContent=next.network?.mode==='lan'?'LAN workspace':'Local workspace';networkLabel.title=(next.network?.urls||[]).join('\n');draft=hydrateDesign(structuredClone(next.design),next.engineering?.definitions,next.engineering?.threads);report=nr;reportWasDraft=false;reportDesign=nd?hydrateDesign(nd,next.engineering?.definitions,next.engineering?.threads):null;model=next.stale?null:nm;resolved=next.stale?draft:hydrateDesign(nd||draft,next.engineering?.definitions,next.engineering?.threads);viewer?.setReferences(resolved.features);dirty=false;externalChange=false;previews.cancel();if(!model){viewer?.preview(draft);markDisplayed(draft,'draft');lastUsablePreview={design:cloneDesign(draft),draftSignature:displayedDraftSignature};}if(model){viewer?.load(model,resolved);markDisplayed(draft,'authoritative');lastUsablePreview={model,design:resolved,draftSignature:displayedDraftSignature};previewState('authoritative',`AUTHORITATIVE VALIDATION · ${next.build.status} · EXACT OCCT BREP · ${(model.volume_mm3/1000).toFixed(1)} cm³`);}viewer?.setDesign(draft);document.body.classList.remove('home');if(!preserveView)viewer?.fit($('face-view').value);if(!model)refreshPreview();if(!dragStart)requestSolid();renderTree();select(selection);renderReport();renderHeader();notice(reviewError&&!state.stale?reviewError+' Authoritative Validate: '+state.build.status:state.stale?'Project is newer than this build. Validate to update.':'Select a cavity, external port, or hydraulic route.');return true;}
+async function load(key=state?.project_id,isCurrent=()=>true){
+  if(!key)return;const preserveView=key===state?.project_id&&!document.body.classList.contains('home'),epoch=++projectEpoch;
+  previews.cancel();const next=await api('/api/projects/'+key);
+  if(epoch!==projectEpoch||!isCurrent())return false;
+  lastUsablePreview=null;exactPreview=null;draftCheckedSignature=null;displayedDraftSignature=null;displayedSource='none';
+  if(!preserveView){viewer?.resetTransient();isolateButton.textContent='Isolate';clipEnable.checked=false;clipNotice.hidden=true;selection='block';}
+  state=next;draft=hydrateDesign(structuredClone(next.design),next.engineering?.definitions,next.engineering?.threads);
+  previewRouting.seedCommitted(draft,String(projectEpoch),next.routing_revision);
+  const networkLabel=document.querySelector('.local-dot');networkLabel.textContent=next.network?.mode==='lan'?'LAN workspace':'Local workspace';networkLabel.title=(next.network?.urls||[]).join('\n');
+  report=null;reportDesign=null;reportWasDraft=false;model=null;resolved=draft;dirty=false;externalChange=false;
+  viewer?.preview(draft);viewer?.setReferences(draft.features);viewer?.setDesign(draft);markDisplayed(draft,'saved');
+  lastUsablePreview={design:cloneDesign(draft),draftSignature:displayedDraftSignature};
+  document.body.classList.remove('home');if(!preserveView)viewer?.fit($('face-view').value);
+  renderTree();select(selection);renderReport();renderHeader();previewState('saved','SAVED GEOMETRY · VALIDATION PENDING');
+  const loadedSignature=JSON.stringify(draft);
+  let nr,nm,nd,reviewError;
+  if(next.build)[nr,nm,nd]=await Promise.all(['validation.json','review.json','resolved_design.json'].map(n=>api(`/api/artifacts/${next.build.build_id}/${n}`).catch(()=>null)));
+  if(epoch!==projectEpoch||state!==next)return false;
+  if(dirty||JSON.stringify(draft)!==loadedSignature)return true;
+  if(nm?.geometry_kind==='unavailable'){reviewError=nm.review_error;nm=null;}
+  report=nr;reportDesign=nd?hydrateDesign(nd,draft.library,draft.threads):null;
+  model=next.build_geometry_current?nm:null;
+  if(model){
+    viewer?.load(model,draft);markDisplayed(draft,next.stale?'saved':'authoritative');
+    lastUsablePreview={model,design:cloneDesign(draft),draftSignature:displayedDraftSignature};
+    previewState(next.stale?'stale':'authoritative',next.stale?'PREVIOUS VALIDATED BUILD · SAVED ROUTE GEOMETRY RETAINED · VALIDATION STALE':'AUTHORITATIVE VALIDATION · '+next.build.status+' · EXACT OCCT BREP');
+  }
+  renderReport();renderHeader();
+  if(next.stale||!model)requestSolid({immediate:true});
+  notice(next.legacy_routes_recovered?'Previous validated routes recovered without search. Save Project commits the new format.':reviewError||draft.nets.find(n=>n.route_issue)?.route_issue||'Saved geometry loaded. Validate checks current drillings; Reroute / Optimize explicitly changes routes.');
+  return true;
+}
 async function build(){
   if(busy||!state)return;
+  let current;try{current=currentDesignToCommit();}catch(error){notice(error.message,true);return;}
   if(!state.project_id){try{await saveProject();}catch(error){notice(error.message,true);return;}}
+  try{current=currentDesignToCommit();}catch(error){notice(error.message,true);return;}
   if(busy)return;
-  busy=true;previewRouting.clear();previews.cancel();document.body.classList.add('busy');
+  busy=true;previews.cancel();document.body.classList.add('busy');
   shell.setBusy(true);viewer?.editing(false);
   const disabledBefore=new Map();
   const lockControl=control=>{if(disabledBefore.has(control))return;disabledBefore.set(control,control.disabled);control.disabled=true;};
@@ -498,7 +550,7 @@ async function build(){
   const epoch=projectEpoch,key=state.project_id,revision=state.revision;
   try{
     await validationProgress.run({projectId:key,scope:validationScope(),key:key+':'+revision,
-      execute:operation_id=>post('/api/build',{expected_revision:revision,design:dirty?draft:null,project_id:key,operation_id})});
+      execute:operation_id=>post('/api/build',{expected_revision:revision,design:current,project_id:key,operation_id})});
     if(projectEpoch!==epoch||state?.project_id!==key)return;
     await load(key);history=[];future=[];
     shell.validationCompleted(report);
@@ -525,10 +577,22 @@ document.addEventListener('keydown',event=>{
 });
 async function persistProject(){
   const epoch=projectEpoch,signature=JSON.stringify(draft),key=state?.project_id||null,expected=state?.revision;
-  const result=await post('/api/projects',{design:draft,project_id:key,expected_revision:key?expected:null});
+  const current=currentDesignToCommit();
+  const result=await post('/api/projects',{design:current,project_id:key,expected_revision:key?expected:null});
   if(epoch!==projectEpoch||(state?.project_id||null)!==key)throw Error('Saved the previous project; another project is now open.');
   state=result;dirty=JSON.stringify(draft)!==signature;externalChange=false;
-  if(!dirty){history=[];future=[];}renderHeader();notice(dirty?'Saved the submitted version; newer draft edits still need saving.':'Saved to Projects. Geometry validation is independent of saving.');return result;
+  if(!dirty){
+    previews.cancel();draft=hydrateDesign(result.design,draft.library,draft.threads);
+    previewRouting.seedCommitted(draft,String(projectEpoch),result.routing_revision);
+    markDisplayed(draft,'saved');viewer?.setDesign(draft);history=[];future=[];
+  }renderHeader();notice(dirty?'Saved the submitted version; newer draft edits still need saving.':'Saved current route geometry to Projects. Validate checks it without redesigning.');return result;
+}
+function currentDesignToCommit(){
+  const signature=JSON.stringify(draft),automatic=draft.nets.some(n=>n.routing==='automatic'&&(n.members||[]).length>1);
+  if(automatic&&(externalChange||displayedSource==='retained'||displayedDraftSignature!==signature))throw Error('Current routing preview is not owned by this draft. Wait for routing to finish before Save or Validate.');
+  const proposal=previewRouting.current(draft,String(projectEpoch));
+  const current=proposal?mergeVisibleRoutes(draft,proposal,{commit:true}):structuredClone(draft);
+  requireVisibleRoutes(current);return current;
 }
 async function saveProject(){if(savePending)return savePending;$('save-project').disabled=true;savePending=persistProject();try{return await savePending;}finally{savePending=null;$('save-project').disabled=busy;}}
 $('save-project').onclick=()=>saveProject().catch(e=>notice(e.message,true));

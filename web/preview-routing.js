@@ -1,4 +1,4 @@
-// Preview-only provenance. Never attached to or saved inside the authored draft.
+// Transient request ownership. Only an explicitly current proposal can be saved.
 const clone=value=>structuredClone(value);
 const signature=value=>JSON.stringify(value);
 
@@ -26,33 +26,47 @@ export function createPreviewRoutingState(){
   return {
     clear,
     reason:()=>reason,
-    accept(proposal,authored,scope){
+    current(authored,scope){return seed&&seed.scope===scope&&pending.kind==='none'&&signature(authored)===lastSignature?clone(seed.proposal):null;},
+    acceptExact(result,authored,scope){
+      if(seed&&seed.scope===scope&&pending.kind==='none'&&signature(authored)===lastSignature)seed.proposal.features=clone(result.features);
+    },
+    seedCommitted(design,scope,sourceRevision){
+      if((design.nets||[]).some(n=>n.routing==='automatic'&&(!n.route_state||n.route_state==='unresolved')))return clear('uncommitted project');
+      seed={scope,source:clone(design),source_revision:sourceRevision,proposal:clone(design),variants:Object.fromEntries((design.nets||[]).filter(n=>n.routing_variant).map(n=>[n.id,n.routing_variant]))};
+      lastSignature=signature(design);pending={kind:'none',feature_ids:[]};reason='saved geometry';
+    },
+    accept(proposal,authored,scope,currentAuthored=authored){
       if(!proposal?.source_revision||!proposal.design)return clear();
       const variants=seed?.scope===scope?{...seed.variants}:{};
       for(const route of proposal.routes||[])if(route.variant&&route.variant!=='retained')variants[route.net]=route.variant;
       seed={scope,source:clone(authored),source_revision:proposal.source_revision,proposal:clone(proposal.design),variants};
-      lastSignature=signature(authored);pending={kind:'none',feature_ids:[]};reason='matching current proposal';
+      lastSignature=signature(currentAuthored);pending={kind:'none',feature_ids:[]};reason='matching current proposal';
     },
     edit(before,after,action,scope,{usable=true}={}){
       if(!usable)return clear('stale display');
-      if(action.kind==='global')return clear('global edit');
+      if(action.kind==='global')return clear('explicit geometry/routing edit');
       if(!seed)return clear('no previous proposal');
       if(seed.scope!==scope)return clear('different project scope');
       if(signature(before)!==lastSignature)return clear('draft changed without edit metadata');
+      if(action.kind==='none')for(const net of after.nets||[]){
+        if(net.route_state==='stale'){const stored=seed.proposal.nets.find(n=>n.id===net.id);if(stored){stored.route_state='stale';stored.route_issue=net.route_issue;}}
+      }
       const ids=new Set(pending.feature_ids);
       for(const id of action.feature_ids||[])ids.add(id);
-      pending={kind:pending.kind==='local'||action.kind==='local'?'local':'none',feature_ids:[...ids].sort()};
+      pending={...pending,...action,kind:action.kind==='conditions'||pending.kind==='conditions'?'conditions':pending.kind==='local'||action.kind==='local'?'local':'none',
+        affected_nets:[...new Set([...(pending.affected_nets||[]),...(action.affected_nets||[])])].sort(),
+        resize_nets:[...new Set([...(pending.resize_nets||[]),...(action.resize_nets||[])])].sort(),feature_ids:[...ids].sort()};
       lastSignature=signature(after);
     },
     context(scope){
-      if(!seed||seed.scope!==scope)return null;
+      if(!seed||seed.scope!==scope||!seed.source_revision)return null;
       const affected=new Set([...featureNetDependencies(seed.source,pending.feature_ids),...featureNetDependencies(JSON.parse(lastSignature),pending.feature_ids)]);
-      return {...clone(seed),edit:{...clone(pending),affected_nets:[...affected].sort()}};
+      return {...clone(seed),edit:{kind:pending.kind,feature_ids:[...pending.feature_ids],affected_nets:pending.kind==='conditions'?pending.affected_nets:[...affected].sort(),resize_nets:pending.resize_nets||[]}};
     },
     display(authored,scope){
       if(!seed||seed.scope!==scope)return authored;
-      const ids=new Set((authored.features||[]).map(f=>f.id));
-      return {...clone(authored),features:[...clone(authored.features),...clone(seed.proposal.features.filter(f=>f.route_net&&!ids.has(f.id)))]};
+      const automatic=new Set((authored.nets||[]).filter(n=>n.routing==='automatic').map(n=>n.id));
+      return {...clone(authored),features:[...clone(authored.features.filter(f=>!automatic.has(f.route_net))),...clone(seed.proposal.features.filter(f=>automatic.has(f.route_net)))]};
     }
   };
 }

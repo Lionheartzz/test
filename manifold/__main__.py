@@ -35,18 +35,12 @@ def main():
             print(json.dumps(report))
         raise SystemExit(1 if report['status'] == 'FAIL' else 0)
     elif args.command == 'validate':
-        from .geometry import build_geometry
-        from .validation import validate
-        from .routing import resolve_design,authorize_generated_contacts
+        from .route_state import validate_current_design
         if args.project_id:
-            from .projects import read
-            from .schema import Design
-            design=Design.model_validate(read(args.project_id)['design'])
+            from .projects import read,loaded_design
+            design=loaded_design(read(args.project_id))[0]
         else:design = read_design(args.project or PROJECT)
-        design,_=resolve_design(design)
-        geometry=build_geometry(design)
-        authorize_generated_contacts(design,geometry)
-        report = validate(design, geometry)
+        _,_,_,report=validate_current_design(design)
         print(json.dumps(report, indent=2))
         raise SystemExit(1 if report['status'] == 'FAIL' else 0)
     elif args.command == 'prove':

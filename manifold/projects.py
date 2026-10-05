@@ -1,5 +1,6 @@
 """Local named projects. IDs select fixed files, never caller-provided paths."""
 import json
+import hashlib
 import re
 import uuid
 from datetime import datetime, timezone
@@ -25,6 +26,40 @@ def project_revision(record):
     """Use the same normalized Design revision for listing and mutations."""
     return store.revision(Design.model_validate(record['design']))
 
+
+def loaded_design(record):
+    """Read-only legacy recovery from a build proving the same authored revision."""
+    design=Design.model_validate(record['design']);pointer=record.get('build')
+    legacy={n['id'] for n in record['design'].get('nets',[]) if n.get('routing')=='automatic' and 'route_state' not in n} if record['design'].get('schema_version',2)<4 else set()
+    if not pointer or not legacy:return design,False
+    try:
+        root=store.OUTPUT/'builds'/pointer['build_id']
+        authored=json.loads((root/'design.json').read_text(encoding='utf-8'))
+        digest=hashlib.sha256(json.dumps(authored,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
+        if digest!=pointer['design_revision'] or Design.model_validate(authored)!=design:return design,False
+        proposal=Design.model_validate_json((root/'resolved_design.json').read_text(encoding='utf-8'))
+        recover={n.id for n in design.nets if n.id in legacy and n.route_state=='unresolved' and any(f.route_net==n.id for f in proposal.features)}
+        if not recover:return design,False
+        for n in proposal.nets:
+            if n.id in recover:n.route_state='committed';n.route_issue=''
+        from .route_state import merge_routes
+        return merge_routes(design,proposal,net_ids=recover),True
+    except (OSError,ValueError,KeyError):return design,False
+
+
+def build_geometry_matches(record,design):
+    pointer=record.get('build')
+    if not pointer:return False
+    try:
+        from .kinematics import resolve_parents
+        built=Design.model_validate_json((store.OUTPUT/'builds'/pointer['build_id']/'resolved_design.json').read_text(encoding='utf-8'))
+        def geometry_key(value):
+            value=resolve_parents(value)
+            return dict(block=value.block.model_dump(),features=[f.model_dump(exclude={'connects_to'}) for f in value.features],
+                        engravings=[f.model_dump() for f in value.engravings],modifiers=[f.model_dump() for f in value.block_modifiers])
+        return geometry_key(design)==geometry_key(built)
+    except (OSError,ValueError,KeyError):return False
+
 def status(record, *, engine_revision=None, engine_current=None):
     """Return saved-project/build state without opening engineering definitions."""
     revision=project_revision(record);pointer=record.get('build')
@@ -39,14 +74,15 @@ def status(record, *, engine_revision=None, engine_current=None):
 def snapshot(record):
     from .network import endpoints
     from .engineering_db import definitions_for_design,thread_definitions_for_design,validate_references
-    design=Design.model_validate(record['design'])
+    design,recovered=loaded_design(record)
     validate_references(design)
     engineering={key:value.model_dump() for key,value in definitions_for_design(design).items()}
     threads=thread_definitions_for_design(design)
     revision=project_revision(record)
     pointer=record.get('build')
     return dict(project_id=record['id'],design=design.model_dump(),engineering=dict(definitions=engineering,threads=threads),revision=revision,build=pointer,network=endpoints(),
-                updated_at=record['updated_at'],archived=record.get('archived',False),
+                updated_at=record['updated_at'],archived=record.get('archived',False),legacy_routes_recovered=recovered,
+                build_geometry_current=build_geometry_matches(record,design),routing_revision=store.revision(design),
                 stale=not pointer or pointer['design_revision']!=revision or pointer.get('engine_revision')!=store.engine_revision() or not store.engine_current())
 
 def write(record):
@@ -59,6 +95,11 @@ def check(record,expected):
         raise ValueError('Saved project changed. Reopen it before saving; your draft is preserved.')
 
 def save(design,key=None,expected=None):
+    from .route_state import require_current_routes
+    require_current_routes(design)
+    design=design.model_copy(deep=True)
+    for net in design.nets:
+        if net.routing=='automatic' and (net.route_state=='proposal' or len(net.members)<2):net.route_state='committed'
     from .engineering_db import validate_references
     validate_references(design)
     with store.project_lock():
@@ -73,7 +114,9 @@ def save(design,key=None,expected=None):
 def prepare_build(key,expected,design=None):
     with store.project_lock():
         record=read(key);check(record,expected)
-        target=design or Design.model_validate(record['design'])
+        target=design or loaded_design(record)[0]
+        from .route_state import require_current_routes
+        require_current_routes(target)
         from .engineering_db import validate_references
         validate_references(target)
         return dict(key=key,expected=expected,record=record,target=target,build_id=uuid.uuid4().hex)

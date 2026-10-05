@@ -15,7 +15,7 @@ export function returnNetToAutomatic(design,netId){
   const owned=new Set(route.map(f=>f.id));
   design.features=design.features.filter(f=>!owned.has(f.id));
   for(const feature of design.features)feature.connects_to=(feature.connects_to||[]).filter(target=>!owned.has(target.split(':')[0]));
-  net.routing='automatic';net.routing_variant=null;
+  net.routing='automatic';net.routing_variant=null;net.route_state='unresolved';net.route_issue='';
 }
 export function pose(f,b) { const [u,v,a,s]=axes[f.face], p=[0,0,0],d=[0,0,0]; p[u]=f.u;p[v]=f.v;p[a]=s>0?0:sizes(b)[a]; d[a]=s;return {origin:p,direction:f.direction||d}; }
 export function bounds(f,design) {

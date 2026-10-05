@@ -1,7 +1,6 @@
 export function setDesignPriority(design,priority){
   if(design.constraints.priority===priority)return;
   design.constraints.priority=priority;
-  for(const net of design.nets)if(net.routing==='automatic')net.routing_variant=null;
 }
 
 export function clearStock(block){

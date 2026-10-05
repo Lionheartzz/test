@@ -901,7 +901,8 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
 class _ProposalSnapshot:
     """Lazy source BRep and pruning evidence owned by one proposal resolution."""
     def __init__(self, design, definitions, threads, modifiers):
-        automatic={n.id for n in design.nets if n.routing=='automatic'}
+        from .route_state import pending_nets
+        automatic=pending_nets(design)
         self.source=design.model_copy(deep=True)
         self.source.features=[f for f in self.source.features if f.route_net not in automatic]
         self.definitions,self.threads,self.modifiers=definitions,threads,modifiers
@@ -911,6 +912,8 @@ class _ProposalSnapshot:
         self.options={}
         self.catalogs={}
         self.obstructions={}
+        self.tools=None
+        self.sizing={}
 
     def simplify(self, design, net, route, *, known_failures=None):
         # Generated siblings affect obstruction screening, but not the same-net
@@ -1235,7 +1238,7 @@ def resize_route(design, net, option, diameter, definitions, threads=None, modif
 
 def _complete_route_combination(design, definitions, thread_definitions, modifier_definitions, snapshot=None, net_ids=None, deadline=None, excluded=None):
     """Bounded backtracking across individually clear automatic routes."""
-    nets = sorted((effective_net(design,n) for n in design.nets if n.routing == 'automatic' and (net_ids is None or n.id in net_ids)), key=lambda n:n.id)
+    nets = sorted((effective_net(design,n) for n in design.nets if n.routing == 'automatic' and (n.route_state=='unresolved' if net_ids is None else n.id in net_ids)), key=lambda n:n.id)
     if len(nets)<2 or any(n.routing_variant or n.flow_lpm for n in nets):
         return None
     automatic = {n.id for n in nets}
@@ -1337,7 +1340,8 @@ def _complete_route_combination(design, definitions, thread_definitions, modifie
 def _proposal_source_key(design):
     # Variants choose construction proposals; they do not alter source geometry.
     # Reuse its BRep/catalog/pruning caches across bounded exact attempts.
-    automatic={n.id for n in design.nets if n.routing=='automatic'}
+    from .route_state import pending_nets
+    automatic=pending_nets(design)
     source=design.model_copy(update=dict(features=[f for f in design.features if f.route_net not in automatic]))
     return source.model_dump_json(exclude={'nets':{'__all__':{'routing_variant'}}})
 
@@ -1351,20 +1355,29 @@ def _resolve_proposals(design, *, snapshots=None):
     signature=_proposal_source_key(authored)
     resolved = resolve_parents(design)
     from .engineering_db import definitions_for_design,thread_definitions_for_design,modifier_definitions_for_design,tool_definitions
-    definitions=definitions_for_design(resolved)
-    thread_definitions=thread_definitions_for_design(resolved)
-    modifier_definitions=modifier_definitions_for_design(resolved) if any(f.machining_modifiers for f in resolved.features) else {}
-    from .sizing import route_sizing
-    tools=tool_definitions('drill')
-    sizing={n.id:route_sizing(n,tools=tools,required_depth=0,preferred_unit=resolved.project_context) for n in resolved.nets}
-    for net in resolved.nets:
-        if net.routing=='automatic':net.diameter=sizing[net.id]['diameter_mm']
-    automatic = {n.id for n in resolved.nets if n.routing == 'automatic'}
-    resolved.features = [f for f in resolved.features if f.route_net not in automatic]
     snapshots=snapshots if snapshots is not None else {}
+    previous=snapshots.get(signature)
+    definitions=previous.definitions if previous else definitions_for_design(resolved)
+    thread_definitions=previous.threads if previous else thread_definitions_for_design(resolved)
+    modifier_definitions=previous.modifiers if previous else modifier_definitions_for_design(resolved) if any(f.machining_modifiers for f in resolved.features) else {}
+    from .sizing import route_sizing
+    from .route_state import pending_nets,route_metadata
+    automatic=pending_nets(resolved)
+    sizing={}
+    tools=previous.tools if previous and previous.tools is not None else tool_definitions('drill')
+    size_cache=previous.sizing if previous else {}
+    def sized(net,depth=0):
+        key=(net.model_dump_json(exclude={'routing_variant'}),depth,resolved.project_context)
+        if key not in size_cache:size_cache[key]=route_sizing(net,tools=tools,required_depth=depth,preferred_unit=resolved.project_context)
+        return size_cache[key]
+    sizing={n.id:sized(n) for n in resolved.nets if n.id in automatic}
+    for net in resolved.nets:
+        if net.id in automatic:net.diameter=sizing[net.id]['diameter_mm']
+    resolved.features = [f for f in resolved.features if f.route_net not in automatic]
     if signature not in snapshots:
         snapshots[signature]=_ProposalSnapshot(resolved,definitions,thread_definitions,modifier_definitions)
     snapshot=snapshots[signature]
+    snapshot.tools=tools;snapshot.sizing=size_cache
     # Multi-net layouts commonly need a paired move. Build their independent
     # pools once instead of first exhausting a conflicting greedy layout and
     # then rebuilding the same pools for the bounded combination search.
@@ -1372,7 +1385,7 @@ def _resolve_proposals(design, *, snapshots=None):
                    if len(automatic)>2 else None)
     candidates = []
     for net in sorted(resolved.nets,key=lambda n:n.id):
-        if net.routing != 'automatic':
+        if net.id not in automatic:
             continue
         def tool_size(option,context=resolved):
             if not net.flow_lpm:return sizing[net.id]
@@ -1380,7 +1393,7 @@ def _resolve_proposals(design, *, snapshots=None):
             for _ in range(12):
                 required_depth=max((f.depth + (0 if f.tip_angle==180 else f.diameter/2/math.tan(math.radians(f.tip_angle/2)))
                                     for f in option['route']),default=0)
-                actual=route_sizing(net,tools=tools,required_depth=required_depth,preferred_unit=resolved.project_context)
+                actual=sized(net,required_depth)
                 if all(abs(f.diameter-actual['diameter_mm'])<=1e-9 for f in option['route']):break
                 resize_route(context,net,option,actual['diameter_mm'],definitions,thread_definitions,modifier_definitions)
             else:
@@ -1456,11 +1469,11 @@ def _resolve_proposals(design, *, snapshots=None):
                                length_mm=round(sum(f.depth for f in route),2), status='PROPOSAL_REQUIRES_EXACT_VALIDATION'))
     if len(automatic)<=2 and any(route_obstructions(resolved,n,[f for f in resolved.features if f.route_net==n.id],
                               thread_definitions,definitions,modifier_definitions)
-           for n in resolved.nets if n.routing=='automatic'):
+           for n in resolved.nets if n.id in automatic):
         combination = _complete_route_combination(resolved,definitions,thread_definitions,modifier_definitions,snapshot)
         if combination:
             resolved.features = [f for f in resolved.features if f.route_net not in automatic]
-            for net in sorted((n for n in resolved.nets if n.routing=='automatic'),key=lambda n:n.id):
+            for net in sorted((n for n in resolved.nets if n.id in automatic),key=lambda n:n.id):
                 option = combination[net.id]
                 route = option['route']
                 resolved.features.extend(route)
@@ -1474,7 +1487,7 @@ def _resolve_proposals(design, *, snapshots=None):
     # Explicit variants/frozen geometry are preserved. Reuse this snapshot's
     # pruning evidence; the sweep does not perform authoritative validation.
     for net in sorted(resolved.nets,key=lambda n:n.id):
-        if net.routing!='automatic' or net.routing_variant:continue
+        if net.id not in automatic or net.routing_variant:continue
         current=[f for f in resolved.features if f.route_net==net.id]
         failures=route_obstructions(resolved,net,current,thread_definitions,definitions,modifier_definitions)
         if not failures:continue
@@ -1500,6 +1513,10 @@ def _resolve_proposals(design, *, snapshots=None):
         f.connects_to = [t for t in f.connects_to if t.split(':')[0] in active]
     for n in resolved.nets:
         for k,v in inherited[n.id].items():setattr(n,k,v)
+        if n.id in automatic:
+            n.route_state='proposal';n.route_issue=''
+            n.routing_variant=next(r['variant'] for r in candidates if r['net']==n.id)
+    candidates.extend(r for r in route_metadata(resolved) if r['net'] not in automatic)
     return resolved, candidates
 
 
@@ -1607,12 +1624,17 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
     cost determine selection, with the complete multi-net design as context.
     """
     snapshots=snapshot_cache if snapshot_cache is not None else {}
+    from .route_state import pending_nets,route_metadata,validate_current_design
+    if not pending_nets(design):
+        if exact and prepared:return validate_current_design(design,step_path=step_path)
+        target=resolve_parents(design.model_copy(deep=True))
+        return target,route_metadata(target)
     from .timing import progress
     if exact:progress('routes' if any(n.routing=='automatic' for n in design.nets) else 'preparing',8)
     target, routes = _resolve_proposals(design,snapshots=snapshots)
-    # A stored automatic variant is a proposal, not a frozen engineering route.
-    # Moving terminals can invalidate it; Save & Validate must reconsider it too.
-    pending = [n for n in design.nets if n.routing == 'automatic']
+    # Search only explicitly unresolved nets. Committed/stale cuts are obstacles,
+    # never candidates; normal Save/Validate uses validate_current_design instead.
+    pending = [n for n in design.nets if n.id in pending_nets(design)]
     if not exact or not pending and not prepared:
         return target, routes
     from .geometry import build_geometry
@@ -1664,7 +1686,7 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
     best=design.model_copy(deep=True)
     # Pin the baseline before varying one net, avoiding implicit nested searches.
     for net in best.nets:
-        if net.routing=='automatic':net.routing_variant=next(r['variant'] for r in routes if r['net']==net.id)
+        if net.id in pending_nets(design):net.routing_variant=next(r['variant'] for r in routes if r['net']==net.id)
     score,target,routes,chosen,report,geometry=evaluate(best,'Default baseline')
     inspected={tuple(sorted((r['net'],r['variant']) for r in routes))}
     eligible={n.id for n in pending}
