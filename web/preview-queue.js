@@ -1,4 +1,5 @@
 import {randomOwner} from './crypto-utils.js';
+import {apiError} from './api-errors.js';
 export const EXACT_PREVIEW_IDLE_MS=1500;
 export const EXACT_PREVIEW_CLIENT_TIMEOUT_MS=185000;
 // One newest snapshot. The server owns killable CAD workers; abort and explicit
@@ -44,7 +45,7 @@ export function createPreviewQueue({post,stream=null,onFast,onExact,onStatus,onE
         if(!current(job))return;
         const context={owner,version:job.version,key:job.key};cache={key:job.key,result,context};latest=null;onExact(result,job.design,context);onStatus('ready');
       }
-    }catch(error){if(current(job)){latest=null;onStatus('error');onError(error);}}
+    }catch(error){if(current(job)){latest=null;onStatus('error');onError(Error(apiError(error,job.design)));}}
     finally{clearTimeout(job.phaseTimer);running=false;arm();}
   }
   return {

@@ -244,6 +244,9 @@ export function createViewer(container, onSelect, onDrag = ()=>{}, {onHover=()=>
   }
   function select(id) {
     selected = id;
+    removeObjects(handles,o=>o.userData.kind==='engraving');removeObjects(hitAreas,o=>o.userData.kind==='engraving');
+    const engraving=design?.engravings?.find(row=>row.id===id);
+    if(engraving)addEngravingControl(engraving);
     [...group.children,...dragGroup.children].forEach(o => {
       if (o.material?.emissive) {const own=o.userData.owner,net=group.children.find(x=>x.userData.owner===id)?.userData.circuit;o.material.emissive.set(own===id&&id!=='block'?'#b5a32b':secondary.has(own)?'#a34b67':own===hovered?'#507c74':net&&o.userData.circuit===net?'#1d332b':'#000000');}
     });
@@ -253,8 +256,9 @@ export function createViewer(container, onSelect, onDrag = ()=>{}, {onHover=()=>
   function updateLocalGizmo(){
     disposeGroup(localGizmo);localGizmo.userData.featureId=null;container.dataset.localGizmo='none';
     if(!block||selected==='block'||design?.features?.find(f=>f.id===selected)?.suppressed)return;
-    const current=dragOwners.has(selected)?design:displayContext;
-    const feature=current?.features?.find(f=>f.id===selected&&!f.suppressed);
+    const engraving=design?.engravings?.find(row=>row.id===selected);
+    const current=(engraving||dragOwners.has(selected))?design:displayContext;
+    const feature=engraving||current?.features?.find(f=>f.id===selected&&!f.suppressed);
     if(!feature||!axes[feature.face])return;
     const placement=current===displayContext?displayPlacements?.[selected]||pose(feature,current.block):pose(feature,current.block);
     if(!placement?.origin||!placement.origin.every(Number.isFinite))return;
@@ -370,6 +374,21 @@ export function createViewer(container, onSelect, onDrag = ()=>{}, {onHover=()=>
     const threadDiameter=f.thread_definition_id?design.threads?.find(row=>row.id===f.thread_definition_id)?.tap_diameter_mm:null;
     target.userData={owner:f.id,kind:f.kind,inward:d,mouthRadius:def?Math.max(...def.stages.map(s=>s.diameter))/2:(threadDiameter||f.diameter)/2};hitAreas.add(target);
   }
+  function dragTarget(id){
+    const engraving=design?.engravings?.find(row=>row.id===id);
+    return engraving?{row:engraving,engraving:true}:{row:design?.features?.find(row=>row.id===id),engraving:false};
+  }
+  function addEngravingControl(row){
+    const p=pose(row,design.block),inward=new THREE.Vector3(...p.direction);
+    const handle=new THREE.Mesh(new THREE.CircleGeometry(3.5,24),clipMaterial(new THREE.MeshBasicMaterial({color:0xa7e7c0,side:THREE.DoubleSide,depthTest:false,depthWrite:false})));
+    handle.position.set(...p.origin).addScaledVector(inward,-.4);handle.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),inward);
+    handle.userData={owner:row.id,kind:'engraving'};handle.renderOrder=19;
+    const badge=document.createElement('span');badge.className='engraving-handle-label';badge.textContent=row.text;badge.setAttribute('aria-hidden','true');
+    const label=new CSS2DObject(badge);label.position.set(7,0,0);handle.add(label);handles.add(handle);
+    const target=new THREE.Mesh(new THREE.CircleGeometry(1,24),clipMaterial(new THREE.MeshBasicMaterial({side:THREE.DoubleSide,transparent:true,opacity:0,depthWrite:false,colorWrite:false})));
+    target.position.copy(handle.position);target.quaternion.copy(handle.quaternion);target.userData={owner:row.id,kind:'engraving',inward,mouthRadius:3.5};hitAreas.add(target);
+    handle.visible=editing&&(!isolation||isolation.kind==='feature'&&isolation.id===row.id)&&clipAllows(handle.position);target.visible=handle.visible;
+  }
   function setDesign(value) {
     design=value;disposeGroup(handles);disposeGroup(hitAreas);disposeGroup(boundaryGroup);
     for(const f of design.features){addBoundaries(f);addControl(f);}
@@ -379,9 +398,10 @@ export function createViewer(container, onSelect, onDrag = ()=>{}, {onHover=()=>
     const viewDirection=camera.position.clone().sub(controls.target).normalize();
     const targets=hitAreas.children.filter(h=>editing&&h.visible&&(h.userData.kind!=='cavity'||visible.cavities)&&(h.userData.kind!=='drilling'||visible.drillings&&visible.circuits.has(design.features.find(f=>f.id===h.userData.owner)?.circuit))&&(h.userData.kind==='drilling'||(camera.isOrthographicCamera?viewDirection:camera.position.clone().sub(h.position)).dot(h.userData.inward)<0));
     for(const h of targets){const mmPerPixel=camera.isOrthographicCamera?(camera.top-camera.bottom)/camera.zoom/Math.max(1,container.clientHeight):2*camera.position.distanceTo(h.position)*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))/Math.max(1,container.clientHeight)/camera.zoom,r=Math.max(h.userData.mouthRadius+6*mmPerPixel,12*mmPerPixel);if(h.userData.kind==='drilling')h.scale.set(r,1,r);else h.scale.setScalar(r);h.updateMatrixWorld();}
-    return ray.intersectObjects(targets).find(hit=>clipAllows(hit.point));
+    const hits=ray.intersectObjects(targets).filter(hit=>clipAllows(hit.point));
+    return hits.find(hit=>hit.object.userData.kind==='engraving')||hits[0];
   }
-  function hover(id){if(hovered===id)return;hovered=id;renderer.domElement.style.cursor=id?'grab':'';renderer.domElement.title=id?`Drag ${id} on its face`:'';container.dataset.hoveredFeature=id||'';select(selected);onHover(id);}
+  function hover(id){if(hovered===id)return;hovered=id;renderer.domElement.style.cursor=id?'grab':'';const target=dragTarget(id),name=target.engraving?`Engraving “${target.row.text}”`:target.row?featureLabel(target.row,design):'Feature';renderer.domElement.title=id?`Drag ${name} on its face`:'';container.dataset.hoveredFeature=id||'';select(selected);onHover(id);}
   function parameterModel(value,onlyIds=null,includeBlock=true) {
     const parts=[], placements={};
     const add=(geo,p,color,kind,id,owner,circuit)=>{geo.applyQuaternion(p.q);geo.translate(...p.center);parts.push({vertices:Array.from(geo.attributes.position.array),triangles:geo.index?Array.from(geo.index.array):Array.from({length:geo.attributes.position.count},(_,i)=>i),color,kind,id,owner,circuit});geo.dispose();};
@@ -391,6 +411,11 @@ export function createViewer(container, onSelect, onDrag = ()=>{}, {onHover=()=>
     return {block:b,parts,placements,geometry_kind:'parameter-preview'};
   }
   function preview(value) {load(parameterModel(value),value);}
+  function updateEngraving(value,id){
+    // Keep the exact body and every hydraulic feature mesh; only move the editor overlay.
+    design=value;if(displayContext)displayContext={...displayContext,engravings:value.engravings};
+    select(id);updateVisibility();
+  }
   function updateFeature(value,id){
     const started=performance.now(),source=value.features.find(item=>item.id===id);if(!source)return;
     const affected=new Set([id]);let changed=true;while(changed){changed=false;for(const f of value.features)if(f.parent_id&&affected.has(f.parent_id)&&!affected.has(f.id)){affected.add(f.id);changed=true;}}
@@ -407,10 +432,10 @@ export function createViewer(container, onSelect, onDrag = ()=>{}, {onHover=()=>
   renderer.domElement.addEventListener('pointerdown', e => {
     down=[e.clientX,e.clientY];if(e.button!==0||!design||!editing)return;aim(e);
     const hit=hitTarget();if(!hit)return;
-    const f=design.features.find(f=>f.id===hit.object.userData.owner);if(f.parent_id)return;
+    const target=dragTarget(hit.object.userData.owner),f=target.row;if(!f||f.parent_id)return;
     const p=pose(f,design.block),normal=new THREE.Vector3(...p.direction),plane=new THREE.Plane().setFromNormalAndCoplanarPoint(normal,new THREE.Vector3(...p.origin));
     const point=ray.ray.intersectPlane(plane,new THREE.Vector3());if(!point)return;
-    drag={f,plane,start:point,u:f.u,v:f.v,moved:false,pointerId:e.pointerId};controls.enabled=false;renderer.domElement.setPointerCapture(e.pointerId);onSelect(f.id);hover(f.id);renderer.domElement.style.cursor='grabbing';container.classList.add('dragging');e.stopImmediatePropagation();
+    drag={f,engraving:target.engraving,plane,start:point,u:f.u,v:f.v,moved:false,pointerId:e.pointerId};controls.enabled=false;renderer.domElement.setPointerCapture(e.pointerId);onSelect(f.id);hover(f.id);renderer.domElement.style.cursor='grabbing';container.classList.add('dragging');e.stopImmediatePropagation();
   },true);
   renderer.domElement.addEventListener('pointermove',e=>{
     aim(e);
@@ -422,9 +447,10 @@ export function createViewer(container, onSelect, onDrag = ()=>{}, {onHover=()=>
     const point=ray.ray.intersectPlane(drag.plane,new THREE.Vector3());if(!point)return;
     const [u,v]=axes[drag.f.face],delta=point.clone().sub(drag.start).toArray();
     try{
-      let [nu,nv]=clamp(drag.f,design,drag.u+delta[u],drag.v+delta[v],e.altKey?0:1);
+      const faceSize=[design.block.length,design.block.width,design.block.height],snap=value=>e.altKey?value:Math.round(value);
+      let [nu,nv]=drag.engraving?[Math.max(0,Math.min(faceSize[u],snap(drag.u+delta[u]))),Math.max(0,Math.min(faceSize[v],snap(drag.v+delta[v])))]:clamp(drag.f,design,drag.u+delta[u],drag.v+delta[v],e.altKey?0:1);
       disposeGroup(guides);
-      if(document.getElementById('smart-snap')?.checked&&!e.altKey){
+      if(!drag.engraving&&document.getElementById('smart-snap')?.checked&&!e.altKey){
         const aligned=smartAlign(drag.f,design,drag.u+delta[u],drag.v+delta[v],2,references.features);
         [nu,nv]=aligned.values;
         for(const g of aligned.guides){
@@ -436,7 +462,7 @@ export function createViewer(container, onSelect, onDrag = ()=>{}, {onHover=()=>
       drag.moved=true;onDrag(drag.f.id,nu,nv,false);
     }catch{}
   });
-  function finish(e,cancel=false){if(!drag)return false;const old=drag;drag=null;disposeGroup(guides);delete container.dataset.alignment;controls.enabled=true;container.classList.remove('dragging');renderer.domElement.style.cursor=hovered?'grab':'';if(renderer.domElement.hasPointerCapture(e.pointerId))renderer.domElement.releasePointerCapture(e.pointerId);if(old.moved)onDrag(old.f.id,cancel?old.u:design.features.find(f=>f.id===old.f.id).u,cancel?old.v:design.features.find(f=>f.id===old.f.id).v,true);return true;}
+  function finish(e,cancel=false){if(!drag)return false;const old=drag;drag=null;disposeGroup(guides);delete container.dataset.alignment;controls.enabled=true;container.classList.remove('dragging');renderer.domElement.style.cursor=hovered?'grab':'';if(renderer.domElement.hasPointerCapture(e.pointerId))renderer.domElement.releasePointerCapture(e.pointerId);const current=dragTarget(old.f.id).row;if(old.moved&&current)onDrag(old.f.id,cancel?old.u:current.u,cancel?old.v:current.v,true);return true;}
   function cancelInteraction(){return drag?finish({pointerId:drag.pointerId},true):false;}
   renderer.domElement.addEventListener('pointercancel',e=>finish(e,true));
   renderer.domElement.addEventListener('lostpointercapture',e=>finish(e,true));
@@ -460,6 +486,6 @@ export function createViewer(container, onSelect, onDrag = ()=>{}, {onHover=()=>
   const resize = new ResizeObserver(() => {if(resizeViewport()&&pendingFit!==null)fit(pendingFit);});
   resize.observe(container);
   renderer.setAnimationLoop(() => { controls.update();layoutLabels();renderer.render(scene, camera);labels.render(scene, camera); });
-  return { circuitVisible(id){return visible.circuits.has(id);}, displayDesign(){return displayContext;}, displayBlock(){return block?{...block}:null;}, inspection(){return {geometry:machinedBody?'machined-brep':'parameter-preview',mode,xray,opacity,projection:projection(),isolation,clipping:{...clipping},localGizmo:{id:localGizmo.userData.featureId||null,visible:localGizmo.visible,origin:localGizmo.position.toArray()},camera:camera.position.toArray(),target:controls.target.toArray(),deferredLayers:[...deferredLayers],loadedLayers:[...loadedLayers],diagnostics:[...diagnostics],parts:[...group.children,...dragGroup.children].filter(o=>o.isMesh).map(o=>({id:o.userData.id,kind:o.userData.kind,owner:o.userData.owner,dragPreview:!!o.userData.drag_preview,visible:o.visible,depthTest:o.material.depthTest,depthWrite:o.material.depthWrite,opacity:o.material.opacity,positions:Array.from(o.geometry.attributes.position.array)}))};}, load,loadLayer,needsLayer(layer){return deferredLayers.has(layer)&&!loadedLayers.has(layer);},updateFeature,fit,frame,focus,project,setView,projection,navigationState,isolate,isolateContact,clearIsolation,setClipping,resetClipping,resetTransient,cancelInteraction,setSecondary,setIssueMarkers,hover,select,setDesign,preview,setReferences(value){references.reset(value);}, editing(value){editing=value;handles.visible=value;updateVisibility();},xray(value) { xray=value;updateVisibility(); }, mode(value) { mode = value; if(isolation)clearIsolation();updateVisibility(); }, opacity(value) { opacity = value; updateVisibility(); },
+  return { circuitVisible(id){return visible.circuits.has(id);}, displayDesign(){return displayContext;}, displayBlock(){return block?{...block}:null;}, inspection(){return {geometry:machinedBody?'machined-brep':'parameter-preview',mode,xray,opacity,projection:projection(),isolation,clipping:{...clipping},localGizmo:{id:localGizmo.userData.featureId||null,visible:localGizmo.visible,origin:localGizmo.position.toArray()},camera:camera.position.toArray(),target:controls.target.toArray(),deferredLayers:[...deferredLayers],loadedLayers:[...loadedLayers],diagnostics:[...diagnostics],parts:[...group.children,...dragGroup.children].filter(o=>o.isMesh).map(o=>({id:o.userData.id,kind:o.userData.kind,owner:o.userData.owner,dragPreview:!!o.userData.drag_preview,visible:o.visible,depthTest:o.material.depthTest,depthWrite:o.material.depthWrite,opacity:o.material.opacity,positions:Array.from(o.geometry.attributes.position.array)}))};}, load,loadLayer,needsLayer(layer){return deferredLayers.has(layer)&&!loadedLayers.has(layer);},updateFeature,updateEngraving,fit,frame,focus,project,setView,projection,navigationState,isolate,isolateContact,clearIsolation,setClipping,resetClipping,resetTransient,cancelInteraction,setSecondary,setIssueMarkers,hover,select,setDesign,preview,setReferences(value){references.reset(value);}, editing(value){editing=value;handles.visible=value;updateVisibility();},xray(value) { xray=value;updateVisibility(); }, mode(value) { mode = value; if(isolation)clearIsolation();updateVisibility(); }, opacity(value) { opacity = value; updateVisibility(); },
     toggle(key, value) { visible[key] = value; updateVisibility(); }, circuit(id, show) { show ? visible.circuits.add(id) : visible.circuits.delete(id); updateVisibility(); } };
 }

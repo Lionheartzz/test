@@ -1,5 +1,6 @@
 import {hydrateDesign} from './domain.js';
 import {axes} from './kinematics.js';
+import {machiningFits} from './model-machining-bounds.js';
 import {uuidToken} from './crypto-utils.js';
 import {engineeringName,engineeringText,unitLabel} from './engineering-labels.js';
 
@@ -14,14 +15,14 @@ export function engravingLabel(row){return `Engraving “${row.text}”`;}
 
 export function engravingEditor(ctx,form,row){
   const {element,field,action,change,get,select}=ctx;
-  const edit=(label,value,apply,group,options=null,numeric=false)=>grouped(field(form,label,value,v=>change(()=>apply(v)),options,numeric),group);
+  const edit=(label,value,apply,group,options=null,numeric=false)=>grouped(field(form,label,value,v=>change(()=>apply(v),{kind:'machining'}),options,numeric),group);
   form.append(element('div',engravingLabel(row),'inspector-title'));
   const actions=element('div',null,'action-row');form.append(actions);
   action(actions,'Duplicate',()=>{
     const id='ENG_'+uuidToken().replaceAll('-','');
-    if(change(()=>{if(get().engravings.length>=80)throw Error('This project already has the maximum of 80 engravings.');const copy=structuredClone(row),size=dimensions(get()),[u,v]=axes[row.face];copy.id=id;copy.u=Math.min(size[u],copy.u+10);copy.v=Math.min(size[v],copy.v+10);get().engravings.push(copy);}))select(id);
+    if(change(()=>{if(get().engravings.length>=80)throw Error('This project already has the maximum of 80 engravings.');const copy=structuredClone(row),size=dimensions(get()),[u,v]=axes[row.face];copy.id=id;copy.u=Math.min(size[u],copy.u+10);copy.v=Math.min(size[v],copy.v+10);get().engravings.push(copy);},{kind:'machining'}))select(id);
   });
-  action(actions,'Delete',()=>{if(change(()=>get().engravings=get().engravings.filter(value=>value.id!==row.id)))select('block');});
+  action(actions,'Delete',()=>{if(change(()=>get().engravings=get().engravings.filter(value=>value.id!==row.id),{kind:'machining'}))select('block');});
   edit('Face',row.face,value=>{row.face=value;const size=dimensions(get()),[u,v]=axes[value];row.u=Math.min(row.u,size[u]);row.v=Math.min(row.v,size[v]);},'Position',faces);
   for(const [key,label,index]of [['u','Position U / mm',0],['v','Position V / mm',1]]){
     const maximum=dimensions(get())[axes[row.face][index]],input=edit(label,row[key],value=>{if(value<0||value>maximum)throw Error(`${label} must stay within this block face.`);row[key]=value;},'Position',null,true);
@@ -31,6 +32,21 @@ export function engravingEditor(ctx,form,row){
   edit('Text height / mm',row.text_height,value=>row.text_height=positive(value,'Text height',50),'Marking',null,true);
   edit('Engraving depth / mm',row.depth,value=>row.depth=positive(value,'Engraving depth',5),'Marking',null,true);
   edit('Rotation / degrees',row.rotation,value=>{if(value<-360||value>360)throw Error('Rotation must be between -360 and 360 degrees.');row.rotation=value;},'Marking',null,true);
+}
+
+export function blockModifierEditor(ctx,form,row){
+  const {element,field,action,change,get,select}=ctx,title=row.kind==='chamfer'?'Chamfer':'Rectangular cutout';
+  form.append(element('div',title,'inspector-title'));
+  const actions=element('div',null,'action-row');form.append(actions);
+  action(actions,'Delete',()=>{if(change(()=>get().block_modifiers=get().block_modifiers.filter(value=>value.id!==row.id),{kind:'machining'}))select('block');});
+  const edit=(label,value,apply,group,options=null,numeric=false)=>grouped(field(form,label,value,next=>change(()=>{
+    apply(next);if(!machiningFits(row,get().block))throw Error(`${title} must remain within the finished block. Restore the previous value or adjust its size and position.`);
+  },{kind:'machining'}),options,numeric),group);
+  edit('Face',row.face,value=>row.face=value,'Position',faces);
+  if(row.kind==='chamfer'){edit('Size / mm',row.size,value=>row.size=positive(value,'Chamfer size',100),'Machining',null,true);return;}
+  for(const [key,label]of [['u','Position U / mm'],['v','Position V / mm']])edit(label,row[key],value=>{if(value<0||value>2000)throw Error('Position must stay within the block face.');row[key]=value;},'Position',null,true);
+  for(const [key,label]of [['width','Width / mm'],['height','Height / mm'],['depth','Depth / mm']])edit(label,row[key],value=>row[key]=positive(value,label,2000),'Machining',null,true);
+  edit('Rotation / degrees',row.rotation,value=>{if(value<-360||value>360)throw Error('Rotation must be between -360 and 360 degrees.');row.rotation=value;},'Position',null,true);
 }
 
 function threadPicker(ctx,parent,isCurrent,onUse){

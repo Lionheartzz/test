@@ -1,3 +1,4 @@
+import {apiError} from './api-errors.js';
 // The server emits one early route proposal and one exact result for the same
 // immutable draft. An error after headers is explicit, never a partial success.
 export async function streamExactPreview(design,{onProposal,onTiming=()=>{},signal,headers,preview=null}) {
@@ -5,14 +6,14 @@ export async function streamExactPreview(design,{onProposal,onTiming=()=>{},sign
   const response=await fetch('/api/preview-solid',{method:'POST',signal,
     headers:{'Content-Type':'application/json','X-PMC-Request':'local-console','Accept':'application/x-ndjson',...headers},body:JSON.stringify(preview?{design,...preview}:design)});
   const fetchMs=performance.now()-started;
-  if(!response.ok){const body=await response.json();throw Error(typeof body.detail==='string'?body.detail:JSON.stringify(body.detail));}
+  if(!response.ok){const body=await response.json().catch(()=>null);throw Error(apiError(body,design));}
   const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',exact;
   function event(line){
     if(!line.trim())return;
     const parseStarted=performance.now(),message=JSON.parse(line);parseMs+=performance.now()-parseStarted;
     if(message.type==='proposal'){proposalMs=performance.now()-started;onProposal(message.result);}
     else if(message.type==='exact')exact=message.result;
-    else if(message.type==='error')throw Error(message.detail);
+    else if(message.type==='error')throw Error(apiError(message,design));
     else throw Error('Unrecognized exact preview event');
   }
   try{
