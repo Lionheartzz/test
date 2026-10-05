@@ -3,9 +3,9 @@ function alias(object,name,get,set){Object.defineProperty(object,name,{configura
 export function hydrateDesign(design,definitions={},threads={}){
   if(!design)return design;
   const values=Array.isArray(definitions)?definitions:Object.values(definitions||{});
-  alias(design,'library',()=>values,()=>{throw Error('Engineering definitions are read-only SQLite data');});
+  alias(design,'library',()=>values,()=>{throw Error('Engineering definitions are read-only. Duplicate as Custom to make changes.');});
   const threadValues=Array.isArray(threads)?threads:Object.values(threads||{});
-  alias(design,'threads',()=>threadValues,()=>{throw Error('Thread definitions are read-only SQLite data');});
+  alias(design,'threads',()=>threadValues,()=>{throw Error('Thread definitions are read-only.');});
   alias(design,'components',()=>design.schematic_intent?.components||[],()=>{throw Error('Set schematic_intent explicitly');});
   alias(design,'schematics',()=>design.schematic_intent?.assets||[],()=>{throw Error('Set schematic_intent explicitly');});
   for(const feature of design.features||[]){

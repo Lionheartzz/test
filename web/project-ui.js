@@ -1,3 +1,4 @@
+import {engineeringText,engineeringName} from './engineering-labels.js';
 import {displayIdentity,displayReviewName} from './presentation.js';
 import {engineeringFactsUI} from './engineering-facts-ui.js';
 
@@ -9,7 +10,7 @@ export function projectUI(ctx){
 
   $('project-import').onclick=()=>{
     open('Import PMC Project JSON');
-    content.append(element('p','Import accepts schema 2 project state with SQLite engineering IDs. Legacy projects must be converted with the operator migration command first.'));
+    content.append(element('p','Import a saved manifold project file. If an older format is not supported, convert it before importing.'));
     const input=element('input');input.type='file';input.accept='.json,.pmc.json';input.setAttribute('aria-label','PMC project file');content.append(input);
     input.onchange=guard(async()=>{
       const file=input.files[0];if(!file)return;if(file.size>8000000)throw Error('Project JSON exceeds 8 MB.');
@@ -21,7 +22,7 @@ export function projectUI(ctx){
     });
   };
 
-  $('project-export').onclick=async()=>{try{const data=await post('/api/export-project',get());const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=element('a');a.href=url;a.download=data.name.replace(/[^a-zA-Z0-9_-]/g,'_')+'.pmc.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notice('Editable project state exported. Engineering definitions remain in SQLite.');}catch(e){notice(e.message,true);}};
+  $('project-export').onclick=async()=>{try{const data=await post('/api/export-project',get());const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=element('a');a.href=url;a.download=data.name.replace(/[^a-zA-Z0-9_-]/g,'_')+'.pmc.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notice('Editable project state exported. Engineering definitions stay in the library.');}catch(e){notice(e.message,true);}};
 
   function reviews(){
     open('Engineering Review');const d=get(),intent=d.schematic_intent;
@@ -30,9 +31,9 @@ export function projectUI(ctx){
     action(content,'Add review item',()=>{change(()=>{d.review_items??=[];let i=1;while(d.review_items.some(r=>r.id==='REVIEW_'+i))i++;d.review_items.push({id:'REVIEW_'+i,kind:'assumption',subject:'project',description:'Describe the engineering assumption to review',proposed_value:'',severity:'review',status:'open',resolution:''});});reviews();});
     const technical=element('section',null,'library-card');content.append(technical);
     post('/api/engineering-facts/review',d).then(data=>{if(get()!==d||!technical.isConnected)return;
-      technical.append(element('h3','Source-backed cartridge engineering review'));
-      for(const check of data.checks)technical.append(element('p',`${check.status} · ${displayIdentity(d,check.subject)} · ${check.net_id} · ${check.message}`));
-      for(const facts of Object.values(data.cartridges))engineeringFactsUI(ctx,technical,facts,{title:facts.identity_id});
+      technical.append(element('h3','Cartridge operating limits'));
+      for(const check of data.checks)technical.append(element('p',`${check.status} · ${displayIdentity(d,check.subject)} · ${check.net_id} · ${engineeringText(check.message)}`));
+      for(const facts of Object.values(data.cartridges))engineeringFactsUI(ctx,technical,facts,{title:'Cartridge properties'});
       if(!data.checks.length)technical.append(element('p','No selected-cartridge flow or pressure requirement to compare.'));
     }).catch(()=>{if(technical.isConnected)technical.append(element('p','Technical engineering review unavailable.'));});
     for(const r of d.review_items||[]){
@@ -43,12 +44,11 @@ export function projectUI(ctx){
       const decide=status=>{if(!note?.trim()){$('workflow-error').textContent='Enter the engineering decision before closing this item.';return;}change(()=>{r.status=status;r.resolution=note;});reviews();};
       action(card,'Accept assumption',()=>decide('accepted'));action(card,'Mark resolved',()=>decide('resolved'));action(card,'Reopen',()=>{change(()=>r.status='open');reviews();});
       if(d.features.some(f=>f.id===r.subject))action(card,'Inspect placement',()=>{select(r.subject);dialog.close();});
-      const advanced=element('details');advanced.append(element('summary','Advanced / Developer information'),element('p',`Review ID: ${r.id} · Subject ID: ${r.subject||'project'}`));card.append(advanced);
     }
     for(const c of intent?.components||[]){
       const card=element('section',null,'library-card'),interfaces=Object.entries(c.interface_nets||{}).map(([id,net])=>`${id} → ${d.nets.find(n=>n.id===net)?.label||net}`).join(' · ');
-      content.append(card);card.append(element('h3',c.label||c.id),element('p',c.function||'Schematic component'),
-        element('p',`Placement: ${c.placement_id||'not implemented'} · Cavity: ${c.cavity_id||'none'} · Cartridge: ${c.cartridge_id||'none'}${interfaces?' · '+interfaces:''}`,'property-note'));
+      content.append(card);card.append(element('h3',c.label||'Component'),element('p',c.function||'Schematic component'),
+        element('p',`Placement: ${c.placement_id?displayIdentity(d,c.placement_id):'Not placed'}${interfaces?' · '+interfaces:''}`,'property-note'));
       action(card,'Open Schematic Intent',openSchematic);
       if(c.placement_id)action(card,'Inspect placement',()=>{select(c.placement_id);dialog.close();});
     }

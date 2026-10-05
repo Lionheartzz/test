@@ -488,11 +488,14 @@ def search_definitions(*, query="", unit="", kind="cavity", offset=0, limit=40,
     }
 
 
-def create_custom_cavity(definition: CavityDefinition) -> CavityDefinition:
+def create_custom_cavity(definition: CavityDefinition, *, connection: sqlite3.Connection | None = None) -> CavityDefinition:
     """Insert one user-authored cavity under a new stable ID.
 
     Existing engineering rows are never updated by this product workflow.
     """
+    if connection is None:
+        with _connect(writable=True) as opened, opened:
+            return create_custom_cavity(definition,connection=opened)
     import uuid
     if definition.kind != "cavity":
         raise ValueError("Custom engineering definition must be a cavity")
@@ -509,34 +512,36 @@ def create_custom_cavity(definition: CavityDefinition) -> CavityDefinition:
             "kind": "cavity",
         }
     )
-    with _connect(writable=True) as connection, connection:
+    connection.execute(
+        "INSERT INTO cavities "
+        "(id,name,family,unit_system,manufacturer,thread_spec,stages_json,primitives_json,"
+        "boundaries_json,machining_json,clearance_diameter,clearance_height,usable,unusable_reason,active) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            value.id, value.label, value.family, value.unit_system, value.manufacturer,
+            value.thread_note, json.dumps([row.model_dump() for row in value.stages], separators=(",", ":")),
+            json.dumps([row.model_dump() for row in value.cutting_primitives], separators=(",", ":")),
+            json.dumps([row.model_dump() for row in value.boundaries], separators=(",", ":")),
+            json.dumps(value.machining, separators=(",", ":")), value.clearance_diameter,
+            value.clearance_height, 1, "", 1,
+        ),
+    )
+    for zone in value.zones:
         connection.execute(
-            "INSERT INTO cavities "
-            "(id,name,family,unit_system,manufacturer,thread_spec,stages_json,primitives_json,"
-            "boundaries_json,machining_json,clearance_diameter,clearance_height,usable,unusable_reason,active) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                value.id, value.label, value.family, value.unit_system, value.manufacturer,
-                value.thread_note, json.dumps([row.model_dump() for row in value.stages], separators=(",", ":")),
-                json.dumps([row.model_dump() for row in value.cutting_primitives], separators=(",", ":")),
-                json.dumps([row.model_dump() for row in value.boundaries], separators=(",", ":")),
-                json.dumps(value.machining, separators=(",", ":")), value.clearance_diameter,
-                value.clearance_height, 1, "", 1,
-            ),
+            "INSERT INTO cavity_interfaces "
+            "(cavity_id,interface_id,start,end,diameter,offset_u,offset_v,clip_to_cut) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (value.id, zone.id, zone.start, zone.end, zone.diameter,
+             zone.offset_u, zone.offset_v, int(zone.clip_to_cut)),
         )
-        for zone in value.zones:
-            connection.execute(
-                "INSERT INTO cavity_interfaces "
-                "(cavity_id,interface_id,start,end,diameter,offset_u,offset_v,clip_to_cut) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (value.id, zone.id, zone.start, zone.end, zone.diameter,
-                 zone.offset_u, zone.offset_v, int(zone.clip_to_cut)),
-            )
     return value
 
 
-def create_custom_external_port(definition: CavityDefinition) -> CavityDefinition:
+def create_custom_external_port(definition: CavityDefinition, *, connection: sqlite3.Connection | None = None) -> CavityDefinition:
     """Insert one reusable, user-authored external-port definition."""
+    if connection is None:
+        with _connect(writable=True) as opened, opened:
+            return create_custom_external_port(definition,connection=opened)
     import uuid
     if definition.kind != "external-port":
         raise ValueError("Custom engineering definition must be an external port")
@@ -552,22 +557,21 @@ def create_custom_external_port(definition: CavityDefinition) -> CavityDefinitio
         }
     )
     interface = value.zones[0]
-    with _connect(writable=True) as connection, connection:
-        connection.execute(
-            "INSERT INTO external_port_definitions "
-            "(id,name,family,unit_system,manufacturer,thread_spec,stages_json,primitives_json,"
-            "boundaries_json,machining_json,interface_json,clearance_diameter,clearance_height,"
-            "usable,unusable_reason,active,thread_definition_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                value.id, value.label, value.family, value.unit_system, value.manufacturer,
-                value.thread_note, json.dumps([row.model_dump() for row in value.stages], separators=(",", ":")),
-                json.dumps([row.model_dump() for row in value.cutting_primitives], separators=(",", ":")),
-                json.dumps([row.model_dump() for row in value.boundaries], separators=(",", ":")),
-                json.dumps(value.machining, separators=(",", ":")),
-                json.dumps(interface.model_dump(), separators=(",", ":")),
-                value.clearance_diameter, value.clearance_height, 1, "", 1,value.thread_definition_id,
-            ),
-        )
+    connection.execute(
+        "INSERT INTO external_port_definitions "
+        "(id,name,family,unit_system,manufacturer,thread_spec,stages_json,primitives_json,"
+        "boundaries_json,machining_json,interface_json,clearance_diameter,clearance_height,"
+        "usable,unusable_reason,active,thread_definition_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            value.id, value.label, value.family, value.unit_system, value.manufacturer,
+            value.thread_note, json.dumps([row.model_dump() for row in value.stages], separators=(",", ":")),
+            json.dumps([row.model_dump() for row in value.cutting_primitives], separators=(",", ":")),
+            json.dumps([row.model_dump() for row in value.boundaries], separators=(",", ":")),
+            json.dumps(value.machining, separators=(",", ":")),
+            json.dumps(interface.model_dump(), separators=(",", ":")),
+            value.clearance_diameter, value.clearance_height, 1, "", 1,value.thread_definition_id,
+        ),
+    )
     return value
 
 

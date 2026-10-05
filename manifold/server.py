@@ -274,6 +274,27 @@ def catalog_standards(kind: str=Query('port',pattern=r'^port$')):
 class CustomCavityRequest(Strict):
     definition: CavityDefinition
 
+class CustomDefinitionEdit(CustomCavityRequest):
+    id: str = Field(pattern=r'^(?:custom_|legacy_)[A-Za-z0-9_-]{1,32}$',max_length=40)
+    expected_revision: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+class CustomDefinitionDelete(Strict):
+    id: str = Field(pattern=r'^(?:custom_|legacy_)[A-Za-z0-9_-]{1,32}$',max_length=40)
+    expected_revision: str = Field(pattern=r'^[0-9a-f]{64}$')
+    confirm_name: str = Field(min_length=1,max_length=120)
+
+@app.post('/api/catalog/custom-definition/edit')
+def custom_definition_edit(payload:CustomDefinitionEdit):
+    from .library_management import edit_custom
+    try:return edit_custom(payload.id,payload.definition,payload.expected_revision).model_dump()
+    except (ValueError,RuntimeError) as exc:raise HTTPException(409,str(exc)) from None
+
+@app.post('/api/catalog/custom-definition/delete')
+def custom_definition_delete(payload:CustomDefinitionDelete):
+    from .library_management import delete_custom
+    try:return delete_custom(payload.id,payload.expected_revision,payload.confirm_name)
+    except (ValueError,RuntimeError) as exc:raise HTTPException(409,str(exc)) from None
+
 
 @app.post('/api/catalog/custom-cavity')
 def custom_cavity(payload:CustomCavityRequest):
@@ -369,8 +390,10 @@ def assign_boundary(payload:BoundaryAssignment):
 @app.get('/api/catalog/record')
 def catalog_record(id: str):
     from .engineering_db import get_definition
+    from .library_management import definition_revision
     try:
-        return dict(definition=get_definition(id,include_inactive=True).model_dump())
+        definition=get_definition(id,include_inactive=True)
+        return dict(definition=definition.model_dump(),revision=definition_revision(definition))
     except ValueError as exc:
         raise HTTPException(404,str(exc))
 
@@ -388,6 +411,14 @@ def catalog_definition(id: str):
 def cartridge_search(q: str = '',offset: int = Query(0,ge=0),limit: int = Query(40,ge=1,le=100)):
     from .engineering_db import search_cartridges
     return search_cartridges(q,offset,limit,technical=True)
+
+@app.get('/api/cartridges/{cartridge_id}')
+def cartridge_record(cartridge_id:str):
+    from .engineering_db import _connect
+    with _connect() as connection:
+        row=connection.execute('SELECT id,manufacturer,model,function,ratings_json,active FROM cartridges WHERE id=?',(cartridge_id,)).fetchone()
+    if row is None:raise HTTPException(404,'Cartridge not available.')
+    return dict(row)
 
 
 @app.get('/api/compatibility')

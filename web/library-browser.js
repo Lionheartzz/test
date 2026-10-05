@@ -1,0 +1,12 @@
+export function libraryBrowser({element,action},parent,{description,back,create,readOnly=false}){
+  const breadcrumb=element('div',null,'library-breadcrumb');action(breadcrumb,'Back to Engineering Library',back);parent.append(breadcrumb,element('p',description,'library-description'));
+  const actions=element('div',null,'library-browser-actions action-row');if(create)action(actions,'+ New Custom',create);if(readOnly)actions.append(element('span','Read-only catalogue','property-note'));parent.append(actions);
+  const filters=element('div',null,'library-filter-bar'),count=element('p','Loading records…','library-record-count'),frame=element('div',null,'library-table-frame'),table=element('table',null,'library-record-table'),head=element('thead'),body=element('tbody'),pager=element('div',null,'library-pagination action-row');count.setAttribute('role','status');table.append(head,body);frame.append(table);parent.append(filters,count,frame,pager);
+  return {filters,count,body,pager,
+    rows(columns,items,cells){head.replaceChildren();body.replaceChildren();const headings=element('tr');for(const title of [...columns,'Actions']){const th=element('th',title);th.scope='col';headings.append(th);}head.append(headings);for(const item of items){const tr=element('tr'),buttons=element('td',null,'library-record-actions');for(const value of cells(item,buttons))tr.append(element('td',value===null||value===undefined||value===''?'—':String(value)));tr.append(buttons);body.append(tr);}if(!items.length){const tr=element('tr'),td=element('td','No records available.','library-empty');td.colSpan=columns.length+1;tr.append(td);body.append(tr);}},
+    paging(offset,total,limit,change){pager.replaceChildren(element('span',total?`${offset+1}–${Math.min(offset+limit,total)} of ${total}`:'0 records'));const previous=action(pager,'Previous',()=>change(Math.max(0,offset-limit))),next=action(pager,'Next',()=>change(offset+limit));previous.disabled=offset===0;next.disabled=offset+limit>=total;},
+    failure(message,retry){count.textContent=message;body.replaceChildren();pager.replaceChildren();action(pager,'Retry',retry);}
+  };
+}
+
+export function recordMore({element,action},parent,items){if(!items.length)return;const menu=element('details',null,'library-record-more');menu.append(element('summary','More'));parent.append(menu);const buttons=element('div');menu.append(buttons);for(const [label,callback]of items)action(buttons,label,()=>{menu.open=false;return callback();});}

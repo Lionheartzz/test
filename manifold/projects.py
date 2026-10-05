@@ -149,10 +149,7 @@ def listing():
             label='SAVED DRAFT' if not pointer else 'STALE' if current['stale'] else pointer['status']
             entries.append(dict(id=r['id'],name=d['name'],updated_at=r['updated_at'],revision=current['revision'],
                                 archived=r.get('archived',False),status=label,features=len(d['features']),
-                                project_context=d.get('project_context','metric'),block=d.get('block'),
-                                net_count=len(d.get('nets',[])),stale=current['stale'],
-                                schematic_count=len((d.get('schematic_intent') or {}).get('assets',[])) if 'schematic_intent' in d else None,
-                                engineering_counts=pointer.get('counts') if pointer else None))
+                                project_context=d.get('project_context','metric'),block=d.get('block')))
         except (ValueError,OSError,KeyError,TypeError):
             entries.append(dict(id=p.stem,name=p.stem,status='UNREADABLE',archived=False,error='Project file requires repair; original retained.'))
     return sorted(entries,key=lambda r:r.get('updated_at',''),reverse=True)

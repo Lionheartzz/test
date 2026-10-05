@@ -3,12 +3,9 @@ const icons={
   projects:'M3 5h7l2 3h9v13H3V5zM3 10h18',
   block:'m12 3 9 5v10l-9 5-9-5V8l9-5Zm0 10 9-5M12 13 3 8m9 5v10',
   new:'M12 4v16M4 12h16',
-  drawing:'M4 3h16v19H4zM7 7h6v7H7zM7 18h10m-2-11h2m-2 4h2',
   ai:'M4 5h6v6H4zM14 16h6v6h-6zM7 11v8h7M10 8h7v8M17 2v7m-3-3h6',
-  nets:'M4 5h5v5H4zM15 15h5v5h-5zM9 7h9v8M6 10v8h9',
   library:'M3 4h5v17H3zM10 4h5v17h-5zM17 4l4-1 4 17-4 1z',
   schematic:'M3 7h6v6H3zM15 7h6v6h-6zM9 10h6M6 13v7h12v-7',
-  review:'M8 4H4v18h16V4h-4M8 2h8v5H8zM8 13l2 2 5-5m-7 9h8',
   import:'M5 3h9l5 5v5M14 3v6h5M5 3v19h14v-4M9 15h12m-3-3 3 3-3 3',
   arrow:'M4 12h16m-6-6 6 6-6 6',
 };
@@ -21,18 +18,16 @@ export function homeIcon(kind){
 export function renderHome({element,action,api,launch,hasProject,returnToDraft,startSetup,navigate}){
   const header=element('header',null,'home-header'),brand=element('div',null,'home-brand');
   brand.append(homeIcon('block'),element('strong','PMC'),element('span','MANIFOLD STUDIO'));
-  const statuses=element('div',null,'home-services'),service=element('span','Checking service…'),database=element('span','Checking engineering DB…');
+  const statuses=element('div',null,'home-services'),service=element('span','Checking service…'),database=element('span','Checking library…');
   statuses.setAttribute('role','status');statuses.append(service,database);header.append(brand,statuses);
   const layout=element('div',null,'home-layout'),sidebar=element('nav',null,'home-sidebar'),content=element('div',null,'home-content');sidebar.setAttribute('aria-label','Home navigation');
   const navigationButtons={},pages=new Map(),scroll=new Map();let current='home';
   for(const [section,entries]of [
     ['WORKSPACE',[
-      ['home','Home','home'],['projects','Projects','projects'],['new','New Manifold','new'],
-      ['block','Model','model'],['drawing','Drawing','drawing'],['ai','AI Design','ai'],
+      ['home','Home','home'],['projects','Projects','projects'],['new','New Manifold','new'],['ai','AI Design','ai'],
     ]],
-    ['ENGINEERING',[
-      ['nets','Hydraulic Nets','nets'],['library','Engineering Library','library'],
-      ['schematic','Schematic','schematic'],['review','Engineering Review','review'],
+    ['LIBRARY',[
+      ['library','Engineering Library','library'],
     ]],
   ]){
     sidebar.append(element('span',section,'home-nav-heading'));
@@ -48,7 +43,6 @@ export function renderHome({element,action,api,launch,hasProject,returnToDraft,s
   layout.append(sidebar,content);
   const titlebar=element('div',null,'home-titlebar'),title=element('h1','Start a manifold');title.id='home-start';title.tabIndex=-1;titlebar.append(title);
   const titleActions=element('div',null,'home-title-actions');
-  const importButton=action(titleActions,'Import Project',()=>launch('project-import',importButton));importButton.prepend(homeIcon('import'));
   const returnButton=action(titleActions,'Return to current draft',returnToDraft);returnButton.classList.add('home-return');
   titlebar.append(titleActions);content.append(titlebar);
   const start=element('section',null,'home-module');start.dataset.module='home';pages.set('home',start);content.append(start);
@@ -90,14 +84,15 @@ export function renderHome({element,action,api,launch,hasProject,returnToDraft,s
     if(module==='home')start.append(projects);else if(module==='projects')pane.append(projects);
     title.textContent=label;updateDraft();content.scrollTop=scroll.get(module)||0;title.focus({preventScroll:true});return pane;
   }
+  function setTitle(label){title.textContent=label;}
   updateDraft();
   Promise.allSettled([api('/api/health'),api('/api/catalog/manifest')]).then(([health,manifest])=>{
     if(!header.isConnected)return;
     const online=health.status==='fulfilled'&&health.value.service==='pmc-manifold';
     service.textContent=online?(health.value.network?.mode==='lan'?'LAN':'LOCAL'):'SERVICE UNAVAILABLE';service.dataset.state=online?'ready':'error';
     const ready=manifest.status==='fulfilled'&&Number.isFinite(manifest.value.schema_version);
-    database.textContent=ready?'ENGINEERING DB READY':'ENGINEERING DB UNAVAILABLE';database.dataset.state=ready?'ready':'error';
-    database.title=ready?'SQLite schema '+manifest.value.schema_version:'Engineering database could not be checked. Reload the page to retry.';
+    database.textContent=ready?'LIBRARY READY':'LIBRARY UNAVAILABLE';database.dataset.state=ready?'ready':'error';
+    database.title=ready?'Engineering Library available':'Engineering Library could not be checked. Reload the page to retry.';
   });
-  return {header,layout,projects,content,page,select,updateDraft};
+  return {header,layout,projects,content,page,select,setTitle,updateDraft};
 }

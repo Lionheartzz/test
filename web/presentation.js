@@ -1,3 +1,4 @@
+import {engineeringName,engineeringText} from './engineering-labels.js';
 const faceOrder={left:0,right:1,front:2,back:3,bottom:4,top:5};
 
 export function displayNetName(design,netId){
@@ -10,8 +11,8 @@ function stableFeatureOrder(a,b){
 }
 
 export function displayExternalPortName(feature,design){
-  if(feature.schematic_id)return feature.schematic_id;
-  if(feature.id&&!String(feature.id).startsWith('PORT_'))return feature.id;
+  if(feature.schematic_id)return engineeringName(feature.schematic_id,'Port');
+  if(feature.id&&!String(feature.id).startsWith('PORT_'))return engineeringName(feature.id,'Port');
   const peers=(design?.features||[]).filter(item=>item.kind==='port'&&item.circuit===feature.circuit&&!item.suppressed).sort(stableFeatureOrder);
   const net=displayNetName(design,feature.circuit),index=peers.findIndex(item=>item.id===feature.id);
   return peers.length<=1?net:`${net}${Math.max(0,index)+1}`;
@@ -43,13 +44,14 @@ export function displayFeatureName(feature,design){
   const route=displayRouteName(feature,design);if(route)return route+(feature.plugged?' · PLUG':'');
   if(feature.kind==='port')return displayExternalPortName(feature,design);
   const component=design?.schematic_intent?.components?.find(item=>item.placement_id===feature.id)?.label;
-  if(component)return component;
+  if(component)return engineeringName(component,'Component');
   if(feature.kind==='mounting'&&/^MNT(?:_[0-9a-f]{12,}|\d+)$/i.test(String(feature.id||''))){
     const peers=(design?.features||[]).filter(item=>item.kind==='mounting').sort(stableFeatureOrder);
     const index=peers.findIndex(item=>item.id===feature.id);
     return `Mounting Hole ${index<0?1:index+1}`;
   }
-  return feature.id;
+  const peers=(design?.features||[]).filter(item=>item.kind===feature.kind).sort(stableFeatureOrder),index=peers.findIndex(item=>item.id===feature.id);
+  return engineeringName(feature.id,({cavity:'Cavity',mounting:'Mounting hole',drilling:'Drilling',port:'Port'})[feature.kind]+' '+(Math.max(0,index)+1));
 }
 
 export function displayMemberName(design,member){
@@ -61,7 +63,7 @@ export function displayMemberName(design,member){
     if(feature?.kind==='cavity')return displayInterfaceName(design,owner,suffix);
   }
   const feature=(design?.features||[]).find(item=>item.id===text);
-  return feature?displayFeatureName(feature,design):text;
+  return feature?displayFeatureName(feature,design):engineeringText(text);
 }
 
 const ruleNames={
@@ -77,7 +79,7 @@ export function displayReviewName(value){
   const text=String(value||'');
   if(text==='PORT_SPEC'||text.startsWith('PORT_SPEC_'))return 'External port specification';
   if(text==='External ports')return 'External ports';
-  return text.startsWith('REVIEW_')?'Engineering review item':text;
+  return text.startsWith('REVIEW_')||text.startsWith('AI_')||text.startsWith('THREAD_REVIEW_')?'Engineering review item':engineeringName(text,'Engineering item');
 }
 
 export function displayIdentity(design,value){

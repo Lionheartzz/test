@@ -31,3 +31,16 @@
 #workflow-dialog .guided-actions{justify-content:flex-end;gap:8px;margin-top:18px}
 #workflow-dialog .guided-material-status{font-size:12px;color:#e7cf9b;margin:4px 0 0}
 #workflow-dialog .guided-material-status:empty{display:none}
+
+/* Shared engineering catalogue browser, in Home or an existing picker. */
+.library-description{margin:12px 0;color:var(--text-secondary,#aabacf);line-height:1.6}
+.library-browser-actions{align-items:center;margin:12px 0}
+.library-filter-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+.library-filter-bar .field{min-width:0;margin:0}.library-record-count{margin:12px 0;font-size:12px;color:var(--text-secondary,#aabacf)}
+.library-table-frame{overflow-x:auto;border:1px solid var(--border-subtle,#354253);border-radius:6px}
+.library-record-table{width:100%;border-collapse:collapse;font-size:12px;min-width:620px;text-align:left}
+.library-record-table th{padding:10px;background:#17212f;color:#aabacf;font-weight:600}
+.library-record-table td{padding:9px 10px;border-top:1px solid var(--border-subtle,#354253);vertical-align:top}
+.library-record-actions{min-width:135px}.library-record-actions>button{margin-right:6px}.library-record-more{display:inline-block;vertical-align:top;min-width:50px}
+.library-record-more summary{cursor:pointer;padding:5px}.library-record-more>div{display:grid;gap:4px;padding-top:5px}.library-record-more button{text-align:left;white-space:nowrap}
+.library-pagination{margin:14px 0;align-items:center;justify-content:flex-end}.library-pagination>span{margin-right:auto}.library-empty{text-align:center;padding:32px!important;color:#aabacf}

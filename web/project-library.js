@@ -1,5 +1,5 @@
 import {renderHome,homeIcon} from './home-view.js';
-import {projectManagement,projectModules} from './home-project-modules.js';
+import {engineeringName} from './engineering-labels.js';
 import {libraryUI} from './library-ui.js';
 
 export function prefillGuidedBlock($,values){
@@ -17,7 +17,7 @@ export function prefillGuidedBlock($,values){
 export function projectLibrary(ctx){
   const {$,element,action,api,post,openProject,isDirty,hasProject,onDeleted}=ctx;
   const home=$('project-home');let query='',archived=false,page=0,generation=0,view=null,projectList=null,selected='home',opening=false;
-  let cachedRows=null,rowsRequest=null,rowsGeneration=0,inlineLibrary=null;const moduleViews=new Map();
+  let cachedRows=null,rowsRequest=null,rowsGeneration=0,inlineLibrary=null;
   function loadRows(force=false){
     if(force){cachedRows=null;rowsRequest=null;rowsGeneration++;}
     if(cachedRows)return Promise.resolve(cachedRows);if(rowsRequest)return rowsRequest;
@@ -39,12 +39,12 @@ export function projectLibrary(ctx){
     // handlers. The existing five-step workflow remains the only draft creator.
     try{prefillGuidedBlock($,values);}catch(error){$('workflow-error').textContent=error.message+' Please complete step 1 directly.';}
   }
-  async function open(row,module='model',button=null){
+  async function open(row){
     if(opening)return;
     if(isDirty()&&!confirm('Discard the current unsaved draft and open this project?'))return;
-    const ticket=generation;opening=true;if(button)button.disabled=true;
-    try{const opened=await openProject(row.id,()=>ticket===generation&&document.body.classList.contains('home'));if(opened===false||ticket!==generation)return;const command={nets:'nets-open',schematic:'schematic-open',review:'review-open'}[module];if(command)launch(command,button);}
-    catch(error){alert(error.message);}finally{opening=false;if(button?.isConnected)button.disabled=false;}
+    const ticket=generation;opening=true;
+    try{await openProject(row.id,()=>ticket===generation&&document.body.classList.contains('home'));}
+    catch(error){alert(error.message);}finally{opening=false;}
   }
   function drawings(row){
     if(isDirty()&&!confirm('Leave the unsaved manifold draft and open project drawings?'))return;
@@ -56,7 +56,7 @@ export function projectLibrary(ctx){
     try{await post(`/api/projects/${row.id}/manage`,{expected_revision:row.revision,action:op,name:name||null});await refreshProjects();}catch(error){alert(error.message);}
   }
   async function remove(row){
-    const name=prompt(`Permanently delete “${row.name}” with its drawings and revision history? This cannot be undone. Shared PMC/MDTools records, assets and immutable build evidence are retained. Type the exact project name to confirm.`);
+    const name=prompt(`Permanently delete “${row.name}” with its drawings and revision history? This cannot be undone. Shared PMC/MDTools records, assets and retained build history are retained. Type the exact project name to confirm.`);
     if(name===null)return;if(name!==row.name){alert('Project name did not match. Nothing was deleted.');return;}
     try{await post(`/api/projects/${row.id}/delete`,{expected_revision:row.revision,confirm_name:name});onDeleted(row.id);await refreshProjects();}catch(error){alert(error.message);}
   }
@@ -90,7 +90,7 @@ export function projectLibrary(ctx){
       const size=5;page=Math.max(0,Math.min(page,Math.ceil(visible.length/size)-1));
       for(const row of visible.slice(page*size,(page+1)*size)){
         const tr=element('tr');tr.dataset.projectId=row.id;
-        const project=element('td',null,'home-project-name'),name=element('span',row.name);name.title=row.name;project.append(homeIcon('block'),name);tr.append(project);
+        const project=element('td',null,'home-project-name'),name=element('span',row.error?engineeringName(row.name,'Unreadable project'):row.name);name.title=name.textContent;project.append(homeIcon('block'),name);tr.append(project);
         const dimensions=row.block&&['length','width','height'].every(key=>Number.isFinite(row.block[key]))?['length','width','height'].map(key=>Number(row.block[key].toFixed(2))).join(' × '):'—';
         const block=element('td',dimensions,'home-block-size');block.title='Stored dimensions in mm'+(row.project_context?' · '+row.project_context+' project context':'');tr.append(block,element('td',row.features??'—','home-feature-count'));
         const state=element('td'),badge=element('span',row.error?'UNREADABLE':row.status,'home-project-status');badge.dataset.state=row.error?'unreadable':String(row.status).toLowerCase().replaceAll(' ','-');badge.title=row.error||row.status;state.append(badge);tr.append(state);
@@ -114,17 +114,19 @@ export function projectLibrary(ctx){
     load();return {refresh:load,hideMenu:()=>{if(menu.matches(':popover-open'))menu.hidePopover();}};
   }
   async function show(module='home'){
+    if(!['home','projects','new','ai','library'].includes(module))throw Error('This page is not available. Open project tools from Projects.');
     ++generation;selected=module;document.body.classList.add('home');home.setAttribute('aria-label','Engineering Home');
     if(!view){view=renderHome({element,action,api,launch,hasProject,returnToDraft,startSetup,navigate:id=>show(id).catch(error=>alert(error.message))});home.append(view.header,view.layout);projectList=projectTable(view.projects);}
     projectList.hideMenu();
     const titles={home:'Start a manifold',projects:'Projects',new:'New Manifold',ai:'AI Design Management',library:'Engineering Library'};
-    const pane=view.select(module,titles[module]||projectModules[module]?.title||module);
+    const pane=view.select(module,titles[module]);
+    if(module==='projects'&&!pane.querySelector('.home-project-actions')){const actions=element('div',null,'home-project-actions action-row');const button=action(actions,'Import Project',()=>launch('project-import',button));button.prepend(homeIcon('import'));pane.prepend(actions);}
     if(module==='home'||module==='projects'){await projectList.refresh();return;}
-    if(projectModules[module]){if(!moduleViews.has(module))moduleViews.set(module,projectManagement({element,action,loadRows,onOpen:(row,id,button)=>id==='drawing'?drawings(row):open(row,id,button)},pane,module));await moduleViews.get(module).refresh();return;}
     if(module==='new'&&!pane.childElementCount){pane.append(element('p','Create a new manifold through the existing five-step engineering setup.','home-module-intro'));const button=action(pane,'Start Guided manifold setup',()=>launch('project-new',button));button.classList.add('primary');return;}
     if(module==='ai')return ctx.ai.mountManagement(pane,{isCurrent:()=>selected==='ai'&&document.body.classList.contains('home')});
-    if(module==='library'&&!inlineLibrary){const error=element('p',null,'error'),body=element('div');error.setAttribute('role','alert');pane.append(body,error);const inlineContext={...ctx,get:()=>null,$:id=>id==='workflow-content'?body:id==='workflow-error'?error:$(id)};
-      inlineLibrary=libraryUI(inlineContext,{open:title=>{body.replaceChildren();error.textContent='';if(title!=='Engineering Library')body.append(element('h2',title));},insert:()=>{},scrollContainer:()=>view.content});inlineLibrary();}
+    if(module==='library'&&!inlineLibrary){const error=element('p',null,'error'),body=element('div');error.setAttribute('role','alert');pane.append(body,error);const inlineContext={...ctx,get:()=>null,currentDefinitions:()=>ctx.get()?.features||[],$:id=>id==='workflow-content'?body:id==='workflow-error'?error:$(id)};
+      inlineLibrary=libraryUI(inlineContext,{open:title=>{body.replaceChildren();error.textContent='';if(selected==='library')view.setTitle(title);},insert:()=>{},scrollContainer:()=>view.content});inlineLibrary();}
+    else if(module==='library')view.setTitle(inlineLibrary.currentTitle||'Engineering Library');
   }
   ctx.ai.setManagementNavigation(()=>{if($('workflow-dialog').open)$('workflow-dialog').close();return show('ai');});
   $('ai-design-open').onclick=()=>show('ai').catch(error=>alert(error.message));
