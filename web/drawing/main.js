@@ -1,6 +1,7 @@
 import {engineeringName} from '../engineering-labels.js';
 import '../ui-tokens.css';
 import './style.css';
+import '../project-navigation.css';
 import {createDrawingShell} from './shell.js';
 import {shortToken} from '../crypto-utils.js';
 
@@ -125,5 +126,14 @@ viewport.onpointerup=e=>{if(!drag)return;const current=drag;drag=null;if(current
 window.addEventListener('keydown',e=>{if(e.defaultPrevented||['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||$('modal').open)return;if(e.key==='Escape'&&pick){e.preventDefault();pick=null;requestRender();return;}if(e.key==='Delete'){e.preventDefault();deleteSelected();}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();undo(e.shiftKey);}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save().catch(fail);}});
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
 setInterval(async()=>{if(!doc||busy||document.hidden)return;try{const current=await api(url());if(current.revision!==doc.revision){message('Drawing changed in another window. Your local edits are retained; reopen before saving.',true);}doc.source_current=current.source_current;controls();}catch(e){fail(e);}},8000);
-async function init(){if(!/^[0-9a-f]{32}$/.test(projectId||''))throw Error('Open a saved Project and select Drawings.');project=await api('/api/projects/'+projectId);$('project-title').textContent=project.design.name;$('back').href='/?project='+projectId;controls();await list();const requested=new URLSearchParams(location.search).get('drawing');if(requested)await open(requested);else message(project.build?'Choose an existing drawing or Create Drawing.':'Validate the source Manifold before creating a drawing.');}
+async function init(){
+  if(!/^[0-9a-f]{32}$/.test(projectId||''))throw Error('Open a saved Project and select Drawings.');
+  const modelLink=options=>'/?'+new URLSearchParams({project:projectId,...options});
+  $('drawing-model-open').href=modelLink();
+  $('back').href=modelLink({workspace:'home'});
+  for(const link of document.querySelectorAll('[data-workspace]'))link.href=modelLink({workspace:link.dataset.workspace});
+  for(const link of document.querySelectorAll('[data-engineering]'))link.href=modelLink({engineering:link.dataset.engineering});
+  project=await api('/api/projects/'+projectId);$('project-title').textContent=project.design.name;$('project-title').title=project.design.name;
+  controls();await list();const requested=new URLSearchParams(location.search).get('drawing');if(requested)await open(requested);else message(project.build?'Choose an existing drawing or Create Drawing.':'Validate the source Manifold before creating a drawing.');
+}
 init().catch(fail);

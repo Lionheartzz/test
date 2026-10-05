@@ -17,11 +17,19 @@ export function createStudioShell({$}) {
   };
   let busy=false,leftOpen=false,rightOpen=false,validationOpen=false,openMenu=null;
   let dialogTrigger=null;
+  function projectDestination(engineering=false){
+    $('model-current').toggleAttribute('aria-current',!engineering);
+    if(!engineering)$('model-current').setAttribute('aria-current','page');
+    $('engineering-menu-trigger').toggleAttribute('aria-current',engineering);
+    if(engineering)$('engineering-menu-trigger').setAttribute('aria-current','page');
+  }
+  for(const id of ['nets-open','schematic-open','review-open'])$(id).addEventListener('click',()=>projectDestination(true));
   document.addEventListener('click',event=>{
     const trigger=event.target.closest?.('button,a');
     if(trigger&&!trigger.closest('dialog'))dialogTrigger=trigger;
   },true);
   for(const dialog of document.querySelectorAll('dialog'))dialog.addEventListener('close',()=>{
+    if(dialog.id==='workflow-dialog')projectDestination();
     let target=dialogTrigger;
     if(target&&!target.getClientRects().length)target=target.closest('.menu-host')?.querySelector('.menu-trigger');
     if(target?.isConnected&&!target.disabled&&target.getClientRects().length)target.focus();
@@ -110,7 +118,6 @@ export function createStudioShell({$}) {
     if(openMenu){event.preventDefault();closeMenus(true);return;}
     if(leftOpen||rightOpen){event.preventDefault();leftOpen=false;rightOpen=false;paint();}
   });
-  $('add-cavity').addEventListener('click',()=>{if(!busy)$('library-open').click();});
 
   function togglePanel(side){
     if(busy)return;

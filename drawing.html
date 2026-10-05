@@ -1,7 +1,13 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.svg"><title>PMC · Drawing Workspace</title></head>
 <body>
-<header class="drawing-header"><a id="back" href="/">PMC <span>MANIFOLD STUDIO</span></a><div><span class="eyebrow">DRAWING WORKSPACE</span><h1 id="project-title">Opening project…</h1></div><button id="create" class="primary">Create Drawing</button></header>
+<header class="drawing-header">
+  <a id="back" href="/" aria-label="Workspace Home">PMC <span>MANIFOLD STUDIO</span></a>
+  <div class="drawing-menu-host workspace-menu"><button id="workspace-menu-trigger" class="drawing-menu-trigger" aria-expanded="false" aria-controls="workspace-menu">Workspace ▾</button><div id="workspace-menu" class="drawing-menu-popup navigation-popup" hidden><a data-workspace="home">Home</a><a data-workspace="projects">Projects</a><a data-workspace="ai">AI Design</a><a data-workspace="library">Engineering Library</a></div></div>
+  <div class="drawing-project-identity"><h1 id="project-title">Opening project…</h1></div>
+  <nav class="project-nav" aria-label="Current project navigation"><a id="drawing-model-open" class="project-nav-tab">Model</a><span class="project-nav-tab" aria-current="page">Drawing</span><div class="drawing-menu-host"><button id="engineering-menu-trigger" class="drawing-menu-trigger project-nav-tab" aria-expanded="false" aria-controls="engineering-menu">Engineering ▾</button><div id="engineering-menu" class="drawing-menu-popup navigation-popup" hidden><a data-engineering="nets">Hydraulic Nets</a><a data-engineering="schematic">Schematic</a><a data-engineering="review">Engineering Review</a></div></div></nav>
+  <button id="create" class="primary">Create Drawing</button>
+</header>
 <div id="message" role="status" tabindex="-1">Loading saved drawings</div>
 <div id="recovery" hidden></div>
 <nav class="drawing-toolbar" aria-label="Drawing tools"><button id="save">Save</button><button id="undo">Undo</button><button id="redo">Redo</button><span class="divider"></span><button id="dimension">+ Dimension</button><button id="text">+ Note / Text</button><button id="leader">+ Leader / Label</button><button id="view">+ View / Section</button><button id="table">+ Table</button><button id="schematic">+ Schematic</button><span class="divider"></span><button id="update">Update from Manifold</button><button id="revision">New Revision</button><button id="release">Release</button><button id="pdf" class="primary">Export PDF</button><button id="cancel-job" hidden>Cancel job</button></nav>

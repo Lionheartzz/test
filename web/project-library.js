@@ -25,7 +25,7 @@ export function projectLibrary(ctx){
     rowsRequest=api('/api/projects').then(rows=>{if(ticket===rowsGeneration)cachedRows=rows;return rows;}).finally(()=>{if(ticket===rowsGeneration)rowsRequest=null;});return rowsRequest;
   }
   async function refreshProjects(){await loadRows(true);view?.updateDraft();await projectList?.refresh();}
-  const returnToDraft=()=>{++generation;document.body.classList.remove('home');$('select-block').focus({preventScroll:true});};
+  const returnToDraft=()=>{if(!hasProject())return;++generation;document.body.classList.remove('home');$('select-block').focus({preventScroll:true});};
   function launch(id,trigger=document.activeElement){
     const command=$(id);if(command.disabled)return false;
     if(id==='drawings-open')returnToDraft();
@@ -128,8 +128,11 @@ export function projectLibrary(ctx){
       inlineLibrary=libraryUI(inlineContext,{open:title=>{body.replaceChildren();error.textContent='';if(selected==='library')view.setTitle(title);},insert:()=>{},scrollContainer:()=>view.content});inlineLibrary();}
     else if(module==='library')view.setTitle(inlineLibrary.currentTitle||'Engineering Library');
   }
-  ctx.ai.setManagementNavigation(()=>{if($('workflow-dialog').open)$('workflow-dialog').close();return show('ai');});
-  $('ai-design-open').onclick=()=>show('ai').catch(error=>alert(error.message));
-  $('projects-open').onclick=()=>{loadRows(true).catch(()=>{});return show('home');};
+  function navigateWorkspace(module){if($('workflow-dialog').open)$('workflow-dialog').close();return show(module);}
+  ctx.ai.setManagementNavigation(()=>navigateWorkspace('ai'));
+  $('ai-design-open').onclick=()=>navigateWorkspace('ai').catch(error=>alert(error.message));
+  $('workspace-home').onclick=()=>navigateWorkspace('home').catch(error=>alert(error.message));
+  $('workspace-library-open').onclick=()=>navigateWorkspace('library').catch(error=>alert(error.message));
+  $('projects-open').onclick=()=>{loadRows(true).catch(()=>{});return navigateWorkspace('projects').catch(error=>alert(error.message));};
   return {show};
 }

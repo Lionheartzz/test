@@ -1,0 +1,26 @@
+.project-nav{display:flex;align-items:center;gap:3px;flex:none;white-space:nowrap}
+.project-nav .project-nav-tab{display:inline-flex;align-items:center;gap:7px;min-height:30px;padding:5px 8px;border:1px solid transparent;border-radius:0;background:transparent;color:var(--ui-text);font-size:12px;line-height:18px;text-decoration:none;white-space:nowrap}
+.project-nav .project-nav-tab:hover{background:var(--ui-hover)}
+.project-nav [aria-current=page]{border-bottom:2px solid var(--ui-blue);color:#fff;font-weight:650}
+.workspace-menu{position:relative;display:inline-flex;flex:none;min-width:0;border-right:1px solid var(--ui-border);padding-right:8px}
+.workspace-menu>button{display:flex;align-items:center;gap:7px;min-width:0;background:transparent;border-color:transparent;white-space:nowrap}
+.navigation-popup{position:absolute;right:0;left:auto;top:calc(100% + 6px);z-index:90;min-width:210px;display:grid;gap:2px;padding:6px;background:var(--ui-surface);border:1px solid var(--ui-border);border-radius:9px;box-shadow:0 18px 45px #0009}
+.workspace-menu>.navigation-popup{left:0;right:auto}
+.navigation-popup>button,.navigation-popup>a{display:block;width:100%;min-height:30px;padding:7px 9px;border:0;border-radius:6px;background:transparent;color:var(--ui-text);font-size:12px;line-height:18px;text-align:left;text-decoration:none;white-space:nowrap}
+.navigation-popup>button:hover,.navigation-popup>a:hover,.navigation-popup>button:focus-visible,.navigation-popup>a:focus-visible{background:var(--ui-hover)}
+.drawing-header>.workspace-menu{flex:none;overflow:visible}
+.drawing-header>.drawing-project-identity{min-width:80px;max-width:260px;flex:1}
+.drawing-header>.project-nav{margin-left:auto}
+.drawing-header>button{margin-left:0}
+@media(max-width:1100px){
+  .drawing-header{flex-wrap:wrap;height:auto;min-height:48px}
+  .drawing-header>.drawing-project-identity{max-width:none}
+  .drawing-header>.project-nav{order:1;margin-left:0}
+  .drawing-header>button{order:2}
+}
+@media(max-width:680px){
+  .workspace-menu{padding-right:4px}
+  .project-nav{gap:0}
+  .project-nav .project-nav-tab{padding:5px;font-size:11px}
+  .drawing-header>.workspace-menu{flex-basis:auto}
+}

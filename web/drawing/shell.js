@@ -21,19 +21,24 @@ export function createDrawingShell(){
     const {popup,trigger}=openMenu;popup.hidden=true;trigger.setAttribute('aria-expanded','false');openMenu=null;
     if(returnFocus)trigger.focus();return true;
   }
+  function wireMenu(trigger,popup){
+    const choices=()=>[...popup.querySelectorAll('button:not(:disabled),a[href]')];
+    trigger.onclick=()=>{const wasOpen=openMenu?.trigger===trigger;closeMenu();if(wasOpen)return;popup.hidden=false;trigger.setAttribute('aria-expanded','true');openMenu={popup,trigger};};
+    trigger.onkeydown=event=>{if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();if(openMenu?.trigger!==trigger)trigger.click();const items=choices();items[event.key==='ArrowDown'?0:items.length-1]?.focus();}};
+    popup.addEventListener('click',event=>{if(event.target.closest('button,a'))closeMenu();});
+    popup.addEventListener('keydown',event=>{
+      if(event.key==='Escape'){event.preventDefault();closeMenu(true);return;}
+      const items=choices(),index=items.indexOf(document.activeElement);
+      if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)&&items.length){event.preventDefault();items[event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length].focus();}
+    });
+  }
+  for(const host of header.querySelectorAll('.drawing-menu-host'))wireMenu(host.querySelector('.drawing-menu-trigger'),host.querySelector('.drawing-menu-popup'));
   for(const [label,ids] of groups){
     const host=document.createElement('div');host.className='drawing-menu-host';
     const trigger=document.createElement('button');trigger.type='button';trigger.textContent=label+' ▾';trigger.className='drawing-menu-trigger';trigger.setAttribute('aria-expanded','false');
     const popup=document.createElement('div');popup.className='drawing-menu-popup';popup.hidden=true;
     for(const id of ids)popup.append($(id));
-    trigger.onclick=()=>{const wasOpen=openMenu?.trigger===trigger;closeMenu();if(wasOpen)return;popup.hidden=false;trigger.setAttribute('aria-expanded','true');openMenu={popup,trigger};};
-    trigger.onkeydown=event=>{if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();if(openMenu?.trigger!==trigger)trigger.click();const choices=[...popup.querySelectorAll('button:not(:disabled)')];choices[event.key==='ArrowDown'?0:choices.length-1]?.focus();}};
-    popup.addEventListener('click',event=>{if(event.target.closest('button'))closeMenu();});
-    popup.addEventListener('keydown',event=>{
-      if(event.key==='Escape'){event.preventDefault();closeMenu(true);return;}
-      const choices=[...popup.querySelectorAll('button:not(:disabled)')],index=choices.indexOf(document.activeElement);
-      if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)&&choices.length){event.preventDefault();choices[event.key==='Home'?0:event.key==='End'?choices.length-1:(index+(event.key==='ArrowDown'?1:-1)+choices.length)%choices.length].focus();}
-    });
+    wireMenu(trigger,popup);
     host.append(trigger,popup);toolbar.append(host);
   }
   const statusExpand=document.createElement('button');statusExpand.id='drawing-message-expand';statusExpand.type='button';statusExpand.textContent='More';statusExpand.setAttribute('aria-label','Expand drawing status');statusExpand.setAttribute('aria-expanded','false');

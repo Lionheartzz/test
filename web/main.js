@@ -22,6 +22,7 @@ import {createValidationProgress,validationProgressUI} from './validate-progress
 import './validate-progress.css';
 import './studio.css';
 import './home.css';
+import './project-navigation.css';
 const $=id=>document.getElementById(id),colors={P:'#ef5959',T:'#459cff',A:'#41ca8b',B:'#f2d454'},faces=Object.fromEntries(['top','bottom','front','back','left','right'].map(f=>[f,f]));
 let draftCheckedSignature=null,reportWasDraft=false,projectEpoch=0,savePending=null,statusPollPending=false;
 let viewMode='review',lastUsablePreview=null,displayedDraftSignature=null,displayedSource='none';
@@ -534,7 +535,19 @@ $('save-project').onclick=()=>saveProject().catch(e=>notice(e.message,true));
 $('drawings-open').onclick=async()=>{try{if(!state?.project_id||dirty)await saveProject();location.href='/drawing.html?project='+state.project_id;}catch(e){notice(e.message,true);}};
 function newProject(value,definitions={},threads={}){if(busy)return false;if(dirty&&!confirm('Discard the current unsaved draft and start this project?'))return false;++projectEpoch;previewRouting.clear();viewer?.resetTransient();isolateButton.textContent='Isolate';clipEnable.checked=false;clipNotice.hidden=true;draft=hydrateDesign(structuredClone(value),definitions,threads);state={design:draft,revision:'0'.repeat(64),build:null,stale:true};report=null;reportWasDraft=false;reportDesign=null;model=null;resolved=draft;viewer?.setReferences(draft.features);history=[];future=[];selection='block';previews.cancel();lastUsablePreview=null;exactPreview=null;solidStatus();viewMode='review';viewer?.mode('review');shell.syncMode('review');$('review-mode').classList.add('active');for(const key of ['solid','void','features'])$(key+'-mode').classList.remove('active');document.body.classList.remove('home');renderReport();markDirty();renderTree();select('block');viewer?.fit();return true;}
 const workflowHandlers=workflows({newProject,adoptRoute,replaceCavity,$,element,field,action,api,post,get:()=>draft,state:()=>state,change,set:value=>{draft=hydrateDesign(value,draft?.library||[],draft?.threads||[]);},newId,select,notice,resolved:()=>displayedSource==='retained'?null:currentDisplayedDesign()});
-window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});setInterval(async()=>{if(statusPollPending||!state?.project_id||busy||document.body.classList.contains('home')||document.hidden||document.querySelector('dialog[open]'))return;statusPollPending=true;try{const next=await api('/api/projects/'+state.project_id+'/status');if(next.revision!==state.revision||next.build?.build_id!==state.build?.build_id||next.stale!==state.stale){if(!dirty)await load();else{externalChange=true;previewRouting.clear();previews.cancel();renderHeader();notice('Project changed on disk. Draft preserved; reload before saving.',true);}}}catch(e){externalChange=true;previewRouting.clear();previews.cancel();renderHeader();notice('Local service unavailable: '+e.message,true);}finally{statusPollPending=false;}},5000);const hub=projectLibrary({onDeleted:id=>{if(state?.project_id===id){++projectEpoch;previewRouting.clear();viewer?.resetTransient();previews.cancel();lastUsablePreview=null;draft=null;state=null;dirty=false;}},$,element,field,action,api,post,get:()=>draft,ai:workflowHandlers.ai,openProject:load,isDirty:()=>dirty,hasProject:()=>!!draft});hub.show();
+window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});setInterval(async()=>{if(statusPollPending||!state?.project_id||busy||document.body.classList.contains('home')||document.hidden||document.querySelector('dialog[open]'))return;statusPollPending=true;try{const next=await api('/api/projects/'+state.project_id+'/status');if(next.revision!==state.revision||next.build?.build_id!==state.build?.build_id||next.stale!==state.stale){if(!dirty)await load();else{externalChange=true;previewRouting.clear();previews.cancel();renderHeader();notice('Project changed on disk. Draft preserved; reload before saving.',true);}}}catch(e){externalChange=true;previewRouting.clear();previews.cancel();renderHeader();notice('Local service unavailable: '+e.message,true);}finally{statusPollPending=false;}},5000);const hub=projectLibrary({onDeleted:id=>{if(state?.project_id===id){++projectEpoch;previewRouting.clear();viewer?.resetTransient();previews.cancel();lastUsablePreview=null;draft=null;state=null;dirty=false;}},$,element,field,action,api,post,get:()=>draft,ai:workflowHandlers.ai,openProject:load,isDirty:()=>dirty,hasProject:()=>!!draft});
 
-const requestedProject=new URLSearchParams(location.search).get("project");
-if(/^[0-9a-f]{32}$/.test(requestedProject||""))load(requestedProject).catch(e=>notice(e.message,true));
+async function enterWorkspace(){
+  const entry=new URLSearchParams(location.search),projectId=entry.get('project');
+  const workspace=['home','projects','ai','library'].includes(entry.get('workspace'))?entry.get('workspace'):null;
+  if(!/^[0-9a-f]{32}$/.test(projectId||'')){await hub.show(workspace||'home');return;}
+  const opening=element('p','Opening project…','loading-state');$('project-home').append(opening);
+  try{
+    if(!await load(projectId))return;
+    if(workspace){await hub.show(workspace);return;}
+    const engineering=entry.get('engineering');
+    if(['nets','schematic','review'].includes(engineering))$(engineering+'-open').click();
+  }catch(error){await hub.show('home');throw error;}
+  finally{opening.remove();}
+}
+enterWorkspace().catch(e=>notice(e.message,true));

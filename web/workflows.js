@@ -67,7 +67,7 @@ export function workflows(ctx){
   const library=libraryUI(ctx,{open,insert,onCustomSaved:remember});
   projectUI({...ctx,openSchematic:schematic});
   guided(ctx,open,library,nets);
-  $('library-open').onclick=guard(library);
+  $('add-cavity').onclick=guard(library);
 
   $('add-mounting').onclick=guard(async()=>{
     const response=await api('/api/threads?usable_only=true&limit=500'),threads=response.items;

@@ -43,7 +43,7 @@ export function renderHome({element,action,api,launch,hasProject,returnToDraft,s
   layout.append(sidebar,content);
   const titlebar=element('div',null,'home-titlebar'),title=element('h1','Start a manifold');title.id='home-start';title.tabIndex=-1;titlebar.append(title);
   const titleActions=element('div',null,'home-title-actions');
-  const returnButton=action(titleActions,'Return to current draft',returnToDraft);returnButton.classList.add('home-return');
+  const returnButton=action(titleActions,'Return to Model',returnToDraft);returnButton.classList.add('home-return');
   titlebar.append(titleActions);content.append(titlebar);
   const start=element('section',null,'home-module');start.dataset.module='home';pages.set('home',start);content.append(start);
   const cards=element('div',null,'home-start-cards');start.append(cards);
