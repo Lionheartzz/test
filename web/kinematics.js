@@ -1,5 +1,7 @@
 export const axes = {top:[0,1,2,-1],bottom:[0,1,2,1],front:[0,2,1,1],back:[0,2,1,-1],left:[1,2,0,1],right:[1,2,0,-1]};
 export const sizes = b => [b.length,b.width,b.height];
+// Position values stay face-local in storage; labels name their global axes.
+export const facePositionLabels = face => axes[face].slice(0,2).map(axis=>`Position ${['X','Y','Z'][axis]} / mm`);
 export {displayRouteName as routeDisplayLabel,displayFeatureName as featureLabel} from './presentation.js';
 
 export function returnNetToAutomatic(design,netId){

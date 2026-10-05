@@ -255,10 +255,9 @@ export function createViewer(container, onSelect, onDrag = ()=>{}, {onHover=()=>
   }
   function updateLocalGizmo(){
     disposeGroup(localGizmo);localGizmo.userData.featureId=null;container.dataset.localGizmo='none';
-    if(!block||selected==='block'||design?.features?.find(f=>f.id===selected)?.suppressed)return;
-    const engraving=design?.engravings?.find(row=>row.id===selected);
-    const current=(engraving||dragOwners.has(selected))?design:displayContext;
-    const feature=engraving||current?.features?.find(f=>f.id===selected&&!f.suppressed);
+    if(!block||selected==='block'||design?.engravings?.some(row=>row.id===selected)||design?.features?.find(f=>f.id===selected)?.suppressed)return;
+    const current=dragOwners.has(selected)?design:displayContext;
+    const feature=current?.features?.find(f=>f.id===selected&&!f.suppressed);
     if(!feature||!axes[feature.face])return;
     const placement=current===displayContext?displayPlacements?.[selected]||pose(feature,current.block):pose(feature,current.block);
     if(!placement?.origin||!placement.origin.every(Number.isFinite))return;
@@ -380,13 +379,12 @@ export function createViewer(container, onSelect, onDrag = ()=>{}, {onHover=()=>
   }
   function addEngravingControl(row){
     const p=pose(row,design.block),inward=new THREE.Vector3(...p.direction);
-    const handle=new THREE.Mesh(new THREE.CircleGeometry(3.5,24),clipMaterial(new THREE.MeshBasicMaterial({color:0xa7e7c0,side:THREE.DoubleSide,depthTest:false,depthWrite:false})));
+    const handle=new THREE.Mesh(new THREE.CircleGeometry(1.5,24),clipMaterial(new THREE.MeshBasicMaterial({color:0xa7e7c0,side:THREE.DoubleSide,depthTest:false,depthWrite:false})));
     handle.position.set(...p.origin).addScaledVector(inward,-.4);handle.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),inward);
     handle.userData={owner:row.id,kind:'engraving'};handle.renderOrder=19;
-    const badge=document.createElement('span');badge.className='engraving-handle-label';badge.textContent=row.text;badge.setAttribute('aria-hidden','true');
-    const label=new CSS2DObject(badge);label.position.set(7,0,0);handle.add(label);handles.add(handle);
+    handles.add(handle);
     const target=new THREE.Mesh(new THREE.CircleGeometry(1,24),clipMaterial(new THREE.MeshBasicMaterial({side:THREE.DoubleSide,transparent:true,opacity:0,depthWrite:false,colorWrite:false})));
-    target.position.copy(handle.position);target.quaternion.copy(handle.quaternion);target.userData={owner:row.id,kind:'engraving',inward,mouthRadius:3.5};hitAreas.add(target);
+    target.position.copy(handle.position);target.quaternion.copy(handle.quaternion);target.userData={owner:row.id,kind:'engraving',inward,mouthRadius:1.5};hitAreas.add(target);
     handle.visible=editing&&(!isolation||isolation.kind==='feature'&&isolation.id===row.id)&&clipAllows(handle.position);target.visible=handle.visible;
   }
   function setDesign(value) {

@@ -5,7 +5,7 @@ import {guided} from './guided.js';
 import {libraryUI} from './library-ui.js';
 import {engineeringFactsUI} from './engineering-facts-ui.js';
 import {projectUI} from './project-ui.js';
-import {axes,clamp,syncNets,featureLabel,returnNetToAutomatic} from './kinematics.js';
+import {axes,clamp,syncNets,featureLabel,returnNetToAutomatic,facePositionLabels} from './kinematics.js';
 import {hydrateDesign} from './domain.js';
 import {displayMemberName,displayNetName} from './presentation.js';
 import {uuidToken} from './crypto-utils.js';
@@ -87,8 +87,16 @@ export function workflows(ctx){
   $('add-engraving').onclick=()=>{
     let face='top',u=get().block.length/2,v=get().block.width/2,text='P',rotation=0,textHeight=5,depth=.3;
     let positionU,positionV;
-    open('Add engraving');field(content,'Face',face,value=>{face=value;const size=[get().block.length,get().block.width,get().block.height],[a,b]=axes[face];u=Math.min(u,size[a]);v=Math.min(v,size[b]);positionU.value=u;positionV.value=v;},{top:'Top',bottom:'Bottom',front:'Front',back:'Back',left:'Left',right:'Right'});
-    positionU=field(content,'Position U / mm',u,value=>u=value,null,true);positionV=field(content,'Position V / mm',v,value=>v=value,null,true);const textInput=field(content,'Text',text,value=>text=value);textInput.maxLength=40;textInput.required=true;
+    open('Add engraving');field(content,'Face',face,value=>{
+      face=value;const size=[get().block.length,get().block.width,get().block.height],[a,b]=axes[face];
+      u=Math.min(u,size[a]);v=Math.min(v,size[b]);positionU.value=u;positionV.value=v;
+      const labels=facePositionLabels(face);
+      for(const [index,input]of [positionU,positionV].entries()){
+        input.closest('.field').firstChild.textContent=labels[index];input.setAttribute('aria-label',labels[index]);
+      }
+    },{top:'Top',bottom:'Bottom',front:'Front',back:'Back',left:'Left',right:'Right'});
+    const labels=facePositionLabels(face);
+    positionU=field(content,labels[0],u,value=>u=value,null,true);positionV=field(content,labels[1],v,value=>v=value,null,true);const textInput=field(content,'Text',text,value=>text=value);textInput.maxLength=40;textInput.required=true;
     field(content,'Rotation / degrees',rotation,value=>rotation=value,null,true);field(content,'Text height / mm',textHeight,value=>textHeight=value,null,true);field(content,'Engraving depth / mm',depth,value=>depth=value,null,true);
     content.append(element('p','Engraving is exact shallow stock removal and Drawing/manufacturing identity. It never joins a Hydraulic Net.'));
     action(content,'Add engraving',guard(async()=>{const baseline=JSON.stringify(get()),d=structuredClone(get()),id='ENG_'+uuidToken().replaceAll('-','');d.engravings??=[];d.engravings.push({id,face,u,v,text,rotation,text_height:textHeight,depth});const checked=await post('/api/check-design',d).catch(error=>{throw Error(error.message.replace(/\bENG_[0-9a-f]{12,32}\b/gi,'Engraving'));});if(JSON.stringify(get())!==baseline)throw Error('Draft changed while adding engraving. Retry.');if(change(()=>set(hydrateDesign(checked,definitions(),threadDefinitions())),{kind:'machining'})){dialog.close();select(id);}}));

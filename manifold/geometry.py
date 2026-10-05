@@ -50,11 +50,20 @@ def rectangular_cut(row, block):
 
 
 def engraving_cut(row, block):
-    origin,direction,ua,_=face_origin(row.face,row.u,row.v,block)
-    xdir=[0.0,0.0,0.0];xdir[ua]=1
-    plane=cq.Plane(origin=cq.Vector(*origin),xDir=cq.Vector(*xdir),normal=cq.Vector(*direction))
+    origin=face_origin(row.face,row.u,row.v,block)[0]
+    # Right-handed text basis viewed from outside. Text is upright along +Y on
+    # top/bottom and +Z on vertical faces; positive rotation is counterclockwise.
+    xdir,outward={
+        'top':((1,0,0),(0,0,1)),
+        'bottom':((-1,0,0),(0,0,-1)),
+        'front':((1,0,0),(0,-1,0)),
+        'back':((-1,0,0),(0,1,0)),
+        'left':((0,-1,0),(-1,0,0)),
+        'right':((0,1,0),(1,0,0)),
+    }[row.face]
+    plane=cq.Plane(origin=cq.Vector(*origin),xDir=cq.Vector(*xdir),normal=cq.Vector(*outward))
     return cq.Workplane(plane).transformed(rotate=(0,0,row.rotation)).text(
-        row.text,row.text_height,row.depth,combine=False,clean=True).val()
+        row.text,row.text_height,-row.depth,combine=False,clean=True).val()
 
 
 def tip_depth(f):

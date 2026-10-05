@@ -1,5 +1,5 @@
 import {hydrateDesign} from './domain.js';
-import {axes} from './kinematics.js';
+import {axes,facePositionLabels} from './kinematics.js';
 import {machiningFits} from './model-machining-bounds.js';
 import {uuidToken} from './crypto-utils.js';
 import {engineeringName,engineeringText,unitLabel} from './engineering-labels.js';
@@ -24,7 +24,8 @@ export function engravingEditor(ctx,form,row){
   });
   action(actions,'Delete',()=>{if(change(()=>get().engravings=get().engravings.filter(value=>value.id!==row.id),{kind:'machining'}))select('block');});
   edit('Face',row.face,value=>{row.face=value;const size=dimensions(get()),[u,v]=axes[value];row.u=Math.min(row.u,size[u]);row.v=Math.min(row.v,size[v]);},'Position',faces);
-  for(const [key,label,index]of [['u','Position U / mm',0],['v','Position V / mm',1]]){
+  for(const [index,key]of ['u','v'].entries()){
+    const label=facePositionLabels(row.face)[index];
     const maximum=dimensions(get())[axes[row.face][index]],input=edit(label,row[key],value=>{if(value<0||value>maximum)throw Error(`${label} must stay within this block face.`);row[key]=value;},'Position',null,true);
     input.min=0;input.max=maximum;
   }

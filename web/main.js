@@ -13,7 +13,7 @@ import './ui-tokens.css';
 import './style.css';
 import {createViewer} from './viewer.js';
 import {clamp,syncNets,featureLabel,returnNetToAutomatic} from './kinematics.js';
-import {pose,axes} from './kinematics.js';
+import {pose,axes,facePositionLabels} from './kinematics.js';
 import {workflows} from './workflows.js';
 import {projectLibrary} from './project-library.js';
 import {hydrateDesign,cloneDesign} from './domain.js';
@@ -157,7 +157,8 @@ try{viewer=createViewer($('viewport'),select,(id,u,v,done)=>{
   if(!done){
     if(engraving){
       viewer?.updateEngraving(draft,id);
-      for(const [label,value]of [['Position U / mm',u],['Position V / mm',v]]){const input=$('inspector').querySelector(`input[aria-label="${label}"]`);if(input)input.value=value;}
+      const labels=facePositionLabels(engraving.face);
+      for(const [index,value]of [u,v].entries()){const input=$('inspector').querySelector(`input[aria-label="${labels[index]}"]`);if(input)input.value=value;}
     }else viewer?.updateFeature(draft,id);
     markDisplayed(draft,'draft');if(starting){renderTree();renderReport();}
     previewState('approximate','APPROXIMATE LOCAL DRAG · NOT VALIDATED');return;

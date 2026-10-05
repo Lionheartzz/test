@@ -219,4 +219,3 @@ dialog input,dialog select,dialog textarea{background:#111823;color:#eef3f8;bord
 .machining-properties{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:9px 0;font-size:11px;}
 .machining-properties dt{color:var(--muted);}
 .machining-properties dd{margin:0;text-align:right;overflow-wrap:anywhere;}
-.engraving-handle-label{color:#e1f7e9;background:#19362ded;border:1px solid #a7e7c0;border-radius:4px;padding:3px 7px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;}
