@@ -45,7 +45,7 @@ export function displayFeatureName(feature,design){
   if(feature.kind==='port')return displayExternalPortName(feature,design);
   const component=design?.schematic_intent?.components?.find(item=>item.placement_id===feature.id)?.label;
   if(component)return engineeringName(component,'Component');
-  if(feature.kind==='mounting'&&/^MNT(?:_[0-9a-f]{12,}|\d+)$/i.test(String(feature.id||''))){
+  if(feature.kind==='mounting'){
     const peers=(design?.features||[]).filter(item=>item.kind==='mounting').sort(stableFeatureOrder);
     const index=peers.findIndex(item=>item.id===feature.id);
     return `Mounting Hole ${index<0?1:index+1}`;
@@ -85,6 +85,8 @@ export function displayReviewName(value){
 export function displayIdentity(design,value){
   let text=String(value??'');
   if(text.startsWith('F:'))text=text.slice(2).split(':step:')[0];
+  const engraving=(design?.engravings||[]).find(row=>row.id===text);
+  if(engraving)return `Engraving “${engraving.text}”`;
   const feature=(design?.features||[]).find(item=>item.id===text);
   if(feature)return displayFeatureName(feature,design);
   if((design?.nets||[]).some(net=>net.id===text))return displayNetName(design,text);

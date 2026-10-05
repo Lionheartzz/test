@@ -5,7 +5,7 @@ import {guided} from './guided.js';
 import {libraryUI} from './library-ui.js';
 import {engineeringFactsUI} from './engineering-facts-ui.js';
 import {projectUI} from './project-ui.js';
-import {clamp,syncNets,featureLabel,returnNetToAutomatic} from './kinematics.js';
+import {axes,clamp,syncNets,featureLabel,returnNetToAutomatic} from './kinematics.js';
 import {hydrateDesign} from './domain.js';
 import {displayMemberName,displayNetName} from './presentation.js';
 import {uuidToken} from './crypto-utils.js';
@@ -79,18 +79,19 @@ export function workflows(ctx){
     action(content,'Add mounting hole',guard(async()=>{const baseline=JSON.stringify(get()),d=structuredClone(get()),dims=[d.block.length,d.block.width,d.block.height],axes={top:[0,1,2],bottom:[0,1,2],front:[0,2,1],back:[0,2,1],left:[1,2,0],right:[1,2,0]}[face],id='MNT_'+uuidToken().replaceAll('-','');
       const finalDepth=through?dims[axes[2]]:depth;if(mode==='threaded'&&!threadId)throw Error('Select a defined thread definition.');
       d.features.push({id,kind:'mounting',face,u:dims[axes[0]]/2,v:dims[axes[1]]/2,diameter:mode==='plain'?diameter:null,depth:finalDepth,through,tip_angle:through?180:118,mounting_mode:mode,thread_definition_id:mode==='threaded'?threadId:null,thread_depth:mode==='threaded'?(through?finalDepth:threadDepth):null});
-      const checked=await post('/api/check-design',d);if(JSON.stringify(get())!==baseline)throw Error('Draft changed while adding mounting hole. Retry.');if(change(()=>set(hydrateDesign(checked,definitions(),Object.fromEntries([...get().threads,...threads].map(row=>[row.id,row])))))){select(id);dialog.close();notice('Mounting hole added. Position it and Validate before drawing.');}
+      const checked=await post('/api/check-design',d);if(JSON.stringify(get())!==baseline)throw Error('Draft changed while adding mounting hole. Retry.');if(change(()=>{const selected=threads.find(row=>row.id===threadId);if(mode==='threaded'&&selected&&!get().threads.some(row=>row.id===selected.id))get().threads.push(structuredClone(selected));set(hydrateDesign(checked,definitions(),threadDefinitions()));})){select(id);dialog.close();notice('Mounting hole added. Position it and Validate before drawing.');}
     }));
     };render();
   });
 
   $('add-engraving').onclick=()=>{
     let face='top',u=get().block.length/2,v=get().block.width/2,text='P',rotation=0,textHeight=5,depth=.3;
-    open('Add production engraving');field(content,'Face',face,value=>face=value,{top:'Top',bottom:'Bottom',front:'Front',back:'Back',left:'Left',right:'Right'});
-    field(content,'Position U / mm',u,value=>u=value,null,true);field(content,'Position V / mm',v,value=>v=value,null,true);field(content,'Text',text,value=>text=value);
-    field(content,'Rotation / degrees',rotation,value=>rotation=value,null,true);field(content,'Text height / mm',textHeight,value=>textHeight=value,null,true);field(content,'Machining depth / mm',depth,value=>depth=value,null,true);
+    let positionU,positionV;
+    open('Add engraving');field(content,'Face',face,value=>{face=value;const size=[get().block.length,get().block.width,get().block.height],[a,b]=axes[face];u=Math.min(u,size[a]);v=Math.min(v,size[b]);positionU.value=u;positionV.value=v;},{top:'Top',bottom:'Bottom',front:'Front',back:'Back',left:'Left',right:'Right'});
+    positionU=field(content,'Position U / mm',u,value=>u=value,null,true);positionV=field(content,'Position V / mm',v,value=>v=value,null,true);const textInput=field(content,'Text',text,value=>text=value);textInput.maxLength=40;textInput.required=true;
+    field(content,'Rotation / degrees',rotation,value=>rotation=value,null,true);field(content,'Text height / mm',textHeight,value=>textHeight=value,null,true);field(content,'Engraving depth / mm',depth,value=>depth=value,null,true);
     content.append(element('p','Engraving is exact shallow stock removal and Drawing/manufacturing identity. It never joins a Hydraulic Net.'));
-    action(content,'Add engraving',guard(async()=>{const baseline=JSON.stringify(get()),d=structuredClone(get()),id='ENG_'+uuidToken().replaceAll('-','');d.engravings??=[];d.engravings.push({id,face,u,v,text,rotation,text_height:textHeight,depth});const checked=await post('/api/check-design',d);if(JSON.stringify(get())!==baseline)throw Error('Draft changed while adding engraving. Retry.');if(change(()=>set(hydrateDesign(checked,definitions(),threadDefinitions()))))dialog.close();}));
+    action(content,'Add engraving',guard(async()=>{const baseline=JSON.stringify(get()),d=structuredClone(get()),id='ENG_'+uuidToken().replaceAll('-','');d.engravings??=[];d.engravings.push({id,face,u,v,text,rotation,text_height:textHeight,depth});const checked=await post('/api/check-design',d).catch(error=>{throw Error(error.message.replace(/\bENG_[0-9a-f]{12,32}\b/gi,'Engraving'));});if(JSON.stringify(get())!==baseline)throw Error('Draft changed while adding engraving. Retry.');if(change(()=>set(hydrateDesign(checked,definitions(),threadDefinitions())))){dialog.close();select(id);}}));
   };
 
   $('add-block-modifier').onclick=()=>{
