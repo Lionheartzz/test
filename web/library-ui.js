@@ -1,6 +1,7 @@
 import {isCavity,isPort} from './definition-role.js';
 import {profileEditor} from './profile.js';
 import {engineeringFactsUI} from './engineering-facts-ui.js';
+import {relationKnowledgeUI} from './relation-knowledge-ui.js';
 import {libraryBrowser,recordMore} from './library-browser.js';
 import {engineeringName,engineeringText,unitLabel,availability,machiningRecipe} from './engineering-labels.js';
 
@@ -122,10 +123,10 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{},scrollContainer=
 
   async function cartridgeDetail(cartridge,options={}){
     const category='cartridges',token=++generation;rememberScroll(category);show('Engineering Library / Cartridges');action(content,'Back to Cartridges',()=>backToCategory(category,options));
-    const identity=element('section',null,'library-card'),properties=element('section'),compatible=element('section');content.append(identity,properties,compatible);
+    const identity=element('section',null,'library-card'),properties=element('section'),compatible=element('section'),knowledge=element('section');content.append(identity,properties,compatible,knowledge);
     try{cartridge=await api('/api/cartridges/'+encodeURIComponent(cartridge.id));if(token!==generation)return;identity.append(element('h3',[cartridge.manufacturer,cartridge.model].filter(Boolean).join(' ')),element('p',cartridge.function||'Function not available'),element('p','Read-only catalogue'));}
     catch{if(token===generation)identity.append(element('p',engineeringName(cartridge.model,'Cartridge')));}
-    const tasks=[(async()=>{try{const data=await api('/api/cartridges/'+encodeURIComponent(cartridge.id)+'/engineering-facts');if(token===generation)engineeringFactsUI(ctx,properties,data,{title:'Engineering properties'});}catch{if(token===generation)properties.append(element('p','Engineering properties not available.'));}})(),(async()=>{compatible.append(element('h3','Compatible cavities'));try{const rows=await api('/api/cartridges/'+encodeURIComponent(cartridge.id)+'/cavities');if(token!==generation)return;for(const definition of rows){const line=element('div',null,'action-row');line.append(element('span',`${definition.label} · ${unitLabel(definition.unit_system)} · ${availability(definition)}`));action(line,'View',guard(()=>viewDefinition(definition,{entryCategory:'cavities',readOnly:true})));compatible.append(line);}if(!rows.length)compatible.append(element('p','Not available'));}catch{if(token===generation)compatible.append(element('p','Not available'));}})()];await Promise.all(tasks);
+    const tasks=[(async()=>{try{const data=await api('/api/cartridges/'+encodeURIComponent(cartridge.id)+'/engineering-facts');if(token===generation)engineeringFactsUI(ctx,properties,data,{title:'Engineering properties'});}catch{if(token===generation)properties.append(element('p','Engineering properties not available.'));}})(),(async()=>{compatible.append(element('h3','Compatible cavities'));try{const rows=await api('/api/cartridges/'+encodeURIComponent(cartridge.id)+'/cavities');if(token!==generation)return;for(const definition of rows){const line=element('div',null,'action-row');line.append(element('span',`${definition.label} · ${unitLabel(definition.unit_system)} · ${availability(definition)}`));action(line,'View',guard(()=>viewDefinition(definition,{entryCategory:'cavities',readOnly:true})));compatible.append(line);}if(!rows.length)compatible.append(element('p','Not available'));}catch{if(token===generation)compatible.append(element('p','Not available'));}})(),relationKnowledgeUI(ctx,knowledge,cartridge.id,()=>token===generation)];await Promise.all(tasks);
   }
   async function cartridges(options={}){
     const category='cartridges',query=state[category],token=++generation;heading(category,options);const shell=libraryBrowser(ctx,content,{description:descriptions[category],back:home,readOnly:true});let request=0,timer;

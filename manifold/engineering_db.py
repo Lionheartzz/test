@@ -17,7 +17,7 @@ from .schema import CavityDefinition
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB = ROOT / "data" / "pmc_engineering.db"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def database_path() -> Path:
@@ -44,7 +44,7 @@ def _connect(path: Path | None = None, *, writable: bool = False) -> sqlite3.Con
     return connection
 
 
-def validate_database(path: Path | None = None) -> dict:
+def validate_database(path: Path | None = None, *, schema_version: int | None = None) -> dict:
     try:
         with _connect(path) as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
@@ -73,7 +73,13 @@ def validate_database(path: Path | None = None) -> dict:
             }
             from .technical_schema import TABLES
             required.update(TABLES)
-            if version != SCHEMA_VERSION or not required <= tables:
+            expected_version = SCHEMA_VERSION if schema_version is None else schema_version
+            if expected_version not in (4, SCHEMA_VERSION):
+                raise ValueError('Only explicit v4 preservation sources and the current runtime schema are supported')
+            if expected_version >= 5:
+                from .relation_schema import TABLES as RELATION_TABLES
+                required.update(RELATION_TABLES)
+            if version != expected_version or not required <= tables:
                 raise RuntimeError(
                     f"Engineering database schema is invalid (version {version}); "
                     "run the explicit initialization/import command."
@@ -85,6 +91,8 @@ def validate_database(path: Path | None = None) -> dict:
                 "cartridge_cavity_evidence_links": {"relation_id", "cavity_id"},
             }
             expected_columns.update(TABLES)
+            if expected_version >= 5:
+                expected_columns.update(RELATION_TABLES)
             for table, names in expected_columns.items():
                 actual = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
                 if not names <= actual:
@@ -301,6 +309,8 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     _initialize_base_schema(connection)
     from .technical_schema import initialize
     initialize(connection)
+    from .relation_schema import initialize as initialize_relations
+    initialize_relations(connection)
 
 
 def _definition(row: sqlite3.Row, interfaces: list[sqlite3.Row], *, kind: str) -> CavityDefinition:
@@ -674,7 +684,33 @@ def _knowledge_row(connection: sqlite3.Connection, row: sqlite3.Row) -> dict:
         FROM cartridge_cavity_evidence_links l JOIN cavities c ON c.id=l.cavity_id
         WHERE l.relation_id=? ORDER BY c.unit_system,c.id
     """, (value["relation_id"],))]
+    value['supplemental_cavities'] = [dict(item) for item in connection.execute('''
+        SELECT s.canonical_id,s.unit,s.canonical_family,s.display_family,s.canonical_name,s.display_name,
+               s.geometry_status,s.status,s.runtime_selectable,s.machining_usable,s.routing_usable,
+               s.tooling_usable,s.execution_geometry_available,s.promoted_cavity_id
+        FROM cartridge_cavity_supplement_links l JOIN kb_cavity_supplements s ON s.canonical_id=l.canonical_id
+        WHERE l.relation_id=? ORDER BY s.unit,s.canonical_id''',(value['relation_id'],))]
     return value
+
+
+def cavity_supplements(query='', offset=0, limit=40):
+    with _connect() as db:
+        where="lower(canonical_family || ' ' || canonical_name || ' ' || display_name) LIKE ?"
+        args=['%'+query.casefold()+'%']
+        total=db.execute('SELECT count(*) FROM kb_cavity_supplements WHERE '+where,args).fetchone()[0]
+        rows=[dict(row) for row in db.execute('SELECT * FROM kb_cavity_supplements WHERE '+where+' ORDER BY canonical_family,canonical_name,unit LIMIT ? OFFSET ?',[*args,limit,offset])]
+        for row in rows:row['metadata']=json.loads(row.pop('raw_metadata_json'))
+        return dict(total=total,items=rows,offset=offset,limit=limit,execution_permission=False)
+
+
+def pending_registry(query='', status='', offset=0, limit=40):
+    with _connect() as db:
+        where="lower(family || ' ' || identity) LIKE ?";args=['%'+query.casefold()+'%']
+        if status:where+=' AND normalized_status=?';args.append(status.upper())
+        total=db.execute('SELECT count(*) FROM kb_pending_registry WHERE '+where,args).fetchone()[0]
+        rows=[dict(row) for row in db.execute('SELECT * FROM kb_pending_registry WHERE '+where+' ORDER BY id LIMIT ? OFFSET ?',[*args,limit,offset])]
+        for row in rows:row['metadata']=json.loads(row.pop('raw_metadata_json'))
+        return dict(total=total,items=rows,offset=offset,limit=limit,execution_permission=False)
 
 
 def knowledge_relations(*, cartridge_id: str | None = None, cavity_id: str | None = None,

@@ -97,7 +97,8 @@ def test_explicit_upgrade_preserves_domains_and_deterministic_keys(inputs,tmp_pa
     outputs=[tmp_path/'first.db',tmp_path/'second.db']
     reports=[integrate(source,package,rev1,path) for path in outputs]
     assert source.read_bytes()==before
-    assert reports[0]['preserved_before']==reports[0]['preserved_after']
+    assert reports[0]['preserved_before']=={key:reports[0]['preserved_after'][key] for key in reports[0]['preserved_before']}
+    assert all(row['count']==0 for key,row in reports[0]['preserved_after'].items() if key not in reports[0]['preserved_before'])
     assert reports[0]['stock_stable_internal_ids']==2
     with sqlite3.connect(outputs[0]) as first,sqlite3.connect(outputs[1]) as second:
         for name in technical_schema.TABLES:
@@ -107,7 +108,7 @@ def test_explicit_upgrade_preserves_domains_and_deterministic_keys(inputs,tmp_pa
         assert first.execute('SELECT count(*) FROM material_supplier_stock').fetchone()[0]==2
         assert first.execute('SELECT count(*) FROM material_stock').fetchone()[0]==1
     monkeypatch.setenv('PMC_ENGINEERING_DB',str(outputs[0]))
-    assert engineering_db.validate_database()['schema_version']==4
+    assert engineering_db.validate_database()['schema_version']==engineering_db.SCHEMA_VERSION
     assert engineering_db.compatible('NORMAL','CAV')
     assert engineering_db.compatible_cavity_ids('NORMAL')==['CAV']
     assert engineering_db.compatible_logical_cavities('NORMAL')==[dict(cavity_id='CAV',logical_id='physical:CAV')]
@@ -208,3 +209,28 @@ def test_v4_rebuild_uses_new_output_and_preserves_populated_source(inputs,tmp_pa
         for table in technical_schema.TABLES:
             if table=='technical_import_batches':continue
             assert first.execute(f'SELECT * FROM {table} ORDER BY 1,2').fetchall()==second.execute(f'SELECT * FROM {table} ORDER BY 1,2').fetchall()
+
+
+def test_technical_targets_allow_extra_relation_only_cartridges(inputs,tmp_path):
+    source,package,rev1=inputs
+    with sqlite3.connect(source) as db:
+        db.execute("INSERT INTO cartridges VALUES ('EXTRA','Maker','NEW RELATION MODEL','','{}',1)")
+    output=tmp_path/'subset.db';report=integrate(source,package,rev1,output)
+    assert report['technical_target_count']==3
+    assert report['current_cartridge_count']==4
+    assert report['extra_relation_only_count']==1
+    assert report['missing_technical_target_count']==0
+    with sqlite3.connect(output) as db:
+        assert db.execute("SELECT count(*) FROM technical_identities WHERE id='EXTRA'").fetchone()[0]==0
+        assert db.execute("SELECT function,ratings_json FROM cartridges WHERE id='EXTRA'").fetchone()==('','{}')
+
+
+def test_missing_technical_package_target_still_fails(inputs,tmp_path):
+    source,package,rev1=inputs
+    with sqlite3.connect(source) as db:
+        db.execute("DELETE FROM cartridge_cavities WHERE cartridge_id='NORMAL'")
+        db.execute("DELETE FROM cartridges WHERE id='NORMAL'")
+    output=tmp_path/'missing-target.db'
+    with pytest.raises(ValueError,match='Technical targets missing'):
+        integrate(source,package,rev1,output)
+    assert not output.exists()

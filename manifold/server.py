@@ -510,6 +510,18 @@ def cavity_cartridges(cavity_id: str):
     return {'cavity_id':cavity_id,'items':compatible_cartridges(cavity_id)}
 
 
+@app.get('/api/knowledge/cavity-supplements')
+def knowledge_supplements(q: str = Query('', max_length=150), offset: int = Query(0, ge=0), limit: int = Query(40, ge=1, le=100)):
+    from .engineering_db import cavity_supplements
+    return cavity_supplements(q,offset,limit)
+
+
+@app.get('/api/knowledge/pending-registry')
+def knowledge_pending(q: str = Query('', max_length=150), status: str = Query('', max_length=50), offset: int = Query(0, ge=0), limit: int = Query(40, ge=1, le=100)):
+    from .engineering_db import pending_registry
+    return pending_registry(q,status,offset,limit)
+
+
 @app.get('/api/knowledge/cartridges/{cartridge_id}/cavities')
 def cartridge_knowledge(cartridge_id: str, offset: int = Query(0, ge=0), limit: int = Query(40, ge=1, le=100)):
     from .engineering_db import knowledge_relations

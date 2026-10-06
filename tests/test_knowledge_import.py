@@ -24,6 +24,22 @@ def csv_bytes(rows):
     return out.getvalue().encode()
 
 
+def test_custom_preservation_accepts_current_schema_read_only(tmp_path):
+    from manifold.import_mdtools import preserve_custom_definitions
+    source=tmp_path/'custom-source.db'
+    with sqlite3.connect(source) as db:
+        engineering_db.initialize_schema(db)
+        db.execute("INSERT INTO cavities VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",('legacy_keep','Legacy','Local','metric','','','[]','[]','[]','[]',10,20,1,'',1))
+        db.execute("INSERT INTO cavity_interfaces VALUES (?,?,?,?,?,?,?,?)",('legacy_keep','P',1,2,3,0,0,1))
+    before=source.read_bytes()
+    with sqlite3.connect(':memory:') as target:
+        engineering_db.initialize_schema(target);preserve_custom_definitions(target,source)
+        assert target.execute("SELECT count(*) FROM cavities WHERE id='legacy_keep'").fetchone()[0]==1
+        assert target.execute("SELECT count(*) FROM cavity_interfaces WHERE cavity_id='legacy_keep'").fetchone()[0]==1
+        assert target.execute('PRAGMA foreign_key_check').fetchall()==[]
+    assert source.read_bytes()==before
+
+
 def fixture(tmp_path):
     source = tmp_path / 'mdtools'
     source.mkdir()

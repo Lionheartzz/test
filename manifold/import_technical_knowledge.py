@@ -257,14 +257,15 @@ def integrate(source: Path, package: Path, rev1: Path, output: Path | None = Non
         if supplement_data.get('base_rev2_sha256')!=research.sha256:raise ValueError('Material supplement base package mismatch')
     with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as original:
         source_version = original.execute('PRAGMA user_version').fetchone()[0]
-        if source_version not in (3, 4):
-            raise ValueError('Explicit technical integration requires a schema v3/v4 source')
-        if source_version == 4:
-            engineering_db.validate_database(source)
+        if source_version not in (3, 4, engineering_db.SCHEMA_VERSION):
+            raise ValueError('Explicit technical integration requires a supported schema v3/v4/v5 source')
+        if source_version >= 4:
+            engineering_db.validate_database(source, schema_version=source_version)
         targets = {(norm(m), norm(code)): cid for cid, m, code in original.execute('SELECT id,manufacturer,model FROM cartridges')}
         package_targets = {(norm(row['manufacturer']), norm(row['cartridge_part_number'])) for row in research.get('normalized/GLOBAL_CARTRIDGE_TARGET_DISPOSITION.csv')}
-        if set(targets) != package_targets:
-            raise ValueError('Technical targets do not match the existing Cartridge identity set')
+        missing_targets = package_targets - set(targets)
+        if missing_targets:
+            raise ValueError(f'Technical targets missing from the existing Cartridge identity set: {sorted(missing_targets)}')
         before = preserved_tables(original)
         old_materials = original.execute('SELECT * FROM materials ORDER BY id').fetchall()
         report = dict(source_path=str(source), source_sha256=source_hash, source_schema=source_version,
@@ -274,6 +275,8 @@ def integrate(source: Path, package: Path, rev1: Path, output: Path | None = Non
                       dispositions=dict(Counter(row['technical_disposition'] for row in research.get('normalized/GLOBAL_CARTRIDGE_TARGET_DISPOSITION.csv'))),
                       input_evidence_rows=len(research.get('evidence/GLOBAL_CARTRIDGE_PARAMETER_EVIDENCE.jsonl')),
                       identical_duplicate_rows=research.duplicates, preserved_before=before)
+        report.update(technical_target_count=len(package_targets), current_cartridge_count=len(targets),
+                      extra_relation_only_count=len(set(targets)-package_targets), missing_technical_target_count=0)
         report['stock_original_id_collision_groups'] = sum(len(ids) > 1 for ids in research.stock_aliases.values())
         report['stock_stable_internal_ids'] = len(set(research.stock_ids))
         if output is None:
@@ -293,6 +296,9 @@ def integrate(source: Path, package: Path, rev1: Path, output: Path | None = Non
                     # current corrected MDTools/REV1 engineering definitions intact.
                     for table in reversed(technical_schema.TABLES):
                         db.execute(f'DELETE FROM {table}')
+                if source_version < 5:
+                    from .relation_schema import initialize as initialize_relations
+                    initialize_relations(db)
                 _import(db, research, targets)
                 if material_supplement:
                     from .material_supplement import apply_supplement
@@ -300,7 +306,7 @@ def integrate(source: Path, package: Path, rev1: Path, output: Path | None = Non
                 from .engineering_facts import promote_materials
                 report['material_promotion'] = promote_materials(db,refresh_metadata=bool(material_supplement))
                 after = preserved_tables(db)
-                if {k:v for k,v in after.items() if k!='materials'} != {k:v for k,v in before.items() if k!='materials'}:
+                if {k:after[k] for k in before if k!='materials'} != {k:v for k,v in before.items() if k!='materials'}:
                     raise ValueError('Technical import changed existing engineering domain data')
                 for row in old_materials:
                     actual=db.execute('SELECT * FROM materials WHERE id=?', (row[0],)).fetchone()
@@ -312,7 +318,7 @@ def integrate(source: Path, package: Path, rev1: Path, output: Path | None = Non
                     raise ValueError('Staging integrity/foreign-key check failed')
                 if source_hash != hashlib.sha256(source.read_bytes()).hexdigest():
                     raise ValueError('Production source changed during integration')
-                report.update(preserved_after=after, schema_version=4, validation='PASS',
+                report.update(preserved_after=after, schema_version=engineering_db.SCHEMA_VERSION, validation='PASS',
                               counts={table: db.execute(f'SELECT count(*) FROM {table}').fetchone()[0] for table in technical_schema.TABLES})
                 report['counts']['technical_import_batches'] = 1
                 db.execute('INSERT INTO technical_import_batches VALUES (?,?,?,?,?,?)',

@@ -45,8 +45,35 @@ def _csv(archive: zipfile.ZipFile, name: str) -> list[dict[str, str]]:
         return list(csv.DictReader(io.TextIOWrapper(handle, encoding="utf-8-sig", newline="")))
 
 
-def import_knowledge(connection: sqlite3.Connection, package: Path, source: Path) -> dict:
-    """Import a ZIP into a freshly created v3 DB; never repair a running DB."""
+def identity_key(manufacturer: str, model: str) -> tuple[str, str]:
+    return tuple(' '.join(value.split()).casefold() for value in (manufacturer, model))
+
+
+def resolve_relation(row, logical_keys, supplement_keys, cross_by_key, runtime):
+    key = logical_key(row['cavity_family'], row['cavity_name'])
+    candidates = cross_by_key.get(key, [])
+    matches = [dict(canonical_id=item['canonical_id'], expected_type='cavity',
+                    **(runtime.get(item['canonical_id']) or dict(runtime_type='missing',unit=item['unit'],usable=False,active=False)))
+               for item in candidates]
+    detail = dict(candidate_canonical_ids=[item['canonical_id'] for item in candidates], runtime_matches=matches,
+                  expected_type='cavity', reason='')
+    if master_id(*key) != row['master_record_id']:
+        status, detail['reason'] = 'UNRESOLVED_MASTER', 'MASTER_ID_MISMATCH'
+    elif key in supplement_keys:
+        status, detail['reason'] = 'REFERENCE_ONLY_SUPPLEMENT', 'GEOMETRY_NOT_COLLECTED'
+    elif key not in logical_keys or not candidates:
+        status, detail['reason'] = 'UNRESOLVED_MASTER', 'LOGICAL_OR_PHYSICAL_ID_MISSING'
+    elif any(item['runtime_type']=='external_port' for item in matches):
+        status, detail['reason'] = 'TYPE_MISMATCH', 'EXPECTED_CAVITY_GOT_EXTERNAL_PORT'
+    elif any(item['runtime_type']!='cavity' or item['unit']!=candidates[index]['unit'] for index,item in enumerate(matches)):
+        status, detail['reason'] = 'UNRESOLVED_MASTER', 'CANONICAL_ID_MISSING_OR_UNIT_MISMATCH'
+    else:
+        status = 'RESOLVED'
+    return status, detail
+
+
+def import_knowledge(connection: sqlite3.Connection, package: Path, source: Path | None = None) -> dict:
+    """Import authoritative rows into an explicitly prepared target; never startup repair."""
     if package.suffix.lower() != ".zip" or not package.is_file():
         raise ValueError(f"Knowledge package must be an existing ZIP: {package}")
     digest = hashlib.sha256(package.read_bytes()).hexdigest()
@@ -61,7 +88,8 @@ def import_knowledge(connection: sqlite3.Connection, package: Path, source: Path
             raise ValueError("Knowledge ZIP is missing required files or contains too many entries")
         if sum(item.file_size for item in archive.infolist()) > 200_000_000:
             raise ValueError("Knowledge ZIP exceeds the supported uncompressed size")
-        if hashlib.sha256(archive.read("master_ref/cavities_master.jsonl")).digest() != hashlib.sha256(
+        master_payload = archive.read("master_ref/cavities_master.jsonl")
+        if source is not None and hashlib.sha256(master_payload).digest() != hashlib.sha256(
             (source / "cavities_master.jsonl").read_bytes()
         ).digest():
             raise ValueError("Knowledge package master baseline differs from the MDTools import source")
@@ -76,7 +104,8 @@ def import_knowledge(connection: sqlite3.Connection, package: Path, source: Path
     logical_keys = {logical_key(row["canonical_family"], row["canonical_name"]) for row in logical}
     supplement_keys = {logical_key(row["canonical_family"], row["canonical_name"]) for row in supplements}
     physical_by_id = {row["canonical_id"]: row for row in physical}
-    source_by_id = {row["canonical_id"]: row for line in (source / "cavities_master.jsonl").read_text(encoding="utf-8").splitlines()
+    source_text = (source / 'cavities_master.jsonl').read_text(encoding='utf-8') if source is not None else master_payload.decode('utf-8-sig')
+    source_by_id = {row["canonical_id"]: row for line in source_text.splitlines()
                     if (row := json.loads(line)) and row.get("active_revision_id")}
     cross_by_key: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
     seen_cross = set()
@@ -113,6 +142,11 @@ def import_knowledge(connection: sqlite3.Connection, package: Path, source: Path
             runtime[identifier] = dict(runtime_type=role, unit=unit, usable=bool(usable), active=bool(active))
     seen_relations: dict[str, dict[str, str]] = {}
     cartridge_ids: dict[tuple[str, str], str] = {}
+    for cartridge_id, manufacturer, model in connection.execute('SELECT id,manufacturer,model FROM cartridges'):
+        identity = identity_key(manufacturer, model)
+        if identity in cartridge_ids:
+            raise ValueError(f'Normalized Cartridge identity collision: {identity}')
+        cartridge_ids[identity] = cartridge_id
     missing_ids: set[str] = set()
     for row in relations:
         if None in row or any(value is None for value in row.values()):
@@ -134,7 +168,7 @@ def import_knowledge(connection: sqlite3.Connection, package: Path, source: Path
             raise ValueError(f"Invalid confidence in {identifier}") from exc
         if not math.isfinite(confidence) or not 0 <= confidence <= 1:
             raise ValueError(f"Invalid confidence in {identifier}")
-        identity = (row["manufacturer"].strip().casefold(), row["cartridge_part_number"].strip().casefold())
+        identity = identity_key(row['manufacturer'], row['cartridge_part_number'])
         if identity not in cartridge_ids:
             # Local import avoids an additional architecture and uses the existing stable hash format.
             from .import_mdtools import stable_id
@@ -145,28 +179,11 @@ def import_knowledge(connection: sqlite3.Connection, package: Path, source: Path
             )
             cartridge_ids[identity] = cartridge_id
         cartridge_id = cartridge_ids[identity]
-        key = logical_key(row["cavity_family"], row["cavity_name"])
-        candidates = cross_by_key.get(key, [])
-        candidate_ids = [item["canonical_id"] for item in candidates]
-        matches = [dict(canonical_id=item["canonical_id"], expected_type="cavity",
-                        **(runtime.get(item["canonical_id"]) or {"runtime_type": "missing", "unit": item["unit"], "usable": False, "active": False}))
-                   for item in candidates]
-        detail = dict(candidate_canonical_ids=candidate_ids, runtime_matches=matches, expected_type="cavity", reason="")
-        valid_master = master_id(row["cavity_family"], row["cavity_name"]) == row["master_record_id"]
-        if not valid_master:
-            status, detail["reason"] = "UNRESOLVED_MASTER", "MASTER_ID_MISMATCH"
+        status, detail = resolve_relation(row, logical_keys, supplement_keys, cross_by_key, runtime)
+        candidate_ids = detail['candidate_canonical_ids']
+        if detail['reason'] == 'MASTER_ID_MISMATCH':
             report["kb_master_id_mismatch"] += 1
-        elif key in supplement_keys:
-            status, detail["reason"] = "REFERENCE_ONLY_SUPPLEMENT", "GEOMETRY_NOT_COLLECTED"
-        elif key not in logical_keys or not candidates:
-            status, detail["reason"] = "UNRESOLVED_MASTER", "LOGICAL_OR_PHYSICAL_ID_MISSING"
-        elif any(item["runtime_type"] == "external_port" for item in matches):
-            status, detail["reason"] = "TYPE_MISMATCH", "EXPECTED_CAVITY_GOT_EXTERNAL_PORT"
-        elif any(item["runtime_type"] != "cavity" or item["unit"] != candidates[index]["unit"] for index, item in enumerate(matches)):
-            status, detail["reason"] = "UNRESOLVED_MASTER", "CANONICAL_ID_MISSING_OR_UNIT_MISMATCH"
-            missing_ids.update(item["canonical_id"] for item in matches if item["runtime_type"] == "missing")
-        else:
-            status = "RESOLVED"
+        missing_ids.update(item['canonical_id'] for item in detail['runtime_matches'] if item['runtime_type']=='missing')
         eligible = status == "RESOLVED" and row["verification_status"] == "CONFIRMED" and confidence >= 0.85
         if status == "RESOLVED":
             report["kb_resolved"] += 1

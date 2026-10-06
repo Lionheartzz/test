@@ -64,7 +64,7 @@ def test_independent_material_rebuilds_keys_facts_stock_and_cartridges_identical
             assert digest_rows(a,table)==digest_rows(b,table),table
         assert digest_rows(old,'cartridge_cavities')==digest_rows(a,'cartridge_cavities')
         assert digest_rows(old,'material_stock')==digest_rows(a,'material_stock')
-        assert a.execute('PRAGMA user_version').fetchone()[0]==4
+        assert a.execute('PRAGMA user_version').fetchone()[0]==engineering_db.SCHEMA_VERSION
         assert not a.execute('PRAGMA foreign_key_check').fetchall()
     summaries=[]
     for path in outputs:

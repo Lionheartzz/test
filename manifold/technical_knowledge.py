@@ -8,11 +8,14 @@ def _identity(db, domain, identifier):
     row = db.execute('SELECT * FROM technical_identities WHERE domain=? AND id=?', (domain, identifier)).fetchone()
     if row is None:
         # Existing manual identities may have no research pass; browse remains valid.
-        if domain == 'cartridge' and db.execute('SELECT 1 FROM cartridges WHERE id=?', (identifier,)).fetchone():
-            return dict(id=identifier, disposition='NOT_RESEARCHED', original={}, domain=domain)
+        cartridge = db.execute('SELECT manufacturer,model FROM cartridges WHERE id=?', (identifier,)).fetchone() if domain=='cartridge' else None
+        if cartridge:
+            return dict(id=identifier, manufacturer=cartridge['manufacturer'], full_part_number=cartridge['model'],
+                        disposition='NOT_RESEARCHED', original={}, domain=domain, technical_record_present=False)
         raise ValueError('Technical identity not found')
     result = dict(row)
     result['original'] = json.loads(result.pop('original_json'))
+    result['technical_record_present'] = True
     return result
 
 
