@@ -73,12 +73,16 @@ def validate_database(path: Path | None = None, *, schema_version: int | None = 
             }
             from .technical_schema import TABLES
             required.update(TABLES)
-            expected_version = SCHEMA_VERSION if schema_version is None else schema_version
-            if expected_version not in (4, SCHEMA_VERSION):
-                raise ValueError('Only explicit v4 preservation sources and the current runtime schema are supported')
+            # v6 adds a read-only research layer; v5 runtime definitions remain valid.
+            expected_version = (6 if version == 6 else SCHEMA_VERSION) if schema_version is None else schema_version
+            if expected_version not in (4, 5, 6):
+                raise ValueError('Only explicit v4 preservation sources and v5/v6 runtime schemas are supported')
             if expected_version >= 5:
                 from .relation_schema import TABLES as RELATION_TABLES
                 required.update(RELATION_TABLES)
+            if expected_version >= 6:
+                from .library_schema import TABLES as LIBRARY_TABLES
+                required.update(LIBRARY_TABLES)
             if version != expected_version or not required <= tables:
                 raise RuntimeError(
                     f"Engineering database schema is invalid (version {version}); "
@@ -93,6 +97,8 @@ def validate_database(path: Path | None = None, *, schema_version: int | None = 
             expected_columns.update(TABLES)
             if expected_version >= 5:
                 expected_columns.update(RELATION_TABLES)
+            if expected_version >= 6:
+                expected_columns.update(LIBRARY_TABLES)
             for table, names in expected_columns.items():
                 actual = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
                 if not names <= actual:
