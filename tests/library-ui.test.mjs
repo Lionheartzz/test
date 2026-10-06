@@ -14,19 +14,20 @@ class Node {
   querySelectorAll(){return [];}
 }
 
-test('Inspector evidence direct entry returns to category instead of reopening record',async()=>{
+test('Material direct entry returns to category without reopening its detail',async()=>{
   const calls=[],h=harness(async url=>{calls.push(url);
     if(url==='/api/materials/technical/MAT')return {identity:{id:'MAT',full_part_number:'6061',material_id:'runtime',disposition:'PARTIAL',original:{}},
       counts:{evidence:0,sources:0,conflicts:0},values:[],values_total:0,field_status:[],surface_treatments:[],engineering_stock:[]};
-    if(url==='/api/materials?include_legacy=true')return {items:[{id:'runtime',display_name:'6061 T6',stock:[],active:true}]};
+    if(url==='/api/materials')return {items:[{id:'runtime',technical_identity_id:'MAT',display_name:'6061 T6',stock:[],active:true}]};
+    if(url==='/api/engineering-library/materials/runtime')return {groups:[]};
     if(url==='/api/materials/technical')return {items:[]};
     throw Error('Unexpected '+url);
   });
   await h.ui({entryCategory:'materials',recordId:'MAT',readOnly:true});
   await button(h.nodes.content,'Back to Materials & Stock').onclick();
-  assert.equal(h.titles.at(-1),'Materials & Stock');
-  assert(h.field('Search Materials & Stock'));
-  assert.equal(calls.filter(url=>url.endsWith('/technical/MAT')).length,1);
+  assert.equal(h.titles.at(-1),'Engineering Library / Materials & Stock');
+  assert(h.field('Search'));
+  assert.equal(calls.filter(url=>url.endsWith('/technical/MAT')).length,0);
 });
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const all=node=>[node,...node.children.flatMap(all)];
@@ -53,7 +54,7 @@ test('Engineering Library opens a category dashboard and one failed count stays 
   const calls=[];
   const h=harness(async url=>{
     calls.push(url);
-    if(url.startsWith('/api/closures'))throw Error('offline');
+    if(url==='/api/engineering-library/categories'||url.startsWith('/api/closures'))throw Error('offline');
     if(url.startsWith('/api/materials'))return {items:[{id:'MAT'}]};
     if(url.startsWith('/api/tools'))return {items:[],total:2};
     return {items:[],total:7};
@@ -61,7 +62,7 @@ test('Engineering Library opens a category dashboard and one failed count stays 
   await h.ui();await sleep(5);
   assert.equal(h.titles.at(-1),'Engineering Library');
   const grid=all(h.nodes.content).find(node=>node.className==='library-category-grid');
-  assert.equal(grid.children.length,8);
+  assert.equal(grid.children.length,20);
   for(const name of ['Cavities','Cartridges','External Ports','Threads','Materials & Stock','Tooling','Closures & Plugs','Machining Modifiers'])assert.ok(words(grid).includes(name));
   const failed=grid.children.find(card=>words(card).includes('Closures & Plugs'));
   assert.match(words(failed),/Count unavailable/);
@@ -75,11 +76,11 @@ test('Explicit cavity selection enters Cavities directly; projectless browse dis
     throw Error('Unexpected '+url);
   });
   await h.ui({entryCategory:'cavities',selectionMode:'cavity',onSelect:()=>{}});
-  assert.equal(h.titles.at(-1),'Cavities');
+  assert.equal(h.titles.at(-1),'Engineering Library / Cavities');
   assert.ok(button(h.nodes.content,'Back to Engineering Library'));
-  assert.equal(button(h.nodes.content,'Place Cavity').disabled,false);
+  assert.equal(button(h.nodes.content,'Select').disabled,false);
   await h.ui({entryCategory:'cavities'});
-  assert.equal(button(h.nodes.content,'Place Cavity').disabled,true);
+  assert.equal(button(h.nodes.content,'Select'),undefined);
 });
 
 test('External-port Use action requires the explicit selection mode',async()=>{
@@ -90,11 +91,11 @@ test('External-port Use action requires the explicit selection mode',async()=>{
     throw Error('Unexpected '+url);
   });
   await h.ui({entryCategory:'external-ports',selectionMode:'external-port',scope:'custom',onSelect:()=>{}});
-  assert.ok(button(h.nodes.content,'Use External Port'));
-  assert.equal(button(h.nodes.content,'Use External Port').disabled,false);
-  assert.match(calls.at(-1),/scope=custom/);
+  assert.ok(button(h.nodes.content,'Select'));
+  assert.equal(button(h.nodes.content,'Select').disabled,false);
+  assert.match(calls.at(-1),/scope=all/); // Existing selection-state default is unchanged.
   await h.ui({entryCategory:'external-ports'});
-  assert.equal(button(h.nodes.content,'Use External Port'),undefined);
+  assert.equal(button(h.nodes.content,'Select'),undefined);
   assert.match(calls.at(-1),/scope=all/);
 });
 
@@ -102,6 +103,7 @@ test('A delayed category response cannot replace the Library dashboard',async()=
   let release;
   const h=harness(url=>url.startsWith('/api/catalog?')&&!url.includes('limit=1')?new Promise(resolve=>{release=resolve;}):Promise.resolve({total:0,items:[]}));
   const first=h.ui({entryCategory:'cavities'});
+  await sleep(0); // The compact summary request precedes normal category loading.
   await h.ui();
   release({total:1,items:[{id:'LATE',name:'Late cavity'}]});
   await first;
@@ -118,19 +120,19 @@ test('Threads preserve search and page when returning from detail',async()=>{
     throw Error('Unexpected '+url);
   });
   await h.ui({entryCategory:'threads'});
-  const search=h.field('Search thread designation');search.value='M10';search.oninput();await sleep(200);
+  const search=h.field('Search');search.value='M10';search.oninput();await sleep(200);
   assert.match(calls.at(-1),/q=M10/);
-  await button(h.nodes.content,'Next page').onclick();
+  await button(h.nodes.content,'Next').onclick();
   assert.match(calls.at(-1),/offset=40/);
-  await button(h.nodes.content,'View Thread').onclick();
-  assert.match(words(h.nodes.content),/Tap diameter: 9 mm/);
+  await button(h.nodes.content,'View').onclick();
+  assert.match(words(h.nodes.content),/Tap drill: Ø9 mm/);
   await button(h.nodes.content,'Back to Threads').onclick();
-  assert.equal(h.field('Search thread designation').value,'M10');
+  assert.equal(h.field('Search').value,'M10');
   assert.match(calls.at(-1),/offset=40/);
   assert.ok(button(h.nodes.content,'Back to Engineering Library'));
 });
 
-test('Cartridge evidence remains grouped without executable actions for evidence-only records',async()=>{
+test('Cartridge identity and technical state show without audit or execution actions',async()=>{
   const item=(id,eligible)=>({relation_id:id,cavity_family:'Maker',cavity_name:'A-1',
     execution_eligible:eligible,verification_status:eligible?'CONFIRMED':'PROBABLE',
     confidence:eligible?.95:.70,resolution_status:'RESOLVED',resolution_detail:{reason:''},
@@ -138,15 +140,16 @@ test('Cartridge evidence remains grouped without executable actions for evidence
     evidence_text:'A-1 stated in source',source_url:'https://example.test/catalogue'});
   const h=harness(async url=>{
     if(url.startsWith('/api/cartridges?'))return {total:1,items:[{id:'cart_1',manufacturer:'Maker',model:'MODEL',function:''}]};
+    if(url==='/api/engineering-library/cartridges/cart_1')return {available:false,cavity_identities:[]};
     if(url.startsWith('/api/knowledge/cartridges/'))return {total:2,items:[item('REL_SAFE',true),item('REL_REVIEW',false)]};
     throw Error('Unexpected '+url);
   });
   await h.ui({entryCategory:'cartridges'});
-  await button(h.nodes.content,'View Cartridge').onclick();
-  assert.match(words(h.nodes.content),/EXECUTION SAFE/);
-  assert.match(words(h.nodes.content),/EVIDENCE ONLY/);
+  await button(h.nodes.content,'View').onclick();
+  assert.match(words(h.nodes.content),/Technical data not available/);
+  assert.equal(words(h.nodes.content).includes('Relationship evidence'),false);
   assert.equal(button(h.nodes.content,'Place Cavity'),undefined);
   assert.equal(button(h.nodes.content,'Bind'),undefined);
   await button(h.nodes.content,'Back to Cartridges').onclick();
-  assert.equal(h.titles.at(-1),'Cartridges');
+  assert.equal(h.titles.at(-1),'Engineering Library / Cartridges');
 });

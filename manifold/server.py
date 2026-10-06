@@ -2,7 +2,7 @@ import json
 import asyncio
 from contextlib import asynccontextmanager
 import re
-from fastapi import FastAPI, HTTPException, Request, Query
+from fastapi import FastAPI, HTTPException, Request, Query, Path as ApiPath
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import Field
@@ -248,6 +248,40 @@ def library(include_deleted: bool = False, reusable_only: bool = True):
     from .engineering_db import search_definitions,get_definition
     rows=search_definitions(kind='cavity',limit=100,include_inactive=include_deleted)
     return [dict(definition=get_definition(row['id'],include_inactive=True).model_dump(),preferred=True,deleted=not row['active']) for row in rows['items']]
+
+
+@app.get('/api/engineering-library/categories')
+def engineering_library_categories():
+    from .library_presentation import categories
+    return categories()
+
+
+@app.get('/api/engineering-library/knowledge')
+def engineering_library_knowledge(category: str = Query(max_length=60), q: str = Query('',max_length=150),
+                                  status: str = Query('',pattern=r'^(|VERIFIED|PARTIAL)$'),
+                                  offset: int = Query(0,ge=0), limit: int = Query(40,ge=1,le=100)):
+    from .library_presentation import browse
+    try:return browse(category,q=q,status=status,offset=offset,limit=limit)
+    except ValueError as exc:raise HTTPException(404,str(exc)) from None
+
+
+@app.get('/api/engineering-library/knowledge/{key}')
+def engineering_library_knowledge_detail(key: str = ApiPath(max_length=500)):
+    from .library_presentation import detail
+    try:return detail(key)
+    except ValueError as exc:raise HTTPException(404,str(exc)) from None
+
+
+@app.get('/api/engineering-library/cartridges/{identifier}')
+def engineering_library_cartridge_data(identifier: str):
+    from .library_presentation import cartridge_data
+    return _technical_query(cartridge_data,identifier)
+
+
+@app.get('/api/engineering-library/materials/{identifier}')
+def engineering_library_material_data(identifier: str):
+    from .library_presentation import material_data
+    return material_data(identifier)
 
 
 @app.get('/api/catalog')

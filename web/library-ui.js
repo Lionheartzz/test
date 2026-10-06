@@ -1,7 +1,7 @@
 import {isCavity,isPort} from './definition-role.js';
 import {profileEditor} from './profile.js';
 import {engineeringFactsUI} from './engineering-facts-ui.js';
-import {relationKnowledgeUI} from './relation-knowledge-ui.js';
+import {libraryCategories,libraryKnowledgeUI,engineeringGroups} from './library-knowledge-ui.js';
 import {libraryBrowser,recordMore} from './library-browser.js';
 import {engineeringName,engineeringText,unitLabel,availability,machiningRecipe} from './engineering-labels.js';
 
@@ -59,8 +59,9 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{},scrollContainer=
     };render();
   }
 
-  const labels={cavities:'Cavities',cartridges:'Cartridges','external-ports':'External Ports',threads:'Threads',materials:'Materials & Stock',tooling:'Tooling',closures:'Closures & Plugs',modifiers:'Machining Modifiers'};
-  const descriptions={cavities:'Browse cavity machining definitions and hydraulic interfaces.',cartridges:'Browse valve models, engineering properties and compatible cavities.','external-ports':'Browse hydraulic port machining and sealing forms.',threads:'Browse thread designations and tap-drill dimensions.',materials:'Browse engineering materials and available stock sizes.',tooling:'Browse drills, flat-bottom drills and spotface cutters.',closures:'Browse construction closures and plugs.',modifiers:'Browse O-ring grooves, counterbores and undercuts.'};
+  const labels=Object.fromEntries(libraryCategories.map(([key,label])=>[key,label]));
+  const descriptions=Object.fromEntries(libraryCategories.map(([key,,description])=>[key,description]));
+  const categoryInfo={},modes={};
   const state={cavities:{q:'',unit:'',kind:'cavity',family:'',manufacturer:'',thread:'',status:'all',scope:'all',include_deleted:false,offset:0,limit:30},cartridges:{q:'',offset:0,limit:50},'external-ports':{q:'',unit:'',standard:'',kind:'port_definition',scope:'all',status:'all',include_deleted:false,offset:0,limit:50},threads:{q:'',unit:'',family:'',usable_only:false,offset:0,limit:40},materials:{q:'',status:'all',offset:0,limit:30},tooling:{q:'',type:'',unit:'',diameter:'',status:'all',offset:0,limit:30},closures:{q:'',status:'all',offset:0,limit:30},modifiers:{q:'',kind:'',unit:'',status:'all',offset:0,limit:30}};
   const selectionState={cavities:{...state.cavities},'external-ports':{...state['external-ports']}};
   const scroll={},local=record=>record.id.startsWith('custom_')||record.id.startsWith('legacy_');
@@ -73,12 +74,40 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{},scrollContainer=
   const statusChoices={all:'All records',usable:'Available',unavailable:'Machining incomplete'};
   const units={'':'All units',metric:'Metric',inch:'Inch',custom:'Custom'};
   function heading(category,options={}){show(options.title||'Engineering Library / '+labels[category]);}
+  const knowledgeUI=libraryKnowledgeUI(ctx,{show,back:backToCategory,onInvalidate:()=>++generation,isCurrent:token=>token===generation,scrollContainer,labels,descriptions});
 
-  function home(){
+  function categorySwitch(category,options,mode){
+    if(options.selectionMode&&options.selectionMode!=='browse')return;
+    const descriptor=libraryCategories.find(row=>row[0]===category);
+    if(!descriptor?.[3]||!descriptor?.[4])return;
+    const row=element('div',null,'library-mode-switch action-row');
+    for(const [value,label]of [['definitions','Definitions'],['knowledge','Knowledge']]){
+      const button=action(row,label,()=>{if(mode==='knowledge')knowledgeUI.remember(category);else rememberScroll(category);modes[category]=value;return backToCategory(category,{...options,libraryMode:value});});
+      button.setAttribute('aria-pressed',String(mode===value));if(mode===value)button.classList.add('active');
+    }
+    content.prepend(row);
+  }
+
+  async function home(){
     const token=++generation;show('Engineering Library');content.append(element('p','Choose an engineering category.','library-description'));
     const grid=element('div',null,'library-category-grid');content.append(grid);
     const counts={cavities:async()=>(await api('/api/catalog?kind=cavity&limit=1')).total,cartridges:async()=>(await api('/api/cartridges?limit=1')).total,'external-ports':async()=>(await api('/api/catalog?kind=port_definition&limit=1')).total,threads:async()=>(await api('/api/threads?usable_only=false&limit=1')).total,materials:async()=>(await api('/api/materials')).items.filter(row=>row.selectable!==false).length,tooling:async()=>{const rows=await Promise.all(['drill','flat-bottom-drill','spotface'].map(type=>api('/api/tools?'+new URLSearchParams({type,usable_only:false}))));return rows.reduce((total,row)=>total+(row.total??row.items.length),0);},closures:async()=>(await api('/api/closures')).total,modifiers:async()=>(await api('/api/machining-modifiers?usable_only=false')).total};
-    for(const key of Object.keys(labels)){const card=element('section',null,'library-card library-category-card'),count=element('p','Loading records…','library-category-count'),status=element('p','Checking availability…','property-note');card.append(element('h3',labels[key]),count,element('p',descriptions[key]),status);grid.append(card);action(card,'Browse',()=>backToCategory(key));Promise.resolve().then(counts[key]).then(total=>{if(token!==generation)return;count.textContent=Number(total).toLocaleString()+' records';status.textContent=total?'Available for browsing':'No records available';}).catch(()=>{if(token===generation){count.textContent='Count unavailable';status.textContent='Browse to retry';}});}
+    const cards={};
+    const addCard=(key,label,description)=>{const card=element('section',null,'library-card library-category-card'),count=element('p','Loading records…','library-category-count');card.append(element('h3',label),count,element('p',description));grid.append(card);action(card,'Browse',()=>backToCategory(key));cards[key]=count;return count;};
+    for(const [key,label,description]of libraryCategories)addCard(key,label,description);
+    try{
+      const data=await api('/api/engineering-library/categories');if(token!==generation)return;
+      for(const item of data.items){categoryInfo[item.key]=item;labels[item.key]=item.label;descriptions[item.key]=item.description;
+        const count=cards[item.key]||addCard(item.key,item.label,item.description);
+        count.textContent=item.count_unavailable?'Count unavailable':[
+          item.definition_count==null?null:Number(item.definition_count).toLocaleString()+(item.key==='cartridges'?' identities':' definitions'),
+          item.knowledge_count?Number(item.knowledge_count).toLocaleString()+' knowledge':null].filter(Boolean).join(' · ')||'0 records';
+      }
+    }catch{
+      if(token!==generation)return;
+      for(const count of Object.values(cards))count.textContent='Count unavailable';
+      await Promise.allSettled(Object.entries(counts).map(async([key,load])=>{try{const total=await load();if(token===generation)cards[key].textContent=Number(total).toLocaleString()+(key==='cartridges'?' identities':' definitions');}catch{}}));
+    }
   }
 
   async function getRecord(id){return api('/api/catalog/record?'+new URLSearchParams({id}));}
@@ -126,7 +155,7 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{},scrollContainer=
     const identity=element('section',null,'library-card'),properties=element('section'),compatible=element('section'),knowledge=element('section');content.append(identity,properties,compatible,knowledge);
     try{cartridge=await api('/api/cartridges/'+encodeURIComponent(cartridge.id));if(token!==generation)return;identity.append(element('h3',[cartridge.manufacturer,cartridge.model].filter(Boolean).join(' ')),element('p',cartridge.function||'Function not available'),element('p','Read-only catalogue'));}
     catch{if(token===generation)identity.append(element('p',engineeringName(cartridge.model,'Cartridge')));}
-    const tasks=[(async()=>{try{const data=await api('/api/cartridges/'+encodeURIComponent(cartridge.id)+'/engineering-facts');if(token===generation)engineeringFactsUI(ctx,properties,data,{title:'Engineering properties'});}catch{if(token===generation)properties.append(element('p','Engineering properties not available.'));}})(),(async()=>{compatible.append(element('h3','Compatible cavities'));try{const rows=await api('/api/cartridges/'+encodeURIComponent(cartridge.id)+'/cavities');if(token!==generation)return;for(const definition of rows){const line=element('div',null,'action-row');line.append(element('span',`${definition.label} · ${unitLabel(definition.unit_system)} · ${availability(definition)}`));action(line,'View',guard(()=>viewDefinition(definition,{entryCategory:'cavities',readOnly:true})));compatible.append(line);}if(!rows.length)compatible.append(element('p','Not available'));}catch{if(token===generation)compatible.append(element('p','Not available'));}})(),relationKnowledgeUI(ctx,knowledge,cartridge.id,()=>token===generation)];await Promise.all(tasks);
+    const tasks=[(async()=>{try{const data=await api('/api/cartridges/'+encodeURIComponent(cartridge.id)+'/engineering-facts');if(token===generation)engineeringFactsUI(ctx,properties,data,{title:'Engineering properties'});}catch{if(token===generation)properties.append(element('p','Engineering properties not available.'));}})(),(async()=>{compatible.append(element('h3','Compatible cavities'));try{const rows=await api('/api/cartridges/'+encodeURIComponent(cartridge.id)+'/cavities');if(token!==generation)return;for(const definition of rows){const line=element('div',null,'action-row');line.append(element('span',`${definition.label} · ${unitLabel(definition.unit_system)} · ${availability(definition)}`));action(line,'View',guard(()=>viewDefinition(definition,{entryCategory:'cavities',readOnly:true})));compatible.append(line);}if(!rows.length)compatible.append(element('p','Not available'));}catch{if(token===generation)compatible.append(element('p','Not available'));}})(),(async()=>{try{const data=await api('/api/engineering-library/cartridges/'+encodeURIComponent(cartridge.id));if(token!==generation)return;if(data.available)engineeringGroups(ctx,knowledge,data);else knowledge.append(element('p','Technical data not available'));for(const cavity of data.cavity_identities||[])knowledge.append(element('p',cavity.name+' · '+unitLabel(cavity.unit)+' · '+cavity.message));}catch{if(token===generation)knowledge.append(element('p','Technical data not available'));}})()];await Promise.all(tasks);
   }
   async function cartridges(options={}){
     const category='cartridges',query=state[category],token=++generation;heading(category,options);const shell=libraryBrowser(ctx,content,{description:descriptions[category],back:home,readOnly:true});let request=0,timer;
@@ -135,13 +164,14 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{},scrollContainer=
   }
 
   async function readonlyDetail(category,row,options={}){
-    rememberScroll(category);++generation;show('Engineering Library / '+labels[category]+' / '+engineeringName(row.display_name||row.name||row.model,labels[category]));action(content,'Back to '+labels[category],()=>backToCategory(category,options));const card=element('section',null,'library-card');content.append(card);card.append(element('p',availability(row)+' · Read-only catalogue'));
+    rememberScroll(category);const token=++generation;show('Engineering Library / '+labels[category]+' / '+engineeringName(row.display_name||row.name||row.model,labels[category]));action(content,'Back to '+labels[category],()=>backToCategory(category,options));const card=element('section',null,'library-card');content.append(card);card.append(element('p',availability(row)+' · Read-only catalogue'));
     const line=(label,value)=>{if(value!==null&&value!==undefined&&value!=='')card.append(element('p',label+': '+engineeringName(String(value),'Not specified')));};
     if(category==='threads'){line('Designation',row.display_name);line('Family',row.normalized_family||row.family);line('Size / pitch',row.pitch_tpi||row.nominal_size);line('Units',unitLabel(row.unit_system));line('Tap drill',row.tap_diameter_mm==null?'Not available':`Ø${displayMm(row.tap_diameter_mm)} mm`);line('Thread class',row.thread_class);line('Applicability',row.applicability);line('Form',row.tapered?'Tapered':'Parallel');}
     if(category==='materials'){line('Material',row.display_name);line('Type',row.material_type);engineeringFactsUI(ctx,card,row.engineering_facts_summary,{title:'Material properties'});card.append(element('h3','Available stock sizes'));for(const stock of row.stock||[])card.append(element('p',`${stock.size_1_mm} × ${stock.size_2_mm} mm · ${unitLabel(stock.unit_system)} · machining allowance ${stock.allowance_1_mm} × ${stock.allowance_2_mm} mm · ${stock.active?'Available':'Archived'}`));if(!row.stock?.length)card.append(element('p','No stock sizes available.'));}
     if(category==='tooling'){line('Type',row.tool_type.replaceAll('-',' '));line('Units',unitLabel(row.unit_system));line('Diameter',`Ø${displayMm(row.diameter_mm)} mm`);line('Maximum depth',`${displayMm(row.max_depth_mm)} mm`);}
     if(category==='closures'){line('Name',row.display_name);line('Model',row.model);line('Construction port',row.construction_port_name||'Not specified');line('Engagement',row.engagement_mm==null?'Not available':`${displayMm(row.engagement_mm)} mm`);card.append(element('h3','Envelope'));machiningRecipe(ctx,card,Array.isArray(row.envelope)?row.envelope:[row.envelope||{}]);card.append(element('h3','Machining'));machiningRecipe(ctx,card,row.machining);}
     if(category==='modifiers'){line('Name',row.display_name);line('Type',row.kind.replaceAll('-',' '));line('Units',unitLabel(row.unit_system));card.append(element('h3','Profile'));machiningRecipe(ctx,card,row.primitives);card.append(element('h3','Machining'));machiningRecipe(ctx,card,row.machining);}
+    if(category==='materials'){try{const data=await api('/api/engineering-library/materials/'+encodeURIComponent(row.id));if(token===generation)engineeringGroups(ctx,card,data);}catch{}}
   }
 
   async function readonlyCategory(category,options={}){
@@ -157,11 +187,32 @@ export function libraryUI(ctx,{open,insert,onCustomSaved=()=>{},scrollContainer=
     const load=async()=>{const current=++request;try{const result=await api('/api/threads?'+new URLSearchParams(query));if(token!==generation||current!==request)return;shell.count.textContent=result.total.toLocaleString()+' records';shell.rows(['Designation','Family','Size / pitch','Units','Tap drill / mm','Status'],result.items,(row,buttons)=>{action(buttons,'View',()=>readonlyDetail(category,row,options));return [row.display_name,row.normalized_family||row.family,row.pitch_tpi||row.nominal_size,unitLabel(row.unit_system),displayMm(row.tap_diameter_mm),availability(row)];});shell.paging(query.offset,result.total,query.limit,offset=>{query.offset=offset;scroll[category]=0;load();});restoreScroll(category);}catch(error){if(token===generation&&current===request)shell.failure('Threads could not be loaded. '+engineeringText(error.message),load);}};
     const update=(key,value)=>{query[key]=value;query.offset=0;scroll[category]=0;clearTimeout(timer);timer=setTimeout(load,160);};const search=field(shell.filters,'Search',query.q,value=>update('q',value));search.oninput=()=>update('q',search.value);field(shell.filters,'Status',query.usable_only,value=>update('usable_only',value),{false:'All records',true:'Available'});field(shell.filters,'Units',query.unit,value=>update('unit',value),units);field(shell.filters,'Family',query.family,value=>update('family',value));await load();
   }
-  function library(options={}){
+  async function library(options={}){
     const category=options.entryCategory||'home';
     if(category==='cartridges'&&options.recordId)return cartridgeDetail({id:options.recordId},options);
     if(category==='materials'&&options.recordId)return api('/api/materials').then(result=>{const row=result.items.find(item=>item.id===options.recordId||item.technical_identity_id===options.recordId);if(row)return readonlyDetail(category,row,options);throw Error('Material not available.');});
-    if(category==='home')return home();if(category==='cavities'||category==='external-ports')return definitionsCategory(category,options);if(category==='cartridges')return cartridges(options);if(category==='threads')return threads(options);if(['materials','tooling','closures','modifiers'].includes(category))return readonlyCategory(category,options);throw Error('Library category not available.');
+    if(category==='home')return home();
+    const descriptor=libraryCategories.find(row=>row[0]===category),selection=options.selectionMode&&options.selectionMode!=='browse';
+    if(!labels[category])throw Error('Library category not available.');
+    let mode='definitions';
+    if(!selection&&(descriptor?.[4]||category==='other-knowledge')){
+      if(!descriptor?.[3])mode='knowledge';
+      else{
+        const token=++generation;
+        if(!categoryInfo[category]){try{const data=await api('/api/engineering-library/categories');if(token!==generation)return;for(const row of data.items)categoryInfo[row.key]=row;}catch{}}
+        mode=options.libraryMode||modes[category]||categoryInfo[category]?.browse_mode||'definitions';
+      }
+    }
+    if(mode==='knowledge'){
+      const task=knowledgeUI.browse(category,options);categorySwitch(category,options,mode);return task;
+    }
+    let task;
+    if(category==='cavities'||category==='external-ports')task=definitionsCategory(category,options);
+    else if(category==='cartridges')task=cartridges(options);
+    else if(category==='threads')task=threads(options);
+    else if(['materials','tooling','closures','modifiers'].includes(category))task=readonlyCategory(category,options);
+    else throw Error('Library category not available.');
+    categorySwitch(category,options,mode);return task;
   }
   library.invalidate=()=>{generation++;};return library;
 }
