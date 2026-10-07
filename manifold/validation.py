@@ -10,6 +10,8 @@ EPS = 1e-6
 
 @timed('validation')
 def validate(design, g, definitions=None):
+    from .closure_runtime import normalize_design,bound,compatible,entry_depth
+    design=normalize_design(design)
     if definitions is None:
         from .engineering_db import definitions_for_design
         definitions=definitions_for_design(design)
@@ -251,8 +253,16 @@ def validate(design, g, definitions=None):
                             for plug_shape in [g.plugs[f.id]])
             result('plug_engagement', [f.id], intrusion, 0, intrusion <= EPS,
                    'No intersecting cut may enter the plug engagement region.', unit='mm³')
-            result('construction_closure',[f.id],f.closure_definition_id or 'unresolved','resolved closure definition',
-                   bool(f.closure_definition_id),'Construction access may preview, but manufacturing closure identity and entry machining remain unresolved.',severity='WARNING')
+            closure=bound(f)
+            resolved=bool(closure and compatible(f,closure))
+            result('construction_closure',[f.id],closure['display_name'] if resolved else f.closure_definition_id or 'unresolved',
+                   'usable compatible closure with source entry machining',resolved,
+                   'Selected construction closure must have a usable compatible entry, engagement and envelope.' if f.closure_definition_id else
+                   'Construction access may preview, but manufacturing closure identity and entry machining remain unresolved.',
+                   severity='FAIL' if f.closure_definition_id else 'WARNING')
+            if resolved:
+                result('closure_entry_depth',[f.id],entry_depth(f,closure),f.depth,entry_depth(f,closure)<f.depth,
+                       'Closure entry machining must remain local to the entrance and shorter than the hydraulic drilling.',unit='mm')
     for a, b in combinations(g.envelopes, 2):
         distance = g.envelopes[a].distance(g.envelopes[b])
         result('installation_access', [a, b], distance, design.rules.minimum_access_gap,

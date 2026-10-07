@@ -402,6 +402,15 @@ def closure_catalog():
     return {'items':items,'total':len(items)}
 
 
+@app.get('/api/closures/compatible')
+def compatible_closure_choices(diameter:float=Query(gt=0,le=2000),depth:float=Query(gt=0,le=2000),unit:str=Query('metric',pattern=r'^(metric|inch)$')):
+    from .closure_runtime import choices
+    from .schema import Feature
+    feature=Feature(id='closure-query',kind='drilling',face='top',u=0,v=0,circuit='P',diameter=diameter,depth=depth,
+                    plugged=True,plug_length=min(8,depth/2))
+    return {'items':[dict(id=r['id'],display_name=r['display_name'],engagement_mm=r['engagement_mm'],envelope=r['envelope']) for r in choices(feature,unit)]}
+
+
 @app.get('/api/catalog/resource')
 def catalog_resource(id: str):
     raise HTTPException(410,'Independent legacy JSON resources are not runtime engineering data.')

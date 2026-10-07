@@ -46,7 +46,8 @@ def validate_current_design(design,*,step_path=None):
     from .routing import authorize_generated_contacts
     from .validation import validate
     from .cad_acceptance import step_round_trip,add_step_check
-    target=resolve_parents(design.model_copy(deep=True))
+    from .closure_runtime import normalize_design
+    target=resolve_parents(normalize_design(design,resolve_generated=True))
     progress('geometry',20)
     geometry=build_geometry(target)
     progress('rules',75)

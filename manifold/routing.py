@@ -277,6 +277,12 @@ def segment_distance(a,b,c,d):
     dot=lambda x,y:sum(i*j for i,j in zip(x,y))
     aa,bb,cc,dd,ee=dot(u,u),dot(u,v),dot(v,v),dot(u,w),dot(v,w)
     clamp=lambda x:max(0,min(1,x))
+    if aa==0:
+        t=clamp(ee/cc) if cc else 0
+        return math.sqrt(sum((w[i]-t*v[i])**2 for i in range(3)))
+    if cc==0:
+        s=clamp(-dd/aa)
+        return math.sqrt(sum((w[i]+s*u[i])**2 for i in range(3)))
     candidates=[(0,clamp(ee/cc) if cc else 0),(1,clamp((ee+bb)/cc) if cc else 0),
                 (clamp(-dd/aa) if aa else 0,0),(clamp((bb-dd)/aa) if aa else 0,1)]
     det=aa*cc-bb*bb
@@ -610,7 +616,7 @@ def exact_route_score(design, report, route, *, cad_error=False):
             len(unresolved),route_objective(design,route))
 
 
-def _plug_cut_overlap(plug, cut, block, plug_bounds=None):
+def _plug_cut_overlap(plug, cut, block, plug_bounds=None, diameter=None):
     """Return only witnessed finite-volume overlap; a proxy cannot certify clearance.
 
     Witnesses are strictly inside the plug and the actual axial/radial cut profile.
@@ -624,7 +630,9 @@ def _plug_cut_overlap(plug, cut, block, plug_bounds=None):
     margin = 0.05
     if plug.plug_length <= 2*margin or cut['end']-cut['start'] <= 2*margin:
         return False
-    plug_bounds = plug_bounds if plug_bounds is not None else cylinder_bounds(plug, block, 0, plug.plug_length, plug.diameter)
+    from .closure_runtime import plug_diameter
+    diameter=plug_diameter(plug) if diameter is None else diameter
+    plug_bounds = plug_bounds if plug_bounds is not None else cylinder_bounds(plug, block, 0, plug.plug_length, diameter)
     if cut.get('_bounds') is None:
         cut['_bounds'] = cylinder_bounds(cut['feature'], block, cut['start'], cut['end'],
                                         2*max(cut['radius_start'], cut['radius_end']))
@@ -646,7 +654,7 @@ def _plug_cut_overlap(plug, cut, block, plug_bounds=None):
     for depth in sorted(t for t in positions if margin < t < plug.plug_length-margin):
         center = tuple(origin[i]+direction[i]*depth for i in range(3))
         for x, y in radial:
-            point = tuple(center[i]+plug.diameter/2*(x*first[i]+y*second[i]) for i in range(3))
+            point = tuple(center[i]+diameter/2*(x*first[i]+y*second[i]) for i in range(3))
             relative = subtract(point, cut_origin)
             axial = dot(relative, cut_direction)
             if not cut['start']+margin < axial < cut['end']-margin:
@@ -814,7 +822,9 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
         if route_margin(design,[bore])['estimated_min_wall_mm'] < required_wall(design,bore,definitions=definitions)-1e-6:
             failures.add(('external_wall',bore.id))
         if bore.plugged:
-            plug_bounds=cylinder_bounds(bore,design.block,0,bore.plug_length,bore.diameter)
+            from .closure_runtime import plug_diameter
+            plug_diameter_value=plug_diameter(bore)
+            plug_bounds=cylinder_bounds(bore,design.block,0,bore.plug_length,plug_diameter_value)
             a,b = segment(bore, design.block, -bore.clearance_height, 0)
             for other in obstacles:
                 if other.suppressed or other.id == bore.id or not (other.kind in ('port','cavity') or other.plugged):
@@ -828,7 +838,7 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
             for other in obstacles:
                 if other.suppressed or other.id == bore.id:
                     continue
-                if any(_plug_cut_overlap(bore, cut, design.block,plug_bounds) for cut in cuts(other)):
+                if any(_plug_cut_overlap(bore, cut, design.block,plug_bounds,plug_diameter_value) for cut in cuts(other)):
                     failures.add(('plug_cut', *sorted((bore.id, other.id))))
         radius=bore.diameter/2
         route_cuts = cuts(bore)
@@ -1149,6 +1159,8 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
         for key,route in axial_connector_candidates(source,net,definitions,thread_definitions,modifier_definitions,design,snapshot.obstructions):
             if key in known:continue
             options.append(dict(key=key,route=route,risk=proximity_risk(source,net,route,definitions,thread_definitions,snapshot.obstructions),cost=route_cost(source,route)))
+    from .closure_runtime import bind_route
+    for option in options:option['route']=bind_route(design,option['route'])
     # Keep an explicitly failing proposal if the constraint makes every candidate impossible.
     # The validator reports the conflict; never remove a required connection to hide it.
     def source_clear(option):
@@ -1457,6 +1469,8 @@ def _resolve_proposals(design, *, snapshots=None):
             selected['pruned_ids']=sorted({f.id for f in original}-{f.id for f in route})
             selected['cost']=route_cost(resolved,route)
             selected['risk']=proximity_risk(resolved,net,route,definitions,thread_definitions)
+        from .closure_runtime import bind_route
+        route=bind_route(resolved,route)
         resolved.features.extend(route)
         if len(resolved.features) > 120:
             raise ValueError('Generated design exceeds 120 physical features; reduce routing complexity')
@@ -1476,6 +1490,7 @@ def _resolve_proposals(design, *, snapshots=None):
             for net in sorted((n for n in resolved.nets if n.id in automatic),key=lambda n:n.id):
                 option = combination[net.id]
                 route = option['route']
+                route=bind_route(resolved,route)
                 resolved.features.extend(route)
                 metadata = next(r for r in candidates if r['net']==net.id)
                 metadata.update(variant=option['key'],axis_order=option['key'].split(':')[0],
@@ -1623,6 +1638,8 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
     Proxy risk schedules proposals only. Exact failures, warnings, then machining
     cost determine selection, with the complete multi-net design as context.
     """
+    from .closure_runtime import normalize_design
+    design=normalize_design(design,resolve_generated=True)
     snapshots=snapshot_cache if snapshot_cache is not None else {}
     from .route_state import pending_nets,route_metadata,validate_current_design
     if not pending_nets(design):

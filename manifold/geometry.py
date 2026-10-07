@@ -1,6 +1,7 @@
 from .timing import timed,phase
 from dataclasses import dataclass
 import math
+from functools import lru_cache
 from .cad import cq
 from .schema import Design, Feature
 
@@ -70,9 +71,35 @@ def tip_depth(f):
     return 0 if f.tip_angle == 180 else f.diameter / 2 / math.tan(math.radians(f.tip_angle / 2))
 
 
+@lru_cache(maxsize=128)
+def _closure_local_shapes(diameter,depth,tip_angle,entry_diameter,entry_depth,engagement,envelope_diameter):
+    """Exact source-profile solids shared by equal dimensions, never by ID/name."""
+    origin=(0,0,0);axis=(0,0,1)
+    cut=cylinder(origin,axis,diameter,0,depth)
+    tip=0 if tip_angle==180 else diameter/2/math.tan(math.radians(tip_angle/2))
+    if tip:cut=cut.fuse(cq.Solid.makeCone(diameter/2,0,tip,cq.Vector(0,0,depth),cq.Vector(*axis))).clean()
+    counterbore=cylinder(origin,axis,entry_diameter,0,entry_depth)
+    transition=cq.Solid.makeCone(entry_diameter/2,diameter/2,(entry_diameter-diameter)/2/math.tan(math.radians(60)),cq.Vector(0,0,entry_depth),cq.Vector(*axis))
+    cut=cut.fuse(counterbore).fuse(transition).clean()
+    plug=cylinder(origin,axis,entry_diameter,0,engagement)
+    node=cut.cut(plug).clean()
+    envelope=cq.Face.makeFromWires(cq.Wire.makeCircle(envelope_diameter/2,cq.Vector(*origin),cq.Vector(*axis)))
+    return cut,plug,node,envelope
+
+
+def _place_closure_shape(shape,origin,direction):
+    axis=max(range(3),key=lambda i:abs(direction[i]))
+    if axis==0:shape=shape.rotate((0,0,0),(0,1,0),90 if direction[0]>0 else -90)
+    elif axis==1:shape=shape.rotate((0,0,0),(1,0,0),-90 if direction[1]>0 else 90)
+    elif direction[2]<0:shape=shape.rotate((0,0,0),(1,0,0),180)
+    return shape.translate(origin)
+
+
 @timed('geometry.feature_shapes')
 def feature_geometry(design, definitions, thread_definitions, modifier_definitions):
     """Exact individual cuts and hydraulic nodes, without a stock Boolean."""
+    from .closure_runtime import normalize_design,bound,compatible,profile
+    design=normalize_design(design)
     b = design.block
     lib = definitions
     cuts, nodes, circuits, envelopes, plugs, placements = {}, {}, {}, {}, {}, {}
@@ -126,6 +153,13 @@ def feature_geometry(design, definitions, thread_definitions, modifier_definitio
                 shape = cq.Solid.extrudeLinear(wire,[],cq.Vector(*[-x*boundary.height for x in direction])) if boundary.height else face
                 boundaries[f'{f.id}/{i}'] = dict(shape=shape,owner=f.id,category=boundary.category,height=boundary.height)
         else:
+            closure=bound(f)
+            if closure and compatible(f,closure) and not f.machining_modifiers and closure['envelope']['height_mm']==0:
+                entry=profile(closure)
+                local=_closure_local_shapes(f.diameter,f.depth,f.tip_angle,entry['diameter_mm'],entry['depth_mm'],f.plug_length,f.clearance_diameter)
+                cuts[f.id],plugs[f.id],nodes[f.id],envelopes[f.id]=(_place_closure_shape(s,origin,direction) for s in local)
+                circuits[f.id]=f.circuit
+                continue
             from .kinematics import FACE_AXES
             cosine=abs(direction[FACE_AXES[f.face][2]])
             diameter=thread_definitions[f.thread_definition_id]['tap_diameter_mm'] if f.thread_only or f.kind=='mounting' and f.mounting_mode=='threaded' else f.diameter
@@ -141,11 +175,18 @@ def feature_geometry(design, definitions, thread_definitions, modifier_definitio
                 plane=cq.Plane(origin=cq.Vector(*origin),normal=cq.Vector(*normal))
                 half=cq.Workplane(plane).box(12000,12000,6000,centered=(True,True,False)).val()
                 cut=cut.intersect(half).clean()
+            closure=bound(f)
+            if closure and compatible(f,closure):
+                entry=profile(closure);diameter=entry['diameter_mm'];depth=entry['depth_mm']
+                counterbore=cylinder(origin,direction,diameter,0,depth)
+                length=(diameter-f.diameter)/2/math.tan(math.radians(entry['transition_angle_degrees']/2))
+                transition=cq.Solid.makeCone(diameter/2,f.diameter/2,length,cq.Vector(*at(origin,direction,depth)),cq.Vector(*direction))
+                cut=cut.fuse(counterbore).fuse(transition).clean()
             cuts[f.id] = cut
             if f.kind=='mounting':
                 continue # Real stock removal, deliberately absent from hydraulic nodes/circuits.
             if f.plugged:
-                plugs[f.id] = cylinder(origin, direction, f.diameter, -extension, f.plug_length)
+                plugs[f.id] = cylinder(origin, direction, profile(closure)['diameter_mm'] if closure and compatible(f,closure) else f.diameter, -extension, f.plug_length)
                 if f.direction:
                     plugs[f.id]=plugs[f.id].intersect(half).clean()
                 nodes[f.id] = cut.cut(plugs[f.id]).clean()
@@ -153,7 +194,9 @@ def feature_geometry(design, definitions, thread_definitions, modifier_definitio
                 nodes[f.id] = cut
             circuits[f.id] = f.circuit
             if f.plugged or f.kind == 'port' and not f.thread_only:
-                envelopes[f.id] = cylinder(origin, direction, f.clearance_diameter, -f.clearance_height, 0)
+                envelopes[f.id] = (cq.Face.makeFromWires(cq.Wire.makeCircle(f.clearance_diameter/2,cq.Vector(*origin),cq.Vector(*direction)))
+                    if closure and compatible(f,closure) and f.clearance_height==0 else
+                    cylinder(origin, direction, f.clearance_diameter, -f.clearance_height, 0))
         if f.machining_modifiers:
             pieces=[]
             for placement_value in f.machining_modifiers:
@@ -238,7 +281,9 @@ def review_layer(design,g,layer):
             color=next((n.color for n in design.nets if n.id==g.circuits[key] and n.color),COLORS.get(g.circuits[key],'#b08bea'))
             parts.append(dict(id=key,owner=owner,kind='zone' if ':' in key else f.kind,circuit=g.circuits[key],color=color,**mesh(shape)))
         for key,shape in g.plugs.items():
-            parts.append(dict(id=key+':plug',owner=key,kind='plug',color='#d5dee9',entry_machining_status='unresolved',**mesh(shape)))
+            from .closure_runtime import bound,compatible
+            closure=bound(features[key])
+            parts.append(dict(id=key+':plug',owner=key,kind='plug',color='#d5dee9',entry_machining_status='resolved' if closure and compatible(features[key],closure) else 'unresolved',**mesh(shape)))
     else:
         raise ValueError('Unknown exact preview layer')
     return parts

@@ -882,7 +882,7 @@ def browse_closures(*, include_inactive=False):
             LEFT JOIN external_port_definitions p ON p.id=c.construction_port_definition_id
             WHERE {where} ORDER BY c.display_name,c.id
         """).fetchall()
-    return [dict(row) | {"machining":json.loads(row["machining_json"]),
+    return [dict(row) | {"machining":[op for op in json.loads(row["machining_json"]) if op.get('operation')!='SOURCE_EXPANDER_ENTRY'],
                          "envelope":json.loads(row["envelope_json"])} for row in rows]
 
 

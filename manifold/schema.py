@@ -230,8 +230,8 @@ class Feature(Strict):
 
     @model_validator(mode='after')
     def fields_for_kind(self):
-        if not self.thread_only and self.clearance_height<=0:
-            raise ValueError('Only a thread-defined draft port may omit its unresolved installation envelope')
+        if not self.thread_only and self.clearance_height<=0 and not (self.kind=='drilling' and self.plugged and self.closure_definition_id):
+            raise ValueError('Zero exterior height requires a thread-defined draft port or a bound flush closure')
         if self.thread_only and self.thread_depth is not None and (self.depth is None or self.thread_depth>self.depth):
             raise ValueError('Draft port thread depth cannot exceed its tap-drill depth')
         if self.through and self.kind!='mounting':
