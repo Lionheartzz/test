@@ -29,6 +29,26 @@ test('Material direct entry returns to category without reopening its detail',as
   assert(h.field('Search'));
   assert.equal(calls.filter(url=>url.endsWith('/technical/MAT')).length,0);
 });
+
+test('Closure browse leads with machining identity and optional products stay in detail',async()=>{
+  const row={id:'closure-definition',display_name:'Expander Plug Ø9',closure_type:'expander',model:'',engagement_mm:10,
+    active:true,usable:true,machining:[{operation:"C'BORE",diameter_mm:9,depth_mm:9.8}],envelope:{diameter_mm:9.1,height_mm:0},
+    products:[{manufacturer:'SFC KOENIG',part_number:'MB 600-090'}]};
+  const h=harness(async url=>{
+    if(url==='/api/closures')return {items:[row]};
+    if(url==='/api/engineering-library/categories')return {items:[]};
+    if(url.startsWith('/api/engineering-library'))return {groups:[],items:[]};
+    throw Error('Unexpected '+url);
+  });
+  await h.ui({entryCategory:'closures',readOnly:true});
+  assert.ok(words(h.nodes.content).includes('Expander Plug Ø9'));
+  assert.ok(!words(h.nodes.content).includes('MB 600-090'));
+  await button(h.nodes.content,'View').onclick();
+  assert.ok(words(h.nodes.content).includes('Entry machining'));
+  assert.ok(words(h.nodes.content).includes('Compatible products'));
+  assert.ok(words(h.nodes.content).includes('SFC KOENIG MB 600-090'));
+  assert.ok(!button(h.nodes.content,'Use'));
+});
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const all=node=>[node,...node.children.flatMap(all)];
 const button=(node,label)=>all(node).find(item=>item.tagName==='button'&&item.textContent===label);

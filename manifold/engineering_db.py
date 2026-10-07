@@ -74,15 +74,18 @@ def validate_database(path: Path | None = None, *, schema_version: int | None = 
             from .technical_schema import TABLES
             required.update(TABLES)
             # v6 adds a read-only research layer; v5 runtime definitions remain valid.
-            expected_version = (6 if version == 6 else SCHEMA_VERSION) if schema_version is None else schema_version
-            if expected_version not in (4, 5, 6):
-                raise ValueError('Only explicit v4 preservation sources and v5/v6 runtime schemas are supported')
+            expected_version = (version if version in (6,7) else SCHEMA_VERSION) if schema_version is None else schema_version
+            if expected_version not in (4, 5, 6, 7):
+                raise ValueError('Only explicit v4 preservation sources and v5/v6/v7 runtime schemas are supported')
             if expected_version >= 5:
                 from .relation_schema import TABLES as RELATION_TABLES
                 required.update(RELATION_TABLES)
             if expected_version >= 6:
                 from .library_schema import TABLES as LIBRARY_TABLES
                 required.update(LIBRARY_TABLES)
+            if expected_version >= 7:
+                from .generic_closures import TABLES as CLOSURE_TABLES
+                required.update(CLOSURE_TABLES)
             if version != expected_version or not required <= tables:
                 raise RuntimeError(
                     f"Engineering database schema is invalid (version {version}); "
@@ -99,6 +102,8 @@ def validate_database(path: Path | None = None, *, schema_version: int | None = 
                 expected_columns.update(RELATION_TABLES)
             if expected_version >= 6:
                 expected_columns.update(LIBRARY_TABLES)
+            if expected_version >= 7:
+                expected_columns.update(CLOSURE_TABLES)
             for table, names in expected_columns.items():
                 actual = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
                 if not names <= actual:
@@ -866,11 +871,18 @@ def closure_definitions_for_design(design, *, connection: sqlite3.Connection | N
         with _connect() as opened:return closure_definitions_for_design(design,connection=opened)
     result={}
     for identifier in identifiers:
-        row=connection.execute('SELECT * FROM closure_definitions WHERE id=?',(identifier,)).fetchone()
+        row=connection.execute('SELECT * FROM closure_definitions WHERE id=?',(closure_definition_identifier(connection,identifier),)).fetchone()
         if row is None:raise ValueError(f'Closure definition not found: {identifier}')
         value=dict(row);value['machining']=json.loads(value.pop('machining_json'));value['envelope']=json.loads(value.pop('envelope_json'))
         result[identifier]=value
     return result
+
+
+def closure_definition_identifier(connection,identifier):
+    if connection.execute('PRAGMA user_version').fetchone()[0]>=7:
+        row=connection.execute('SELECT closure_definition_id FROM closure_definition_aliases WHERE alias_id=?',(identifier,)).fetchone()
+        if row:return row[0]
+    return identifier
 
 
 def browse_closures(*, include_inactive=False):
@@ -882,8 +894,10 @@ def browse_closures(*, include_inactive=False):
             LEFT JOIN external_port_definitions p ON p.id=c.construction_port_definition_id
             WHERE {where} ORDER BY c.display_name,c.id
         """).fetchall()
-    return [dict(row) | {"machining":[op for op in json.loads(row["machining_json"]) if op.get('operation')!='SOURCE_EXPANDER_ENTRY'],
-                         "envelope":json.loads(row["envelope_json"])} for row in rows]
+        from .generic_closures import products
+        return [dict(row) | {"closure_type":"expander", "products":products(connection,row['id']),
+                             "machining":[op for op in json.loads(row["machining_json"]) if op.get('operation')!='SOURCE_EXPANDER_ENTRY'],
+                             "envelope":json.loads(row["envelope_json"])} for row in rows]
 
 
 def materials(*, include_legacy=False, current_id=None, connection: sqlite3.Connection | None = None):
@@ -983,7 +997,7 @@ def validate_references(design, *, connection: sqlite3.Connection | None = None)
             if abs(feature.diameter-thread['tap_diameter_mm'])>1e-6:
                 raise ValueError(f"{feature.id}: draft tap-drill diameter must match its SQLite thread definition")
         if feature.closure_definition_id:
-            closure=connection.execute("SELECT usable,unusable_reason FROM closure_definitions WHERE id=?",(feature.closure_definition_id,)).fetchone()
+            closure=connection.execute("SELECT usable,unusable_reason FROM closure_definitions WHERE id=?",(closure_definition_identifier(connection,feature.closure_definition_id),)).fetchone()
             if closure is None:raise ValueError(f"{feature.id}: closure definition does not exist")
             if not closure[0]:raise ValueError(f"{feature.id}: closure is unusable: {closure[1]}")
         for placement in feature.machining_modifiers:

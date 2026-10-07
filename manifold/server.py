@@ -404,11 +404,16 @@ def closure_catalog():
 
 @app.get('/api/closures/compatible')
 def compatible_closure_choices(diameter:float=Query(gt=0,le=2000),depth:float=Query(gt=0,le=2000),unit:str=Query('metric',pattern=r'^(metric|inch)$')):
-    from .closure_runtime import choices
+    from .closure_runtime import choices,aliases
     from .schema import Feature
     feature=Feature(id='closure-query',kind='drilling',face='top',u=0,v=0,circuit='P',diameter=diameter,depth=depth,
                     plugged=True,plug_length=min(8,depth/2))
-    return {'items':[dict(id=r['id'],display_name=r['display_name'],engagement_mm=r['engagement_mm'],envelope=r['envelope']) for r in choices(feature,unit)]}
+    from .generic_closures import products
+    from .engineering_db import _connect
+    with _connect() as db:
+        return {'items':[dict(id=r['id'],display_name=r['display_name'],engagement_mm=r['engagement_mm'],envelope=r['envelope'],
+                             aliases=[old for old,current in aliases().items() if current==r['id']],
+                             products=[dict(manufacturer=p['manufacturer'],part_number=p['part_number']) for p in products(db,r['id'])]) for r in choices(feature,unit)]}
 
 
 @app.get('/api/catalog/resource')

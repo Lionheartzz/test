@@ -28,6 +28,18 @@ def catalog():
     return _catalog(p,s.st_mtime_ns,s.st_size)
 
 
+@lru_cache(maxsize=4)
+def _aliases(path,mtime,size):
+    with closing(_connect(path)) as db:
+        if db.execute('PRAGMA user_version').fetchone()[0]<7:return {}
+        return dict(db.execute('SELECT alias_id,closure_definition_id FROM closure_definition_aliases'))
+
+
+def aliases():
+    p=_configured_path(os.environ.get('PMC_ENGINEERING_DB',''));s=p.stat()
+    return _aliases(p,s.st_mtime_ns,s.st_size)
+
+
 def profile(closure):
     return next((r for r in closure.get('machining',[]) if r.get('operation')=='SOURCE_EXPANDER_ENTRY'),None)
 
@@ -50,11 +62,13 @@ def compatible(feature,closure):
 
 
 def choices(feature,unit):
-    return sorted((c for c in catalog() if compatible(feature,c)),key=lambda c:(c['unit_system']!=unit,c['model'],c['id']))
+    return sorted((c for c in catalog() if compatible(feature,c)),key=lambda c:(c['unit_system']!=unit,
+        profile(c).get('default_order',0),c['model'],c['id']))
 
 
 def bound(feature):
-    return next((r for r in catalog() if r['id']==feature.closure_definition_id),None) if feature.closure_definition_id else None
+    identifier=aliases().get(feature.closure_definition_id,feature.closure_definition_id) if feature.closure_definition_id else None
+    return next((r for r in catalog() if r['id']==identifier),None) if identifier else None
 
 
 def plug_diameter(feature):
@@ -80,6 +94,9 @@ def bind_route(design,features):
         from .kinematics import FACE_AXES
         u,v,axis,_=FACE_AXES[feature.face];lengths=(design.block.length,design.block.width,design.block.height)
         for closure in candidates:
+            # v7 explicitly preserves the established expander default. Other
+            # technologies remain manual choices unless explicitly preferred.
+            if profile(closure).get('automatic_default',True) is not True:continue
             radius=closure['envelope']['diameter_mm']/2+design.rules.minimum_wall
             if radius<=feature.u<=lengths[u]-radius and radius<=feature.v<=lengths[v]-radius:
                 if feature.direction and abs(feature.direction[axis])<1-1e-8:continue

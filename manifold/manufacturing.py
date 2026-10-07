@@ -15,9 +15,9 @@ def manufacturing_outputs(design, g, folder, definitions=None):
     lib = definitions
     from .engineering_db import thread_definitions_for_design,closure_definitions_for_design,select_tool,resolve_machining_tools
     threads=thread_definitions_for_design(design)
-    closures=closure_definitions_for_design(design)
     from .closure_runtime import normalize_design
     design=normalize_design(design)
+    closures=closure_definitions_for_design(design)
     for i,f in enumerate(design.features,1):
         if f.suppressed:
             continue

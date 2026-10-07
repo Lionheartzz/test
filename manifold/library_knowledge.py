@@ -6,7 +6,7 @@ from .engineering_db import _connect, validate_database
 
 
 def browse(*, domain='', search='', status='', limit=50, offset=0, path=None):
-    validate_database(path, schema_version=6)
+    validate_database(path)
     limit, offset = min(200,max(1,int(limit))), max(0,int(offset))
     where, args = ['1=1'], []
     for column, value in [('domain',domain),('status',status)]:
@@ -24,7 +24,7 @@ def browse(*, domain='', search='', status='', limit=50, offset=0, path=None):
 
 
 def detail(target_id, *, path=None):
-    validate_database(path, schema_version=6)
+    validate_database(path)
     with closing(_connect(path)) as db:
         row=db.execute('SELECT * FROM library_targets WHERE id=?',(target_id,)).fetchone()
         if row is None:
