@@ -39,6 +39,20 @@ def started(worker):
     pytest.fail('Synthetic native CPU worker did not start')
 
 
+def test_sync_generation_cancel_stops_owned_native_worker(isolated):
+    _,worker=isolated
+    import threading
+    cancelled=threading.Event()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending=pool.submit(engineering.calculate_sync,'preview',dict(name='slow-cad'),None,
+                            cancelled=cancelled.is_set,limit=10)
+        active=started(worker)
+        cancelled.set()
+        with pytest.raises(engineering.CalculationError,match='Generation cancelled'):
+            pending.result(timeout=4)
+        assert worker.status()['active'] is None and gone(active['pid'])
+
+
 def gone(pid):
     if sys.platform=='win32':
         import ctypes

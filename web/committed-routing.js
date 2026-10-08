@@ -61,5 +61,23 @@ export function mergeVisibleRoutes(authored,proposal,{commit=false}={}){
 
 export function requireVisibleRoutes(design){
   const missing=(design.nets||[]).filter(n=>n.routing==='automatic'&&(!n.route_state||n.route_state==='unresolved')&&(n.members||[]).length>1);
-  if(missing.length)throw Error('Routing must finish for '+missing.map(n=>n.id).join(', ')+'. Inspect the current proposal, then Save or Validate.');
+  if(missing.length)throw Error('Routing is unresolved for '+missing.map(n=>n.id).join(', ')+'. Use Retry Routing / Preview, or Save Draft to preserve your work.');
+}
+
+// Routing ownership is independent of tessellation/display success. This never
+// reads the retained viewer model; a proposal must belong to this authored draft.
+export function currentRouteDesign(authored,proposal,{externalChange=false}={}){
+  if(externalChange)throw Error('Saved project changed. Reopen it before saving or validating; your draft is retained.');
+  const current=proposal?mergeVisibleRoutes(authored,proposal,{commit:true}):structuredClone(authored);
+  requireVisibleRoutes(current);return current;
+}
+
+export function preserveRoutingDraft(authored){
+  const result=structuredClone(authored);
+  const pending=new Set((result.nets||[]).filter(n=>n.routing==='automatic'&&(!n.route_state||n.route_state==='unresolved')).map(n=>n.id));
+  result.features=result.features.filter(f=>!pending.has(f.route_net));
+  for(const net of result.nets||[])if(pending.has(net.id)){
+    net.route_state='unresolved';net.routing_variant=null;net.route_issue='Routing unresolved. Retry Routing / Preview before Validate.';
+  }
+  return result;
 }

@@ -2,7 +2,7 @@ import {closureSelector} from './closure-selector.js';
 import {engineeringText,engineeringName} from './engineering-labels.js';
 import {createPreviewQueue,EXACT_PREVIEW_CLIENT_TIMEOUT_MS} from './preview-queue.js';
 import {createPreviewRoutingState,previewEditForProperty} from './preview-routing.js';
-import {routingEdit,mergeVisibleRoutes,requireVisibleRoutes,presentationOnly} from './committed-routing.js';
+import {routingEdit,mergeVisibleRoutes,currentRouteDesign,preserveRoutingDraft,presentationOnly} from './committed-routing.js';
 import {createSaveFeedback} from './save-feedback.js';
 import {engravingEditor,engravingLabel,blockModifierEditor,mountingEditor} from './model-machining-ui.js';
 import {apiError,userMessage} from './api-errors.js';
@@ -68,6 +68,30 @@ function change(fn,edit={kind:'global'}){if(busy)return false;const before=clone
 const solidOverlay=element('div',null,'viewport-loading');solidOverlay.setAttribute('role','status');solidOverlay.hidden=true;$('viewport').append(solidOverlay);
 function solidStatus(text=''){solidOverlay.hidden=!text;solidOverlay.textContent=text?userMessage(text,draft,160):'';}
 function previewState(kind,text){$('viewport').dataset.previewState=kind;$('model-info').textContent=userMessage(text,draft,180);}
+const recovery=element('div',null,'preview-recovery');recovery.hidden=true;
+let retryPending=false,previewStatus='idle';
+recovery.setAttribute('role','status');
+const recoveryText=element('span'),retryPreview=element('button','Retry Routing / Preview'),saveDraft=element('button','Save Draft');
+retryPreview.id='retry-preview';saveDraft.id='save-draft';recovery.append(recoveryText,retryPreview,saveDraft);$('model-info').after(recovery);
+retryPreview.onclick=async()=>{
+  if(busy||!draft||retryPending)return;retryPending=true;retryPreview.disabled=true;
+  const epoch=projectEpoch,key=state?.project_id;
+  try{
+    await previews.cancel();
+    if(epoch!==projectEpoch||!draft||busy)return;
+    if(key){
+      const saved=await api('/api/projects/'+key+'/status');
+      if(epoch!==projectEpoch||state?.project_id!==key||!draft||busy)return;
+      if(saved.revision!==state.revision){externalChange=true;throw Error('Saved project changed. Reopen it before retrying; your current draft is retained.');}
+      externalChange=false;
+    }
+    previewRouting.clear('explicit retry against current authored draft');previewRequestOwner=null;machiningPreview=false;
+    exactPreview=null;draftCheckedSignature=null;recovery.hidden=true;
+    refreshPreview({immediate:true});
+  }catch(error){if(epoch===projectEpoch){recovery.hidden=false;notice(error.message,true);}}
+  finally{retryPending=false;retryPreview.disabled=busy||['queued','routing','exact','settling'].includes(previewStatus);}
+};
+saveDraft.onclick=()=>saveProject(true).catch(e=>notice(e.message,true));
 function showSolid(result,snapshot=draft,context=null){snapshot=ownedPreviewSnapshot(snapshot);if(!snapshot)return;previewRouting.acceptExact(result,snapshot,String(projectEpoch));solidStatus();resolved=hydrateDesign({...snapshot,features:result.features},draft.library,draft.threads);viewer?.setReferences(result.features);viewer?.load(result.model,resolved);markDisplayed(snapshot,'proposal');viewer?.setDesign(draft);exactPreview=context&&result.model.deferred_layers?.length?{...context,designRevision:result.design_revision,pending:new Set()}:null;lastUsablePreview={model:result.model,design:resolved,draftSignature:displayedDraftSignature};renderTree();select(selection);renderReport();previewState('exact-proposal','EXACT BREP · CURRENT PROPOSAL · NOT VALIDATED / NOT OPTIMIZED'+(result.model.brep_valid===false?' · BREP TOPOLOGY INVALID':''));notice(draft.nets.find(n=>n.route_issue)?.route_issue||(result.routing_update?.fixed_nets_affected?.length?'Fixed routing retained: '+result.routing_update.fixed_nets_affected.join(', ')+'. Moved interfaces require Validate before use.':result.model.brep_valid===false?'Exact preview ready. Current proposal has invalid BRep topology; Validate reports engineering failures.':'Exact preview ready. Current proposal is not validated or optimized.'));requestLayer(viewMode);}
 const previews=createPreviewQueue({post:(url,design,{preview,...options}={})=>post(url,preview?{design,...preview}:design,options),stream:streamExactPreview,
   onProposal(p,snapshot){const current=ownedPreviewSnapshot(snapshot);if(!current)return;if(externalChange)previewRouting.clear();else previewRouting.accept(p,snapshot,String(projectEpoch),current);if(p.routing_update)previewTiming({kind:'routing-update',...p.routing_update});},
@@ -76,12 +100,14 @@ const previews=createPreviewQueue({post:(url,design,{preview,...options}={})=>po
   onExact:showSolid,
   onTiming:previewTiming,
   onStatus(status){
+    previewStatus=status;retryPreview.disabled=busy||retryPending||['queued','routing','exact','settling'].includes(status);
+    if(status==='ready')recovery.hidden=true;
     const retained=machiningPreview||draft?.nets.every(n=>n.routing!=='automatic'||n.route_state&&n.route_state!=='unresolved');
     const computing=status==='exact'||retained&&status==='routing';
     solidStatus(computing?retained?'Computing exact current geometry… Saved routing retained. Not validated.':'Computing exact current proposal… Not validated or optimized.':'');
     if(computing)previewState('computing',retained?'CURRENT DRAFT CHANGED · SAVED ROUTING RETAINED · CURRENT EXACT PREVIEW COMPUTING · NOT VALIDATED':'APPROXIMATE LIVE VIEW · EXACT BREP COMPUTING · NOT VALIDATED');
   },
-  onError(error){exactPreview=null;if(lastUsablePreview){const p=lastUsablePreview;if(p.model)viewer?.load(p.model,p.design);else viewer?.preview(p.design);displayedDraftSignature=p.draftSignature;displayedSource=p.draftSignature===JSON.stringify(draft)?'proposal':'retained';viewer?.setDesign(p.design);renderTree();select(selection);renderReport();}solidStatus();previewState('unavailable','CURRENT EXACT PREVIEW UNAVAILABLE · LAST USABLE VIEW RETAINED');notice(apiError(error,draft),true);}
+  onError(error){exactPreview=null;draftCheckedSignature=null;if(lastUsablePreview){const p=lastUsablePreview;if(p.model)viewer?.load(p.model,p.design);else viewer?.preview(p.design);displayedDraftSignature=p.draftSignature;displayedSource='retained';viewer?.setDesign(draft);renderTree();select(selection);renderReport();}solidStatus();const routed=previewRouting.current(draft,String(projectEpoch));recoveryText.textContent=routed?'Current routing proposal retained; exact preview failed. Visible model is unvalidated.':'Routing unavailable. Visible model is retained and is not current geometry.';recovery.hidden=false;retryPreview.disabled=false;previewState('unavailable','CURRENT EXACT PREVIEW UNAVAILABLE · LAST USABLE VIEW RETAINED');notice(apiError(error,draft),true);}
 });
 async function requestLayer(mode){
   const layer=mode==='void'?'void':mode==='features'?'features':null,token=exactPreview;
@@ -595,7 +621,7 @@ function renderReport(){
 }
 async function load(key=state?.project_id,isCurrent=()=>true){
   if(!key)return;const preserveView=key===state?.project_id&&!document.body.classList.contains('home'),epoch=++projectEpoch;
-  previews.cancel();const next=await api('/api/projects/'+key);
+  previews.cancel();recovery.hidden=true;const next=await api('/api/projects/'+key);
   if(epoch!==projectEpoch||!isCurrent())return false;
   lastUsablePreview=null;exactPreview=null;draftCheckedSignature=null;displayedDraftSignature=null;displayedSource='none';machiningPreview=false;previewRequestOwner=null;
   if(!preserveView){viewer?.resetTransient();isolateButton.textContent='Isolate';clipEnable.checked=false;clipNotice.hidden=true;selection='block';}
@@ -667,29 +693,27 @@ document.addEventListener('keydown',event=>{
   if(viewer?.clearIsolation()){event.preventDefault();isolateButton.textContent='Isolate';return;}
   if(viewer?.inspection().clipping.enabled){event.preventDefault();clipReset.click();}
 });
-async function persistProject(){
+async function persistProject(draftOnly=false){
   const epoch=projectEpoch,signature=JSON.stringify(draft),key=state?.project_id||null,expected=state?.revision;
-  const current=currentDesignToCommit();
-  const result=await post('/api/projects',{design:current,project_id:key,expected_revision:key?expected:null});
+  const current=draftOnly?preserveRoutingDraft(draft):currentDesignToCommit();
+  const result=await post('/api/projects',{design:current,draft_only:draftOnly,project_id:key,expected_revision:key?expected:null});
   if(epoch!==projectEpoch||(state?.project_id||null)!==key)throw Error('Saved the previous project; another project is now open.');
   state=result;dirty=JSON.stringify(draft)!==signature;externalChange=false;
   if(!dirty){
     previews.cancel();machiningPreview=false;previewRequestOwner=null;draft=hydrateDesign(result.design,draft.library,draft.threads);
     previewRouting.seedCommitted(draft,String(projectEpoch),result.routing_revision);
-    markDisplayed(draft,'saved');viewer?.setDesign(draft);history=[];future=[];
-  }renderHeader();notice(dirty?'Saved the submitted version; newer draft edits still need saving.':'Saved current route geometry to Projects. Validate checks it without redesigning.');return result;
+    if(displayedSource!=='retained')markDisplayed(draft,'saved');viewer?.setDesign(draft);history=[];future=[];
+    renderTree();select(selection);renderReport();
+  }renderHeader();notice(dirty?'Saved the submitted version; newer draft edits still need saving.':draftOnly?'Unvalidated draft saved. Unresolved generated routes were excluded. Retry Routing / Preview before Validate.':'Saved current route geometry to Projects. Validate checks it without redesigning.');return result;
 }
 function currentDesignToCommit(){
-  const signature=JSON.stringify(draft),automatic=draft.nets.some(n=>n.routing==='automatic'&&(n.members||[]).length>1);
-  if(automatic&&(externalChange||displayedSource==='retained'||displayedDraftSignature!==signature))throw Error('Current routing preview is not owned by this draft. Wait for routing to finish before Save or Validate.');
-  const proposal=previewRouting.current(draft,String(projectEpoch));
-  const current=proposal?mergeVisibleRoutes(draft,proposal,{commit:true}):structuredClone(draft);
-  requireVisibleRoutes(current);return current;
+  try{return currentRouteDesign(draft,previewRouting.current(draft,String(projectEpoch)),{externalChange});}
+  catch(error){recovery.hidden=false;recoveryText.textContent=error.message;throw error;}
 }
-async function saveProject(){if(savePending)return savePending;$('save-project').disabled=true;savePending=projectSaveFeedback.run(persistProject);try{return await savePending;}finally{savePending=null;$('save-project').disabled=busy;}}
+async function saveProject(draftOnly=false){if(savePending)return savePending;$('save-project').disabled=true;saveDraft.disabled=true;savePending=projectSaveFeedback.run(()=>persistProject(draftOnly));try{return await savePending;}finally{savePending=null;$('save-project').disabled=busy;saveDraft.disabled=busy;}}
 $('save-project').onclick=()=>saveProject().catch(e=>notice(e.message,true));
 $('drawings-open').onclick=async()=>{try{if(!state?.project_id||dirty)await saveProject();location.href='/drawing.html?project='+state.project_id;}catch(e){notice(e.message,true);}};
-function newProject(value,definitions={},threads={}){if(busy)return false;if(dirty&&!confirm('Discard the current unsaved draft and start this project?'))return false;++projectEpoch;previewRouting.clear();viewer?.resetTransient();isolateButton.textContent='Isolate';clipEnable.checked=false;clipNotice.hidden=true;draft=hydrateDesign(structuredClone(value),definitions,threads);state={design:draft,revision:'0'.repeat(64),build:null,stale:true};report=null;reportWasDraft=false;reportDesign=null;model=null;resolved=draft;viewer?.setReferences(draft.features);history=[];future=[];selection='block';previews.cancel();lastUsablePreview=null;exactPreview=null;solidStatus();viewMode='review';viewer?.mode('review');shell.syncMode('review');$('review-mode').classList.add('active');for(const key of ['solid','void','features'])$(key+'-mode').classList.remove('active');document.body.classList.remove('home');renderReport();markDirty();renderTree();select('block');viewer?.fit();return true;}
+function newProject(value,definitions={},threads={}){if(busy)return false;if(dirty&&!confirm('Discard the current unsaved draft and start this project?'))return false;++projectEpoch;externalChange=false;recovery.hidden=true;previewRouting.clear();viewer?.resetTransient();isolateButton.textContent='Isolate';clipEnable.checked=false;clipNotice.hidden=true;draft=hydrateDesign(structuredClone(value),definitions,threads);state={design:draft,revision:'0'.repeat(64),build:null,stale:true};report=null;reportWasDraft=false;reportDesign=null;model=null;resolved=draft;viewer?.setReferences(draft.features);history=[];future=[];selection='block';previews.cancel();lastUsablePreview=null;exactPreview=null;solidStatus();viewMode='review';viewer?.mode('review');shell.syncMode('review');$('review-mode').classList.add('active');for(const key of ['solid','void','features'])$(key+'-mode').classList.remove('active');document.body.classList.remove('home');renderReport();markDirty();renderTree();select('block');viewer?.fit();return true;}
 const workflowHandlers=workflows({newProject,adoptRoute,replaceCavity,$,element,field,action,api,post,get:()=>draft,state:()=>state,change,set:value=>{draft=hydrateDesign(value,draft?.library||[],draft?.threads||[]);},newId,select,notice,resolved:()=>displayedSource==='retained'?null:currentDisplayedDesign()});
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});setInterval(async()=>{if(statusPollPending||!state?.project_id||busy||document.body.classList.contains('home')||document.hidden||document.querySelector('dialog[open]'))return;statusPollPending=true;try{const next=await api('/api/projects/'+state.project_id+'/status');if(next.revision!==state.revision||next.build?.build_id!==state.build?.build_id||next.stale!==state.stale){if(!dirty)await load();else{externalChange=true;previewRouting.clear();previews.cancel();renderHeader();notice('Project changed on disk. Draft preserved; reload before saving.',true);}}}catch(e){externalChange=true;previewRouting.clear();previews.cancel();renderHeader();notice('Local service unavailable: '+e.message,true);}finally{statusPollPending=false;}},5000);const hub=projectLibrary({onDeleted:id=>{if(state?.project_id===id){++projectEpoch;previewRouting.clear();viewer?.resetTransient();previews.cancel();lastUsablePreview=null;draft=null;state=null;dirty=false;}},$,element,field,action,api,post,get:()=>draft,ai:workflowHandlers.ai,openProject:load,isDirty:()=>dirty,hasProject:()=>!!draft});
 

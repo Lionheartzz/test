@@ -80,6 +80,11 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
         from .route_state import validate_current_design
         resolved,routes,_,report=validate_current_design(Design.model_validate(payload))
         return dict(design=resolved.model_dump(),routes=routes,report=report)
+    if operation=='ai-generate':
+        # Creation explicitly searches routes. Ordinary Validate continues to
+        # check stored cuts without redesigning them.
+        resolved,routes,_,report=resolve_design(Design.model_validate(payload['design']),prepared=True,max_attempts=payload['max_attempts'])
+        return dict(design=resolved.model_dump(),routes=routes,report=report)
     if operation=='freeze':
         from .route_edit import freeze
         return freeze(Design.model_validate(payload['design']),payload['net'],Design.model_validate(payload['proposal']) if payload.get('proposal') else None).model_dump()

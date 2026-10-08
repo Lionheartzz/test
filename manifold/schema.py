@@ -1,6 +1,7 @@
 import math
 from typing import Literal, Annotated
 from pydantic import BaseModel, ConfigDict, Field, model_validator, model_serializer
+from .limits import PROJECT_FEATURES, PROJECT_NETS, COMPONENT_INTERFACES, NET_MEMBERS
 
 Circuit = Annotated[str, Field(pattern=r'^[A-Za-z][A-Za-z0-9_-]{0,39}$')]
 Face = Literal['left', 'right', 'front', 'back', 'bottom', 'top']
@@ -177,7 +178,7 @@ class Feature(Strict):
     plug_length: Positive = 8
     clearance_diameter: Positive = 20
     clearance_height: float = Field(default=20, ge=0, le=2000, allow_inf_nan=False)
-    connects_to: list[str] = Field(default_factory=list, max_length=40)
+    connects_to: list[str] = Field(default_factory=list, max_length=PROJECT_FEATURES+NET_MEMBERS)
     suppressed: bool = False
     rotation: float = Field(default=0, ge=-360, le=360)
     cartridge_id: Identifier | None = None
@@ -285,7 +286,7 @@ class ConstructionAccess(Strict):
 class HydraulicNet(Strict):
     id: Circuit
     label: str = Field(default='', max_length=120)
-    members: list[str] = Field(default_factory=list, max_length=60, exclude=True)
+    members: list[str] = Field(default_factory=list, max_length=NET_MEMBERS, exclude=True)
     routing: Literal['manual', 'automatic'] = 'manual'
     drilling_mode: Literal['orthogonal','allow-angled','simplest'] | None = None
     diameter: Positive = 8
@@ -317,7 +318,7 @@ class SchematicComponent(Strict):
     function: str = Field(default='', max_length=200)
     cartridge_id: Identifier | None = None
     cavity_id: Identifier | None = None
-    expected_interfaces: list[Identifier] = Field(default_factory=list, max_length=40)
+    expected_interfaces: list[Identifier] = Field(default_factory=list, max_length=COMPONENT_INTERFACES)
     interface_nets: dict[str, Circuit] = Field(default_factory=dict)
     interface_dispositions: dict[str, Literal['connected','blocked','terminated','unknown']] = Field(default_factory=dict)
     placement_id: Identifier | None = None
@@ -370,7 +371,7 @@ class SchematicAsset(Strict):
 
 class SchematicIntent(Strict):
     assets: list[SchematicAsset] = Field(default_factory=list,max_length=20)
-    components: list[SchematicComponent] = Field(default_factory=list,max_length=60)
+    components: list[SchematicComponent] = Field(default_factory=list,max_length=PROJECT_FEATURES)
 
 
 class Rules(Strict):
@@ -489,8 +490,8 @@ class Design(Strict):
     project_defaults: ProjectEngineeringDefaults = Field(default_factory=ProjectEngineeringDefaults)
     block: Block
     rules: Rules = Field(default_factory=Rules)
-    features: list[Feature] = Field(default_factory=list, max_length=120)
-    nets: list[HydraulicNet] = Field(default_factory=list, max_length=40)
+    features: list[Feature] = Field(default_factory=list, max_length=PROJECT_FEATURES)
+    nets: list[HydraulicNet] = Field(default_factory=list, max_length=PROJECT_NETS)
     schematic_intent: SchematicIntent | None = None
     constraints: DesignConstraints = Field(default_factory=DesignConstraints)
     review_items: list[EngineeringReview] = Field(default_factory=list, max_length=100)

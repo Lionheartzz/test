@@ -11,6 +11,7 @@ _executor=ThreadPoolExecutor(max_workers=1,thread_name_prefix='pmc-ai')
 _guard=threading.Lock()
 _active=None
 _process=uuid.uuid4().hex
+_cancel_events={}
 
 
 def path(key):return store.OUTPUT/'ai-jobs'/(service.identifier(key)+'.json')
@@ -54,8 +55,17 @@ def start(task_id,operation,payload):
                     process=_process,request=payload,message='Queued locally',result=None)
         store.atomic_json(path(key),record)
         _active=key
+        _cancel_events[key]=threading.Event()
     _executor.submit(_execute,record)
     return read(key)
+
+
+def cancel(key):
+    with _guard:
+        record=read(key)
+        if record['operation']!='generate':raise ValueError('Only local engineering generation can be cancelled here.')
+        if key==_active and key in _cancel_events:_cancel_events[key].set()
+        return record
 
 
 def delete_task(task_id):
@@ -78,7 +88,8 @@ def _execute(record):
         else:
             from .generation import generate
             from .generation_models import GenerationRequest
-            result=generate(record['task_id'],GenerationRequest.model_validate(record['request']),update)
+            result=generate(record['task_id'],GenerationRequest.model_validate(record['request']),update,
+                            cancelled=_cancel_events[record['id']].is_set)
         if record['operation']=='analyze' and result['run']['status']=='failed':
             run=result['run']
             record.update(status='failed',message='Last analysis failed · '+run['error']+'. '+run['error_message'],
@@ -100,3 +111,4 @@ def _execute(record):
         store.atomic_json(path(record['id']),record)
         with _guard:
             if _active==record['id']:_active=None
+            _cancel_events.pop(record['id'],None)

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createPreviewRoutingState,featureNetDependencies,previewEditForProperty} from '../web/preview-routing.js';
 import {EXACT_PREVIEW_IDLE_MS,EXACT_PREVIEW_CLIENT_TIMEOUT_MS,createPreviewQueue} from '../web/preview-queue.js';
-const source={name:'Fixture',block:{length:160},features:[{id:'P1',circuit:'P'},{id:'CV1',interface_nets:{port1:'P',port2:'A'}},{id:'CV2',interface_nets:{port1:'T',port2:'B'}}],nets:[]};
+const source={name:'Fixture',block:{length:160},features:[{id:'P1',circuit:'P'},{id:'CV1',interface_nets:{port1:'P',port2:'A'}},{id:'CV2',interface_nets:{port1:'T',port2:'B'}}],nets:['P','A','T','B'].map(id=>({id,routing:'automatic'}))};
 const seed={source_revision:'a'.repeat(64),design:{...structuredClone(source),features:[...structuredClone(source.features),{id:'RP',route_net:'P'},{id:'RA',route_net:'A'},{id:'RT',route_net:'T'},{id:'RB',route_net:'B'}]}};
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
@@ -38,7 +38,7 @@ test('global rules, project switch, stale display, and unexplained edits invalid
 });
 
 test('streamed proposal starts promptly; only exact work receives idle delay, with immutable context',async()=>{
-  assert.equal(EXACT_PREVIEW_IDLE_MS,1500);assert.equal(EXACT_PREVIEW_CLIENT_TIMEOUT_MS,32000);
+  assert.equal(EXACT_PREVIEW_IDLE_MS,1500);assert.equal(EXACT_PREVIEW_CLIENT_TIMEOUT_MS,185000);
   const calls=[],fast=[],status=[];
   const queue=createPreviewQueue({delay:5,exactDelay:100,stream:(d,o)=>new Promise(resolve=>calls.push({d,o,resolve})),
     post:()=>{throw Error('No second route resolution');},onFast:p=>fast.push(p),onExact:()=>{},onStatus:s=>status.push(s),onError:e=>{throw e;},cancelRemote:()=>{}});

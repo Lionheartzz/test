@@ -22,7 +22,9 @@ def blank(name='Empty project'):
 def test_project_library_empty_start_and_independent_reopen(isolated):
     assert isolated.get('/api/health').json()['service']=='pmc-manifold'
     from manifold.engineering_db import SCHEMA_VERSION
-    assert isolated.get('/api/catalog/manifest').json()['schema_version']==SCHEMA_VERSION
+    # SCHEMA_VERSION is the legacy minimum; explicit migrations may admit v6–8.
+    from manifold.engineering_db import validate_database
+    assert isolated.get('/api/catalog/manifest').json()['schema_version']==validate_database()['schema_version']
     assert isolated.get('/api/projects').json()==[]
     first=isolated.post('/api/projects',json=dict(design=blank().model_dump()),headers=HEADERS).json()
     second=isolated.post('/api/projects',json=dict(design=blank('Second').model_dump()),headers=HEADERS).json()

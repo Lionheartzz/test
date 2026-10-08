@@ -5,6 +5,7 @@ from pydantic import Field, ValidationError, field_validator, model_validator
 from ..schema import Strict
 from .models import Scalar, Text, Evidence, HydraulicRepresentation, TaskInput, MountingRequirement
 from .diagnostics import NormalizationFailure
+from ..limits import ANALYSIS_COMPONENTS, ANALYSIS_PORTS, COMPONENT_INTERFACES
 
 
 class Source(Strict):
@@ -74,7 +75,7 @@ class ComponentReading(Strict):
     manufacturer: Observation = Field(default_factory=Observation)
     model: Observation = Field(default_factory=Observation)
     cavity: Observation = Field(default_factory=Observation)
-    ports: list[PortReading] = Field(min_length=1, max_length=12)
+    ports: list[PortReading] = Field(min_length=1, max_length=COMPONENT_INTERFACES)
     parameters: list[Parameter] = Field(default_factory=list, max_length=30)
 
     @field_validator('functional_type', mode='before')
@@ -95,7 +96,7 @@ class RequirementReading(Strict):
     quote: str = Field(min_length=1, max_length=4000)
     category: Literal['component_selection', 'port_face', 'envelope', 'material', 'mounting', 'pressure', 'flow',
                       'routing', 'separation', 'priority', 'serviceability', 'source_instruction', 'other']
-    targets: list[str] = Field(default_factory=list, max_length=20)
+    targets: list[str] = Field(default_factory=list, max_length=ANALYSIS_COMPONENTS)
     property: str = Field(min_length=1, max_length=80)
     operator: Literal['equal', 'maximum', 'minimum', 'prefer', 'avoid', 'separate', 'context']
     strength: Literal['requirement', 'preference', 'context'] = 'requirement'
@@ -105,8 +106,8 @@ class RequirementReading(Strict):
 
 
 class CircuitReading(Strict):
-    components: list[ComponentReading] = Field(default_factory=list, max_length=12)
-    external_ports: list[PortReading] = Field(default_factory=list, max_length=24)
+    components: list[ComponentReading] = Field(default_factory=list, max_length=ANALYSIS_COMPONENTS)
+    external_ports: list[PortReading] = Field(default_factory=list, max_length=ANALYSIS_PORTS)
     requirements: list[RequirementReading] = Field(default_factory=list, max_length=100)
     unresolved: list[Text] = Field(default_factory=list, max_length=100)
     warnings: list[Text] = Field(default_factory=list, max_length=40)

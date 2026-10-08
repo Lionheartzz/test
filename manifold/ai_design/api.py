@@ -90,6 +90,10 @@ def current_job():return jobs.current()
 def job(job_id:str):return call(jobs.read,job_id)
 
 
+@router.post('/jobs/{job_id}/cancel')
+def cancel_generation(job_id:str):return call(jobs.cancel,job_id)
+
+
 @router.post('/tasks/{key}/analyze-job')
 def analyze_job(key:str,payload:RunRequest):
     return call(jobs.start,key,'analyze',payload.model_dump())
@@ -112,7 +116,7 @@ def get_generation(key:str,generation_id:str):return call(generation.load_genera
 @router.get('/tasks/{key}/generations/{generation_id}/project')
 def generation_project(key:str,generation_id:str):
     packet=call(generation.load_generation,key,generation_id)
-    if packet['status']!='draft':raise HTTPException(409,'This generation has no editable draft')
+    if not packet.get('design'):raise HTTPException(409,'This generation has no editable draft')
     return JSONResponse(packet['design'],headers={'Content-Disposition':'attachment; filename="ai-manifold-draft.pmc.json"'})
 
 

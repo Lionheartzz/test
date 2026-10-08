@@ -147,7 +147,8 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
     field(topology,'Topology correction decision',options.topology_decision,v=>options.topology_decision=v);
     field(content,'Placement override decision',options.placement_decision,v=>options.placement_decision=v).placeholder='Required only when overriding proposed component/port faces';
     const dimensions=element('details');dimensions.append(element('summary','Draft geometry assumptions and search budget'));content.append(dimensions);
-    for(const [key,label]of [['drilling_diameter','Minimum proposed drilling diameter (mm)'],['port_diameter','Custom Straight Bore diameter (mm)'],['port_depth','Draft entry depth for thread-only / custom ports (mm)'],['max_attempts','Maximum layout attempts']])field(dimensions,label,options[key],v=>options[key]=v,null,true);
+    for(const [key,label]of [['drilling_diameter','Minimum proposed drilling diameter (mm)'],['port_diameter','Custom Straight Bore diameter (mm)'],['port_depth','Draft entry depth for thread-only / custom ports (mm)'],['max_attempts','Maximum layout attempts'],['max_exact_attempts','Exact candidates per layout (1–8)'],['max_runtime_s','Total generation budget (seconds, 10–480)']])field(dimensions,label,options[key]??(key==='max_exact_attempts'?2:480),v=>options[key]=v,null,true);
+    dimensions.append(element('p','Projects support 120 total features including generated drillings and 40 hydraulic nets. Recognition retains up to 120 components / 600 terminals for review. Exact searches default to 2 candidates per layout (up to 8); generation can be cancelled without losing the analysis.'));
     dimensions.append(element('p','Entry depth and drill point are editable Draft proposals, not confirmed machining dimensions. Thread-only tap-drill diameter comes from engineering library; thread depth and the complete port form remain unresolved. Flow requirements may increase routing drilling size. Cavity geometry is never resized.'));
     content.append(element('h3','How your requirements will be used'));
     for(const row of plan.dispositions){const card=element('div',null,'library-card');card.append(element('strong',`${row.property} · ${row.status.replaceAll('_',' ')}`),element('p',row.message));content.append(card);}
@@ -186,22 +187,24 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
       content.querySelectorAll('button,input,select,textarea').forEach(e=>e.disabled=true);
       const progress=content.querySelector('.ai-job-state')||content.appendChild(element('p','', 'ai-job-state'));
       const job=await post(`/api/ai-design/tasks/${task.id}/generation/jobs`,payload);
+      const cancel=action(content,'Cancel generation',safe(async()=>{await post(`/api/ai-design/jobs/${job.id}/cancel`,{});cancel.disabled=true;progress.textContent='Stopping local CAD work; retaining the latest authored draft…';}));
       const result=await watchJob(job,progress);
       await refreshTask(task.id);
-      if(here()&&$('workflow-title').textContent==='AI Design · Create manifold draft')showPacket(result);
+      if(token===screen&&session().task?.id===task.id&&here()&&$('workflow-title').textContent==='AI Design · Create manifold draft')showPacket(result);
     }finally{busy=false;if(here())content.querySelectorAll('button,input,select,textarea').forEach(e=>e.disabled=false);}
   }
 
   function showPacket(packet){
     open('AI Design · Generated manifold draft');content.classList.add('ai-content');
     content.append(element('h3',packet.status==='draft'?'Your editable manifold draft':'Generation needs review'),element('p',packet.message||packet.status));
-    if(packet.status==='draft'){
-      content.append(element('p',`Exact report: ${packet.validation.counts.PASS} PASS · ${packet.validation.counts.WARNING} WARNING · ${packet.validation.counts.FAIL} FAIL. Geometry failures: ${packet.geometry_failures}.`,'ai-summary'));
+    if(packet.design){
+      if(packet.validation)content.append(element('p',`Exact report: ${packet.validation.counts.PASS} PASS · ${packet.validation.counts.WARNING} WARNING · ${packet.validation.counts.FAIL} FAIL. Geometry failures: ${packet.geometry_failures}.`,'ai-summary'));
+      else content.append(element('p','Unvalidated authored draft retained. Open it to adjust placement, Retry Routing / Preview, or Save Draft.','ai-summary'));
       content.append(element('p','The draft preserves all failed checks and open engineering decisions. Opening it does not mark it approved. Move, replace, reroute, save, then Validate in the normal Studio.','ai-provider-note'));
       action(content,'Open draft in Manifold Studio',safe(async()=>{const handoff=await inspectGeneratedDraft(packet,post);if(newProject(handoff.design,handoff.definitions,handoff.threads)){$('workflow-dialog').close();ctx.notice('AI Draft opened. Review the linked analysis and engineering decisions, then Save Project or Validate.');}})).classList.add('primary');
       const a=element('a','Download draft project JSON');a.href=`/api/ai-design/tasks/${packet.task_id}/generations/${packet.id}/project`;a.className='download';content.append(a);
       for(const attempt of packet.attempts){content.append(element('p',`Candidate ${attempt.index+1}: ${attempt.error||`${attempt.geometry_failures} geometry failures · ${attempt.counts.FAIL} total FAIL · ${(attempt.failed_rules||[]).join(', ')||'no failed rules'}`}`));}
-      const failures=element('details');failures.append(element('summary','Inspect retained exact validation failures'));for(const check of packet.validation.checks.filter(c=>c.status==='FAIL'))failures.append(element('p',`${check.rule} · ${check.items.join(', ')} · ${check.message}`));content.append(failures);
+      if(packet.validation){const failures=element('details');failures.append(element('summary','Inspect retained exact validation failures'));for(const check of packet.validation.checks.filter(c=>c.status==='FAIL'))failures.append(element('p',`${check.rule} · ${check.items.join(', ')} · ${check.message} · Actual: ${check.actual??'unavailable'} · Required: ${check.required??'review engineering definition'}`));content.append(failures);}
     }
     for(const row of packet.dispositions||[]){const card=element('div',null,'library-card');card.append(element('strong',`${row.property} · ${row.status}`),element('p',row.message));content.append(card);}
     action(content,'Return to analysis',back);

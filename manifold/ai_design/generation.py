@@ -19,6 +19,7 @@ from . import service, library_resolution as library
 from .models import TaskInput
 from .intent import effective_result, interpret, parameter_for
 from .generation_models import GenerationOptions
+from ..limits import PROJECT_FEATURES, PROJECT_NETS
 
 
 def context(key, run_id, expected):
@@ -78,8 +79,11 @@ def prepare(inputs, result, options):
     settings['engineering_facts']=material_matches[0].get('engineering_facts_summary') if len(material_matches)==1 else None
     if len(material_matches)==1:settings['material']=material_matches[0]['display_name']
     blocked = list(settings['conflicts'])
-    if len(result['components']) > 4 or len(result['ports']) > 40 or len(result['nets']) > 16:
-        blocked.append('First-generation scope is at most 4 cartridges, 40 hydraulic terminals and 16 nets.')
+    authored_count=len(result['components'])+sum(p['component_id'] is None and p.get('disposition') not in ('blocked','terminated') for p in result['ports'])+len(options.threaded_mounting_holes)
+    if authored_count>PROJECT_FEATURES:
+        blocked.append(f'This circuit needs {authored_count} authored features; the editable project supports {PROJECT_FEATURES} total features including generated drillings. Split the circuit into projects.')
+    if len(result['nets'])>PROJECT_NETS:
+        blocked.append(f'This circuit has {len(result["nets"])} nets; the editable project supports {PROJECT_NETS}. Split the circuit into projects; the complete analysis is retained.')
     if not result['ports'] or not result['nets'] and any(p.get('disposition')=='connected' for p in result['ports']):
         blocked.append('No usable hydraulic topology was recognized. Review the source and analyze again.')
     port_net = {p: n['id'] for n in result['nets'] for p in n['members']}
@@ -225,6 +229,27 @@ def preflight(key, request):
                 material_engineering_facts=plan['settings']['engineering_facts'])
 
 
+def packing(group,face,wall,gap,maximum,*,rectangular=False):
+    """Conservative source-footprint grid, fitted before any native CAD work."""
+    radius=max(definition_planar_radius(c['definition']) for c in group)
+    pitch=2*radius+2*wall+gap
+    u,v,_,_=FACE_AXES[face]
+    choices=[]
+    for cols in range(1,len(group)+1):
+        rows=math.ceil(len(group)/cols)
+        width,height=cols*pitch+2*wall,rows*pitch+2*wall
+        if width<=maximum[u] and height<=maximum[v]:
+            choices.append((max(width,height),width*height,cols,rows,width,height,pitch))
+    if not choices and gap:
+        # Preferred connector spacing is a proposal, not a source dimension.
+        return packing(group,face,wall,0,maximum,rectangular=rectangular)
+    if not choices:raise ValueError(f'{face}: source machining/installed footprints cannot fit {len(group)} cavities within the requested block envelope and minimum wall.')
+    # An alternate compact rectangle avoids partially occupied square grids;
+    # it is a different placement, not more OCCT attempts on the same layout.
+    chosen=min(choices,key=lambda row:(row[1],row[0],row[2:])) if rectangular else min(choices)
+    return chosen[2:]
+
+
 def fid(generation_id, key, prefix):
     return prefix + '_' + hashlib.sha256((generation_id + ':' + key).encode()).hexdigest()[:20]
 
@@ -240,20 +265,34 @@ def candidate(plan, generation_id, variant):
     defs = [row['definition'] for row in [*plan['components'],*plan['external']] if row['definition']]
     defs = list({d.id:d for d in defs}.values())
     by_definition = {d.id:d for d in defs}
-    ncomponents = len(plan['components'])
-    radii = [definition_planar_radius(c['definition']) for c in plan['components']]
-    clearance = max(radii or [10]) * 2 + wall*2 + (6 if settings['priority'] == 'compact' else 16)
-    cols = max(1,math.ceil(math.sqrt(ncomponents)))
-    rows = max(1,math.ceil(ncomponents/cols))
-    depths = [max([s.end for s in d.stages] + [p.end for p in d.cutting_primitives]) for d in defs]
-    base = [max(80,cols*clearance+wall*2), max(80,rows*clearance+wall*2), max(70,max(depths or [25])+wall*2+12)]
+    groups={}
+    for component in plan['components']:
+        groups.setdefault(settings['component_faces'].get(component['id'],options.preferred_component_face or 'top'),[]).append(component)
+    maximum=list(settings['maximum']);minimum=list(settings['minimum'])
+    if inputs.project_engineering:
+        if inputs.project_engineering.constraints.envelope_max:maximum=[min(a,b) for a,b in zip(maximum,inputs.project_engineering.constraints.envelope_max)]
+        if inputs.project_engineering.constraints.envelope_min:minimum=[max(a,b) for a,b in zip(minimum,inputs.project_engineering.constraints.envelope_min)]
+    layouts={face:packing(group,face,wall,6 if settings['priority']=='compact' else 16,maximum,rectangular=variant%2==1) for face,group in groups.items()}
+    base=[80,80,70];required=[1,1,1]
+    for face,(_,_,width,height,_) in layouts.items():
+        u,v,_,_=FACE_AXES[face];base[u]=max(base[u],width);base[v]=max(base[v],height)
+        required[u]=max(required[u],width);required[v]=max(required[v],height)
     # Non-top mounting consumes depth along its own inward axis.
     for c in plan['components']:
         face = settings['component_faces'].get(c['id'],options.preferred_component_face or 'top')
         axis = FACE_AXES[face][2]
-        base[axis] = max(base[axis], max(s.end for s in c['definition'].stages)+wall*2+12)
+        depth=max([s.end for s in c['definition'].stages]+[p.end for p in c['definition'].cutting_primitives])
+        base[axis]=max(base[axis],depth+wall*2+12);required[axis]=max(required[axis],depth+wall)
+    for i,p in enumerate(plan['external']):
+        face=settings['port_faces'].get(p['id'],options.preferred_port_face or ('left','right','front','back')[(i+variant//2)%4])
+        axis=FACE_AXES[face][2]
+        depth=max([s.end for s in p['definition'].stages]+[cut.end for cut in p['definition'].cutting_primitives]) if p['definition'] else options.port_depth
+        required[axis]=max(required[axis],depth+wall)
+        base[axis]=max(base[axis],depth+wall*2+12)
     scale = (1, 1.18, 1.35, 1.5, 1.7, 1.9)[variant]
-    sizes = [max(lo,min(hi,math.ceil(size*scale/5)*5)) for size,lo,hi in zip(base,settings['minimum'],settings['maximum'])]
+    if any(size>hi for size,hi in zip(required,maximum)):
+        raise ValueError('Source cavity machining depth/footprints exceed the requested block envelope; enlarge the block or revise the mounting faces.')
+    sizes = [max(lo,min(hi,math.ceil(size*scale/5)*5)) for size,lo,hi in zip(base,minimum,maximum)]
     block = dict(zip(('length','width','height'),sizes))
     block['material'] = settings['material']
     if settings.get('material_id'):block['material_id']=settings['material_id']
@@ -287,21 +326,20 @@ def candidate(plan, generation_id, variant):
             name += '_'
         net_ids[net['id']] = name
         used_nets.add(name)
-    groups = {}
-    for component in plan['components']:
-        groups.setdefault(settings['component_faces'].get(component['id'],options.preferred_component_face or 'top'),[]).append(component)
     for face,group in groups.items():
         u_axis,v_axis,_,_=FACE_AXES[face]
-        local_cols=max(1,math.ceil(math.sqrt(len(group))))
-        local_rows=math.ceil(len(group)/local_cols)
+        local_cols,local_rows,_,_,pitch=layouts[face]
+        pitch_u=max(pitch,(sizes[u_axis]-2*wall)/local_cols)
+        pitch_v=max(pitch,(sizes[v_axis]-2*wall)/local_rows)
+        origin_u=(sizes[u_axis]-(local_cols-1)*pitch_u)/2
+        origin_v=(sizes[v_axis]-(local_rows-1)*pitch_v)/2
         for i,c in enumerate(group):
             key=c['id'];definition=by_definition[aliases[key]]
             f=Feature(id=fid(generation_id,key,'CV'),kind='cavity',face=face,
-                      u=sizes[u_axis]*(i%local_cols+1)/(local_cols+1),
-                      v=sizes[v_axis]*(i//local_cols+1)/(local_rows+1),cavity_id=definition.id,
+                      u=origin_u+(i%local_cols)*pitch_u,
+                      v=origin_v+(i//local_cols)*pitch_v,cavity_id=definition.id,
                       interface_nets={zone:net_ids[plan['port_net'][port]] for zone,port in c['mapping'].items() if port in plan['port_net']},
                       cartridge_id=c.get('cartridge_id'),schematic_id=key)
-            f.u,f.v=clamp_placement(f,design,f.u,f.v,snap=0,definitions=by_definition)
             design.features.append(f);feature_map[key]=f.id
             for zone,port in c['mapping'].items():terminal_map[port]=f.id+':'+zone
             from ..schema import SchematicComponent
@@ -312,7 +350,6 @@ def candidate(plan, generation_id, variant):
             if key in settings['hard_component_faces']:design.constraints.required_feature_faces[f.id]=face
     points=terminal_points(design)
     default_faces=('left','right','front','back')
-    used_ports=[]
     for i,p in enumerate(plan['external']):
         key=p['id'];source_net=plan['port_net'][key]
         net=next(n for n in result['nets'] if n['id']==source_net)
@@ -353,12 +390,20 @@ def candidate(plan, generation_id, variant):
             kwargs.update(diameter=options.port_diameter,depth=options.port_depth,tip_angle=180,
                           clearance_diameter=max(20,options.port_diameter+6),clearance_height=20,
                           port_type='Provisional straight bore - no thread specified',size=f'Draft bore {options.port_diameter:g} mm')
-        f=Feature(**kwargs);f.u,f.v=clamp_placement(f,design,f.u,f.v,snap=0,definitions=by_definition)
-        # Separate mouths sharing a face. Exact installed-envelope checks still decide.
-        for previous in used_ports:
-            if previous.face==face and math.hypot(f.u-previous.u,f.v-previous.v)<(f.clearance_diameter+previous.clearance_diameter)/2+2:
-                f.u,f.v=clamp_placement(f,design,f.u,f.v+(f.clearance_diameter+previous.clearance_diameter)/2+wall,snap=0,definitions=by_definition)
-        used_ports.append(f);design.features.append(f);terminal_map[key]=f.id;feature_map[key]=f.id
+        f=Feature(**kwargs)
+        radius=definition_planar_radius(p['definition']) if p['definition'] else f.clearance_diameter/2
+        margin=radius+wall
+        occupied=[(previous.u,previous.v,definition_planar_radius(by_definition[previous.definition]) if previous.definition else previous.clearance_diameter/2)
+                  for previous in design.features if previous.face==face]
+        preferred=(max(margin,min(sizes[u_axis]-margin,f.u)),max(margin,min(sizes[v_axis]-margin,f.v)))
+        pitch=2*radius+2*wall+2
+        probes=[preferred]+[(x,y) for x in [margin+j*pitch for j in range(max(0,math.floor((sizes[u_axis]-2*margin)/pitch)+1))]
+                           for y in [margin+j*pitch for j in range(max(0,math.floor((sizes[v_axis]-2*margin)/pitch)+1))]]
+        legal=[point for point in probes if margin<=point[0]<=sizes[u_axis]-margin and margin<=point[1]<=sizes[v_axis]-margin
+               and all(math.hypot(point[0]-x,point[1]-y)>=radius+r+wall for x,y,r in occupied)]
+        if not legal:raise ValueError(f'{p["label"]}: no non-overlapping source port/installed envelope fits the requested {face} face. Enlarge the block or change the port face.')
+        f.u,f.v=min(legal,key=lambda point:(math.dist(point,preferred),point))
+        design.features.append(f);terminal_map[key]=f.id;feature_map[key]=f.id
         if f.thread_only:
             from ..schema import EngineeringReview
             design.review_items.append(EngineeringReview(id=fid(generation_id,key,'THREAD_REVIEW'),kind='dimension',subject=f.id,
@@ -406,7 +451,8 @@ def score(report, design):
             route_cost(design,[f for f in design.features if f.kind=='drilling']))
 
 
-def generate(key, request, progress=lambda message:None):
+def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False):
+    started=time.monotonic()
     record,run,inputs,result=context(key,request.run_id,request.expected_revision)
     service.verified_documents(inputs)
     plan=prepare(inputs,result,request.options)
@@ -415,19 +461,27 @@ def generate(key, request, progress=lambda message:None):
     generation_id=uuid.uuid4().hex
     folder=store.OUTPUT/'ai-design'/key/'generations'/generation_id
     folder.mkdir(parents=True,exist_ok=False)
-    attempts=[];best=None;started=time.monotonic()
+    attempts=[];best=None;checkpoint=None;interruption=None
     for index in range(request.options.max_attempts):
+        if cancelled():interruption='Generation cancelled; the latest authored draft and analysis are retained.';break
+        remaining=request.options.max_runtime_s-(time.monotonic()-started)
+        if remaining<=0:interruption='Generation resource deadline reached; the latest draft is retained. Review placement/route diagnostics before retrying.';break
         progress(f'Exact candidate {index+1}/{request.options.max_attempts}: placement, routing, wall and connectivity checks')
         try:
             design,feature_map,terminal_map=candidate(plan,generation_id,index)
             from ..schema import DesignOrigin
             design.origin=DesignOrigin(author='PMC AI Design',method='ai-assisted',provider=run['provider']['id'],model=run['provider']['model'],
                 notes='AI-generated draft. Exact engineering validation remains authoritative.')
-            checked=calculate_sync('validate',design.model_dump(),progress)
+            checkpoint=(design,feature_map,terminal_map)
+            store.atomic_json(folder/'authored-draft.json',design.model_dump())
+            remaining=request.options.max_runtime_s-(time.monotonic()-started)
+            if remaining<=0:raise CalculationError('Generation resource deadline reached. Authored draft retained.',504)
+            checked=calculate_sync('ai-generate',dict(design=design.model_dump(),max_attempts=request.options.max_exact_attempts),progress,
+                                   limit=min(300,remaining),cancelled=cancelled)
             resolved=Design.model_validate(checked['design']);routes=checked['routes'];report=checked['report']
-            # Retain resolved routing choices in the authored draft so preview matches the evaluated proposal.
-            for net in design.nets:
-                net.routing_variant=next(n.routing_variant for n in resolved.nets if n.id==net.id)
+            # Keep the actual owned proposal, not just a variant on unresolved nets.
+            from ..route_state import merge_routes
+            design=merge_routes(design,resolved)
             store.atomic_json(folder/f'attempt-{index:02}'/'design.json',design.model_dump())
             store.atomic_json(folder/f'attempt-{index:02}'/'resolved_design.json',resolved.model_dump())
             store.atomic_json(folder/f'attempt-{index:02}'/'validation.json',report)
@@ -438,32 +492,49 @@ def generate(key, request, progress=lambda message:None):
             if best is None or ranking<best[0]:best=(ranking,design,report,index,feature_map,terminal_map)
             if ranking[0]==0:
                 break
-        except CalculationError:
+        except CalculationError as exc:
             # A deadline/busy/native-worker failure needs explicit recovery, not
             # another expensive placement attempt hiding the execution failure.
-            raise
-        except (ValueError,RuntimeError) as exc:
-            # Model/user content and arbitrary CAD exception bodies are not diagnostic output.
-            attempts.append(dict(index=index,error=type(exc).__name__,message='Candidate could not be built; expanding/rearranging within requested bounds.'))
+            interruption=str(exc)
+            attempts.append(dict(index=index,error='cancelled' if cancelled() else 'calculation_failed',message=interruption))
             store.atomic_json(folder/f'attempt-{index:02}'/'failure.json',attempts[-1])
-        if time.monotonic()-started>480:
+            break
+        except (ValueError,RuntimeError) as exc:
+            attempts.append(dict(index=index,error=type(exc).__name__,message=str(exc)[:2000] or 'Candidate could not be built; review mapping and block constraints.'))
+            store.atomic_json(folder/f'attempt-{index:02}'/'failure.json',attempts[-1])
+        if time.monotonic()-started>request.options.max_runtime_s:
+            interruption='Generation resource deadline reached. Completed reports and the latest authored draft are retained.'
             break
     if best is None:
         packet=dict(id=generation_id,task_id=key,run_id=run['id'],status='no_buildable_candidate',attempts=attempts,
                     message='No candidate could be built within the requested envelope. Review selected cavity mapping and block constraints.')
+        if cancelled():packet['status']='cancelled'
+        if checkpoint:
+            design,feature_map,terminal_map=checkpoint
+            from ..route_state import preserve_draft
+            packet.update(status='cancelled' if cancelled() else 'incomplete_draft',design=preserve_draft(design).model_dump(),
+                          feature_mapping=feature_map,terminal_mapping=terminal_map)
     else:
         _,design,report,chosen,feature_map,terminal_map=best
         packet=dict(id=generation_id,task_id=key,run_id=run['id'],status='draft',design=design.model_dump(),validation=report,
                     selected_attempt=chosen,geometry_failures=best[0][0],attempts=attempts,feature_mapping=feature_map,
                     terminal_mapping=terminal_map,dispositions=plan['settings']['dispositions'],
                     message='Editable AI Draft; exact validation and engineering review status are separate from manufacturing approval.')
+    if interruption:packet['message']=interruption;packet['interruption']=interruption
+    packet['elapsed_s']=round(time.monotonic()-started,2)
+    packet['resource_limits']=dict(total_features=PROJECT_FEATURES,nets=PROJECT_NETS,placement_attempts=request.options.max_attempts,
+                                  exact_route_attempts_per_placement=request.options.max_exact_attempts,total_seconds=request.options.max_runtime_s)
     packet.update(created_at=service.now(),provider=run['provider'],input_revision=run['input_revision'],
+                  source_task_revision=request.expected_revision,
                   options=request.options.model_dump(),
                   engine_revision=store.engine_revision())
     store.atomic_json(folder/'generation.json',packet)
     with store.project_lock():
         latest=service.read(key)
-        service.check(latest,request.expected_revision)
+        if service.revision(latest)!=request.expected_revision:
+            packet['status']='superseded_draft' if packet.get('design') else 'superseded'
+            packet['message']='Analysis changed during generation. This result belongs to the original run; newer inputs were preserved. Review the retained source draft before using it.'
+            store.atomic_json(folder/'generation.json',packet)
         updated={**latest,'generations':[*latest.get('generations',[]),dict(id=generation_id,run_id=run['id'],status=packet['status'],created_at=packet['created_at'])][-100:]}
         service.write(updated,latest)
     return packet

@@ -39,6 +39,18 @@ def require_current_routes(design):
     if missing:raise ValueError('Routing must finish for '+', '.join(missing)+'. Inspect the current proposal, then Save or Validate; use Reroute to request a new route.')
 
 
+def preserve_draft(design):
+    """Preserve authored work without accepting obsolete generated cuts."""
+    result=design.model_copy(deep=True)
+    pending=pending_nets(result)
+    result.features=[f for f in result.features if f.route_net not in pending]
+    for net in result.nets:
+        if net.id in pending:
+            net.routing_variant=None
+            net.route_issue='Routing unresolved. Retry Routing / Preview before Validate.'
+    return Design.model_validate(result.model_dump())
+
+
 def validate_current_design(design,*,step_path=None):
     """One exact check of these cuts. No candidate enumeration or CAD fallback."""
     require_current_routes(design)

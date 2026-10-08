@@ -121,7 +121,7 @@ def test_step_failure_row_names_invalid_topology_even_with_small_volume_delta(mo
     from types import SimpleNamespace
     d=straight_net();g=geometry.build_geometry(d)
     imported=SimpleNamespace(isValid=lambda:False,Solids=lambda:g.production.Solids(),
-                             Volume=lambda:g.production.Volume()+0.0001489)
+                             Volume=lambda tol=None:g.production.Volume(tol)+0.0001489)
     monkeypatch.setattr(cq.importers,'importStep',lambda _:SimpleNamespace(val=lambda:imported))
     row=cad_acceptance.step_round_trip(g)
     assert row['status']=='FAIL' and row['valid'] is False

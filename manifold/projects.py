@@ -94,12 +94,12 @@ def check(record,expected):
     if project_revision(record)!=expected:
         raise ValueError('Saved project changed. Reopen it before saving; your draft is preserved.')
 
-def save(design,key=None,expected=None):
-    from .route_state import require_current_routes
-    require_current_routes(design)
-    design=design.model_copy(deep=True)
+def save(design,key=None,expected=None,*,draft_only=False):
+    from .route_state import require_current_routes,preserve_draft
+    if not draft_only:require_current_routes(design)
+    design=preserve_draft(design) if draft_only else design.model_copy(deep=True)
     for net in design.nets:
-        if net.routing=='automatic' and (net.route_state=='proposal' or len(net.members)<2):net.route_state='committed'
+        if not draft_only and net.routing=='automatic' and (net.route_state=='proposal' or len(net.members)<2):net.route_state='committed'
     from .engineering_db import validate_references
     validate_references(design)
     with store.project_lock():
@@ -109,6 +109,7 @@ def save(design,key=None,expected=None):
             record['design']=design.model_dump()
         else:
             record=dict(id=uuid.uuid4().hex,design=design.model_dump(),build=None,archived=False)
+        if draft_only:record['build']=None  # Previous immutable build remains in revision history.
         return write(record)
 
 def prepare_build(key,expected,design=None):
@@ -140,6 +141,7 @@ def build(key,expected,design=None):
 
 class SaveRequest(Strict):
     design: Design
+    draft_only: bool = False
     project_id: str | None = Field(default=None,pattern=r'^[0-9a-f]{32}$')
     expected_revision: str | None = Field(default=None,pattern=r'^[0-9a-f]{64}$')
 
@@ -199,7 +201,7 @@ def listing():
 
 @router.post('')
 def save_request(payload:SaveRequest):
-    try:return save(payload.design,payload.project_id,payload.expected_revision)
+    try:return save(payload.design,payload.project_id,payload.expected_revision,draft_only=payload.draft_only)
     except (ValueError,RuntimeError) as exc:raise HTTPException(409,str(exc))
     except FileNotFoundError:raise HTTPException(404,'Project not found')
 

@@ -276,10 +276,14 @@ async def preview_stream(payload,request):
     return events()
 
 
-def calculate_sync(operation,payload,progress=None):
-    row=executor.start(operation,payload)
+def calculate_sync(operation,payload,progress=None,*,limit=None,cancelled=lambda:False):
+    if cancelled():raise CalculationError('Generation cancelled. Authored draft retained.',409)
+    row=executor.start(operation,payload,limit=limit)
     try:
         while True:
+            if cancelled():
+                executor.stop(row,'Generation cancelled. Authored draft retained.',409)
+                raise CalculationError('Generation cancelled. Authored draft retained.',409)
             result=executor.poll(row)
             if result is not None:return result
             if progress:progress('Exact CAD: '+executor.describe(row).get('phase','starting isolated worker'))

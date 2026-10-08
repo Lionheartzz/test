@@ -2,6 +2,7 @@
 from typing import Annotated, Literal
 from pydantic import Field, model_validator
 from ..schema import Strict, SchematicAsset, Face, Design
+from ..limits import ANALYSIS_COMPONENTS, ANALYSIS_PORTS, ANALYSIS_NETS, COMPONENT_INTERFACES, NET_MEMBERS
 
 Key=Annotated[str,Field(pattern=r'^[A-Za-z][A-Za-z0-9_-]{0,63}$')]
 Digest=Annotated[str,Field(pattern=r'^[0-9a-f]{64}$')]
@@ -89,7 +90,7 @@ class Claim(Strict):
 
 class Component(Strict):
     id: Key
-    port_ids: list[Key] = Field(default_factory=list,max_length=40)
+    port_ids: list[Key] = Field(default_factory=list,max_length=COMPONENT_INTERFACES)
     claim_ids: list[Key] = Field(min_length=1,max_length=80)
 
 
@@ -102,7 +103,7 @@ class HydraulicPort(Strict):
 
 class HydraulicNet(Strict):
     id: Key
-    members: list[Key] = Field(min_length=1,max_length=100)
+    members: list[Key] = Field(min_length=1,max_length=NET_MEMBERS)
     claim_ids: list[Key] = Field(min_length=1,max_length=40)
 
 
@@ -121,13 +122,13 @@ class MountingRequirement(Strict):
 class DesignIntent(Strict):
     id: Key
     category: Literal['component_selection','port_face','envelope','material','mounting','pressure','flow','routing','separation','priority','serviceability','source_instruction','other']
-    target_labels: list[Annotated[str,Field(max_length=120)]] = Field(default_factory=list,max_length=30)
+    target_labels: list[Annotated[str,Field(max_length=120)]] = Field(default_factory=list,max_length=ANALYSIS_COMPONENTS)
     property: str = Field(min_length=1,max_length=80)
     operator: Literal['equal','maximum','minimum','prefer','avoid','separate','context']
     strength: Literal['requirement','preference','context'] = 'requirement'
     claim_id: Key
     # Labels are not silently bound to an internal port/component ID.
-    bound_entity_ids: list[Key] = Field(default_factory=list,max_length=30)
+    bound_entity_ids: list[Key] = Field(default_factory=list,max_length=ANALYSIS_COMPONENTS)
     mounting: MountingRequirement | None = None
 
 
@@ -151,9 +152,9 @@ class KnowledgeLookup(Strict):
 
 class HydraulicRepresentation(Strict):
     schema_version: Literal[1] = 1
-    components: list[Component] = Field(default_factory=list,max_length=120)
-    ports: list[HydraulicPort] = Field(default_factory=list,max_length=600)
-    nets: list[HydraulicNet] = Field(default_factory=list,max_length=300)
+    components: list[Component] = Field(default_factory=list,max_length=ANALYSIS_COMPONENTS)
+    ports: list[HydraulicPort] = Field(default_factory=list,max_length=ANALYSIS_PORTS)
+    nets: list[HydraulicNet] = Field(default_factory=list,max_length=ANALYSIS_NETS)
     claims: list[Claim] = Field(default_factory=list,max_length=2000)
     evidence: list[Evidence] = Field(default_factory=list,max_length=2000)
     design_intent: list[DesignIntent] = Field(default_factory=list,max_length=200)

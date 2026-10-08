@@ -5,13 +5,14 @@ from pydantic import Field
 from .schema import Design, Strict, Identifier, Circuit
 from .kinematics import resolve_parents
 from .timing import timed
+from .limits import PROJECT_FEATURES, PROJECT_NETS
 
 
 class PreviewEdit(Strict):
     kind:Literal['global','local','none','conditions']='global'
-    feature_ids:list[Identifier]=Field(default_factory=list,max_length=120)
-    affected_nets:list[Circuit]=Field(default_factory=list,max_length=24)
-    resize_nets:list[Circuit]=Field(default_factory=list,max_length=24)
+    feature_ids:list[Identifier]=Field(default_factory=list,max_length=PROJECT_FEATURES)
+    affected_nets:list[Circuit]=Field(default_factory=list,max_length=PROJECT_NETS)
+    resize_nets:list[Circuit]=Field(default_factory=list,max_length=PROJECT_NETS)
 
 
 class PreviewContext(Strict):
@@ -20,7 +21,7 @@ class PreviewContext(Strict):
     source_revision:str=Field(pattern=r'^[0-9a-f]{64}$')
     proposal:Design
     edit:PreviewEdit
-    variants:dict[Circuit,Annotated[str,Field(max_length=80,pattern=r'^(simple_\d+|[xyz]{3}:(nearest|negative|positive):(direct|offset_[xyz]_[pm]2?)|axial_\d+_[01]:[xyz]{3}:(nearest|negative|positive)(?::(?:c\d+_[xyz]_|j\d+_)\d+(?:\.\d{1,6})?(?:\+(?:c\d+_[xyz]_|j\d+_)\d+(?:\.\d{1,6})?){0,2})?)$')]]=Field(default_factory=dict,max_length=24)
+    variants:dict[Circuit,Annotated[str,Field(max_length=80,pattern=r'^(simple_\d+|[xyz]{3}:(nearest|negative|positive):(direct|offset_[xyz]_[pm]2?)|axial_\d+_[01]:[xyz]{3}:(nearest|negative|positive)(?::(?:c\d+_[xyz]_|j\d+_)\d+(?:\.\d{1,6})?(?:\+(?:c\d+_[xyz]_|j\d+_)\d+(?:\.\d{1,6})?){0,2})?)$')]]=Field(default_factory=dict,max_length=PROJECT_NETS)
 
 
 class PreviewRequest(Strict):
