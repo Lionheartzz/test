@@ -98,9 +98,10 @@ def test_real_runtime_choices_and_library_count_read_only():
     with TestClient(app) as client:
         page=client.get('/api/closures/compatible',params={'diameter':8,'depth':60,'unit':'metric'})
         assert page.status_code==200 and page.json()['items']
-        assert all(row['engagement_mm']>0 and row['display_name'].startswith(('SFC KOENIG','Expander Plug')) for row in page.json()['items'])
+        assert all(row['engagement_mm']>0 and row['display_name'].startswith(('SFC KOENIG','Expander Plug','SAE construction plug','ISO 6149 construction plug')) for row in page.json()['items'])
         library=client.get('/api/engineering-library/categories').json()['items']
         card=next(r for r in library if r['key']=='closures')
         version=engineering_db.validate_database()['schema_version']
-        assert card['definition_count']==(14 if version>=7 else 38) and card['knowledge_count']==443
+        with engineering_db._connect() as db:count=db.execute('SELECT count(*) FROM closure_definitions WHERE active=1').fetchone()[0]
+        assert card['definition_count']==count and card['knowledge_count']==443
         assert client.get('/api/closures/compatible',params={'diameter':8,'depth':0}).status_code==422

@@ -11,10 +11,16 @@ from .engineering_db import _connect,database_path
 @lru_cache(maxsize=4)
 def _catalog(path,mtime,size):
     with closing(_connect(path)) as db:
+        threads={r['id']:dict(r) for r in db.execute('SELECT * FROM thread_definitions')}
+        tools={r['id']:dict(r) for r in db.execute('SELECT * FROM tool_definitions')}
         rows=[]
-        for raw in db.execute('''SELECT c.*,p.unit_system,p.active AS port_active,p.usable AS port_usable
+        for raw in db.execute('''SELECT c.*,p.unit_system,p.active AS port_active,p.usable AS port_usable,p.unusable_reason AS port_reason
             FROM closure_definitions c LEFT JOIN external_port_definitions p ON p.id=c.construction_port_definition_id'''):
-            row=dict(raw);row['machining']=json.loads(row['machining_json']);row['envelope']=json.loads(row['envelope_json']);rows.append(row)
+            row=dict(raw);row['machining']=json.loads(row['machining_json']);row['envelope']=json.loads(row['envelope_json'])
+            p=profile(row)
+            row['closure_thread']=threads.get(p.get('thread_definition_id')) if p else None
+            row['closure_tools']={op['tool_id']:tools.get(op['tool_id']) for op in row['machining'] if op.get('tool_id')}
+            rows.append(row)
         return tuple(rows)
 
 
@@ -41,12 +47,14 @@ def aliases():
 
 
 def profile(closure):
-    return next((r for r in closure.get('machining',[]) if r.get('operation')=='SOURCE_EXPANDER_ENTRY'),None)
+    return next((r for r in closure.get('machining',[]) if r.get('operation') in ('SOURCE_EXPANDER_ENTRY','SOURCE_FORM_PORT_ENTRY')),None)
 
 
 def compatible(feature,closure):
     p=profile(closure)
-    if not closure['active'] or not closure['usable'] or not closure.get('port_active') or not closure.get('port_usable') or not p:
+    if not closure['active'] or not closure['usable'] or not closure.get('port_active') or not p:
+        return False
+    if not closure.get('port_usable') and not (p.get('independent_machining_interface') and closure.get('port_reason')=='External port requires one executable hydraulic interface'):
         return False
     values=[closure.get('engagement_mm'),p.get('diameter_mm'),p.get('depth_mm'),p.get('hydraulic_diameter_max_mm'),
             closure['envelope'].get('diameter_mm')]
@@ -58,11 +66,28 @@ def compatible(feature,closure):
         from .kinematics import FACE_AXES
         if abs(feature.direction[FACE_AXES[feature.face][2]])<1-1e-8:return False
     if feature.depth<=closure['engagement_mm'] or feature.diameter>p['hydraulic_diameter_max_mm']+1e-6:return False
+    if p['operation']=='SOURCE_FORM_PORT_ENTRY':
+        thread=closure.get('closure_thread')
+        return bool(thread and thread['usable'] and thread['active'] and thread['tap_diameter_mm']>0
+                    and closure_tooling(closure) and entry_depth(feature,closure)<feature.depth)
     return p.get('transition_angle_degrees')==120 and p['diameter_mm']>feature.diameter and entry_depth(feature,closure)<feature.depth
 
 
+def closure_tooling(closure):
+    for op in closure['machining']:
+        if not op.get('tool_id'):continue
+        tool=closure.get('closure_tools',{}).get(op['tool_id'])
+        if not tool or not tool['active'] or not tool['usable'] or tool['tool_type']!=op['tool_type']:
+            return False
+        if abs(tool['diameter_mm']-op['diameter_mm'])>1e-6 or tool['max_depth_mm']+1e-6<op['depth_mm']:return False
+    return True
+
+
 def choices(feature,unit):
-    return sorted((c for c in catalog() if compatible(feature,c)),key=lambda c:(c['unit_system']!=unit,
+    # Keep the established expander/SAE defaults when new qualified families are
+    # added. This is an engineering technology order, never a product preference.
+    family_order={'expander':0,'sae-short-port':1,'sae-standard-port':1,'metric-iso6149':2}
+    return sorted((c for c in catalog() if compatible(feature,c)),key=lambda c:(family_order.get(profile(c).get('closure_type','expander'),2),c['unit_system']!=unit,
         profile(c).get('default_order',0),c['model'],c['id']))
 
 
@@ -88,16 +113,19 @@ def bind_route(design,features):
         if feature.closure_definition_id:
             closure=bound(feature)
             result.append(normalize(feature,closure) if closure and compatible(feature,closure) else feature);continue
+        if feature.closure_selection_mode=='manual' or feature.frozen_net:
+            result.append(feature);continue
         candidates=choices(feature,design.project_context)
         # Source entry machining must fit the actual block face. No closest-size
         # selection: each candidate has its own declared entry/interface profile.
         from .kinematics import FACE_AXES
+        from .engineering_conditions import required_wall
         u,v,axis,_=FACE_AXES[feature.face];lengths=(design.block.length,design.block.width,design.block.height)
         for closure in candidates:
             # v7 explicitly preserves the established expander default. Other
             # technologies remain manual choices unless explicitly preferred.
             if profile(closure).get('automatic_default',True) is not True:continue
-            radius=closure['envelope']['diameter_mm']/2+design.rules.minimum_wall
+            radius=closure['envelope']['diameter_mm']/2+required_wall(design,feature)
             if radius<=feature.u<=lengths[u]-radius and radius<=feature.v<=lengths[v]-radius:
                 if feature.direction and abs(feature.direction[axis])<1-1e-8:continue
                 feature=normalize(feature,closure);break
@@ -117,4 +145,31 @@ def normalize_design(design,*,resolve_generated=False):
 
 def entry_depth(feature,closure):
     p=profile(closure)
+    if p['operation']=='SOURCE_FORM_PORT_ENTRY':
+        r=p['source_profile_row'];scale=p['source_scale']
+        pilot=p.get('pilot_circle',3)
+        return r[f'Circle{pilot}Depth']*scale+(float(r[f'Circle{pilot}Dia'])*scale-feature.diameter)/2/math.tan(math.radians(r[f'Circle{pilot}Angle']))
     return p['depth_mm']+(p['diameter_mm']-feature.diameter)/2/math.tan(math.radians(p['transition_angle_degrees']/2))
+
+
+def formed_cutting_primitives(diameter,depth,tip_angle,source,scale):
+    """One normalized contour for production geometry and machining output."""
+    from .import_mdtools import profile as source_profile
+    row=dict(source)
+    row.update(Circle12Dia=str(diameter/scale),Circle12Depth=depth/scale,Circle12Angle=tip_angle/2)
+    return source_profile(row,scale)[1]
+
+
+def cutting_primitives(feature,closure):
+    p=profile(closure)
+    if p['operation']=='SOURCE_FORM_PORT_ENTRY':
+        return formed_cutting_primitives(feature.diameter,feature.depth,feature.tip_angle,p['source_profile_row'],p['source_scale'])
+    end=entry_depth(feature,closure)
+    result=[dict(kind='cylinder',start=0,end=feature.depth,diameter=feature.diameter),
+            dict(kind='cylinder',start=0,end=p['depth_mm'],diameter=p['diameter_mm']),
+            dict(kind='cone',start=p['depth_mm'],end=end,diameter=p['diameter_mm'],end_diameter=feature.diameter)]
+    if feature.tip_angle!=180:
+        result.append(dict(kind='cone',start=feature.depth,
+                           end=feature.depth+feature.diameter/2/math.tan(math.radians(feature.tip_angle/2)),
+                           diameter=feature.diameter,end_diameter=0))
+    return result

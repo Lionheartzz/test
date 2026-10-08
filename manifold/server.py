@@ -374,7 +374,7 @@ def material_catalog(include_legacy:bool=False,current_id:str|None=None):
 
 
 @app.get('/api/tools')
-def tooling_catalog(type: str=Query('drill',pattern=r'^(drill|flat-bottom-drill|spotface)$'),
+def tooling_catalog(type: str=Query('drill',pattern=r'^(drill|flat-bottom-drill|spotface|form-port|tap)$'),
                     unit: str='',usable_only: bool=True):
     from .engineering_db import tool_definitions
     items=tool_definitions(type,unit=unit,usable_only=usable_only)

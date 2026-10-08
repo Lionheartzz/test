@@ -1,0 +1,59 @@
+{
+  "schema_version": 4,
+  "name": "Source-backed large-bore automatic routing demand",
+  "project_context": "metric",
+  "block": {
+    "length": 900,
+    "width": 800,
+    "height": 500,
+    "material": "Engineering stress override"
+  },
+  "project_defaults": {
+    "pressure_bar": 100,
+    "flow_lpm": 1129.3447536607048,
+    "velocity_limit": 6
+  },
+  "rules": {
+    "minimum_wall": 7,
+    "allowable_stress_mpa": 150
+  },
+  "features": [
+    {
+      "id": "CV1",
+      "kind": "cavity",
+      "face": "top",
+      "u": 250,
+      "v": 400,
+      "cavity_id": "cav_461e1318d1eafdd4e7b4",
+      "interface_nets": {
+        "port2": "P"
+      },
+      "clearance_diameter": 204.99478620804678,
+      "clearance_height": 280.0
+    },
+    {
+      "id": "CV2",
+      "kind": "cavity",
+      "face": "top",
+      "u": 650,
+      "v": 400,
+      "cavity_id": "cav_461e1318d1eafdd4e7b4",
+      "interface_nets": {
+        "port2": "P"
+      },
+      "clearance_diameter": 204.99478620804678,
+      "clearance_height": 280.0
+    }
+  ],
+  "nets": [
+    {
+      "id": "P",
+      "members": [
+        "CV1:port2",
+        "CV2:port2"
+      ],
+      "routing": "automatic",
+      "diameter_mode": "automatic"
+    }
+  ]
+}

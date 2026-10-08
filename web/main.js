@@ -134,11 +134,13 @@ function refreshPreview({immediate=false}={}){
 function markDirty(edit={kind:'global'},before=null){
   const explicitProposal=edit.kind==='proposal';
   const proposalRevision=edit.source_revision;
-  // Only engraving/block-machining editors issue this action; keep hydraulic state intact.
-  const machiningOnly=edit.kind==='machining'&&before;
+  // Entry machining changes retain hydraulic centerlines and manual closure intent.
+  const closureOnly=edit.kind==='closure'&&before;
+  const machiningOnly=(edit.kind==='machining'||closureOnly)&&before;
   machiningPreview=!!machiningOnly;previewRequestOwner=null;
   if(machiningOnly)edit={kind:'none',immediate:true};else if(before)edit=routingEdit(before,draft,edit);
   if(explicitProposal)previewRouting.seedCommitted(draft,String(projectEpoch),proposalRevision);
+  else if(closureOnly)previewRouting.clear('construction closure machining changed');
   else if(before)previewRouting.edit(before,draft,edit,String(projectEpoch),{usable:!externalChange&&displayedSource!=='retained'});else previewRouting.clear();
   previewTiming({kind:'routing-invalidation',edit:edit.kind,reason:previewRouting.reason()});draftCheckedSignature=null;dirty=true;exactPreview=null;viewer?.setIssueMarkers([]);renderHeader();
   if(edit.kind==='none'&&!explicitProposal&&!machiningOnly){

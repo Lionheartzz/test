@@ -263,6 +263,12 @@ def validate(design, g, definitions=None):
             if resolved:
                 result('closure_entry_depth',[f.id],entry_depth(f,closure),f.depth,entry_depth(f,closure)<f.depth,
                        'Closure entry machining must remain local to the entrance and shorter than the hydraulic drilling.',unit='mm')
+                for operation in closure['machining']:
+                    if operation.get('tool_id'):
+                        tool=closure.get('closure_tools',{}).get(operation['tool_id'])
+                        result('closure_operation_tool',[f.id,operation['operation']],tool['id'] if tool else None,
+                               'Qualified source tool for the declared closure operation',bool(tool and tool['usable'] and tool['active']),
+                               'Closure forming and tapping use the declared source operation capabilities, without extrapolating reach.')
     for a, b in combinations(g.envelopes, 2):
         distance = g.envelopes[a].distance(g.envelopes[b])
         result('installation_access', [a, b], distance, design.rules.minimum_access_gap,

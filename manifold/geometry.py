@@ -95,6 +95,24 @@ def _place_closure_shape(shape,origin,direction):
     return shape.translate(origin)
 
 
+@lru_cache(maxsize=128)
+def _formed_closure_local_shapes(diameter,depth,tip_angle,source_json,scale,engagement,envelope_diameter,envelope_height):
+    """The exact source contour; only the bounded hydraulic drilling is variable."""
+    from .closure_runtime import formed_cutting_primitives
+    source=__import__('json').loads(source_json)
+    primitives=formed_cutting_primitives(diameter,depth,tip_angle,source,scale)
+    pieces=[];origin=(0,0,0);axis=(0,0,1)
+    for p in primitives:
+        if p['kind']=='cone':
+            shape=cq.Solid.makeCone(p['diameter']/2,p['end_diameter']/2,p['end']-p['start'],cq.Vector(0,0,p['start']),cq.Vector(*axis))
+        else:shape=cylinder(origin,axis,p['diameter'],p['start'],p['end'])
+        pieces.append(shape)
+    cut=pieces[0].fuse(*pieces[1:]).clean()
+    occupied=cut.intersect(cylinder(origin,axis,envelope_diameter,0,engagement)).clean()
+    envelope=cylinder(origin,axis,envelope_diameter,-envelope_height,0)
+    return cut,occupied,cut.cut(occupied).clean(),envelope
+
+
 @timed('geometry.feature_shapes')
 def feature_geometry(design, definitions, thread_definitions, modifier_definitions):
     """Exact individual cuts and hydraulic nodes, without a stock Boolean."""
@@ -154,6 +172,13 @@ def feature_geometry(design, definitions, thread_definitions, modifier_definitio
                 boundaries[f'{f.id}/{i}'] = dict(shape=shape,owner=f.id,category=boundary.category,height=boundary.height)
         else:
             closure=bound(f)
+            if closure and compatible(f,closure) and profile(closure)['operation']=='SOURCE_FORM_PORT_ENTRY' and not f.machining_modifiers:
+                entry=profile(closure)
+                local=_formed_closure_local_shapes(f.diameter,f.depth,f.tip_angle,__import__('json').dumps(entry['source_profile_row'],sort_keys=True),
+                    entry['source_scale'],f.plug_length,f.clearance_diameter,f.clearance_height)
+                cuts[f.id],plugs[f.id],nodes[f.id],envelopes[f.id]=(_place_closure_shape(s,origin,direction) for s in local)
+                circuits[f.id]=f.circuit
+                continue
             if closure and compatible(f,closure) and not f.machining_modifiers and closure['envelope']['height_mm']==0:
                 entry=profile(closure)
                 local=_closure_local_shapes(f.diameter,f.depth,f.tip_angle,entry['diameter_mm'],entry['depth_mm'],f.plug_length,f.clearance_diameter)
@@ -177,16 +202,24 @@ def feature_geometry(design, definitions, thread_definitions, modifier_definitio
                 cut=cut.intersect(half).clean()
             closure=bound(f)
             if closure and compatible(f,closure):
-                entry=profile(closure);diameter=entry['diameter_mm'];depth=entry['depth_mm']
-                counterbore=cylinder(origin,direction,diameter,0,depth)
-                length=(diameter-f.diameter)/2/math.tan(math.radians(entry['transition_angle_degrees']/2))
-                transition=cq.Solid.makeCone(diameter/2,f.diameter/2,length,cq.Vector(*at(origin,direction,depth)),cq.Vector(*direction))
-                cut=cut.fuse(counterbore).fuse(transition).clean()
+                entry=profile(closure)
+                if entry['operation']=='SOURCE_FORM_PORT_ENTRY':
+                    local=_formed_closure_local_shapes(f.diameter,f.depth,f.tip_angle,__import__('json').dumps(entry['source_profile_row'],sort_keys=True),
+                        entry['source_scale'],f.plug_length,f.clearance_diameter,f.clearance_height)
+                    cut=_place_closure_shape(local[0],origin,direction)
+                else:
+                    diameter=entry['diameter_mm'];depth=entry['depth_mm']
+                    counterbore=cylinder(origin,direction,diameter,0,depth)
+                    length=(diameter-f.diameter)/2/math.tan(math.radians(entry['transition_angle_degrees']/2))
+                    transition=cq.Solid.makeCone(diameter/2,f.diameter/2,length,cq.Vector(*at(origin,direction,depth)),cq.Vector(*direction))
+                    cut=cut.fuse(counterbore).fuse(transition).clean()
             cuts[f.id] = cut
             if f.kind=='mounting':
                 continue # Real stock removal, deliberately absent from hydraulic nodes/circuits.
             if f.plugged:
                 plugs[f.id] = cylinder(origin, direction, profile(closure)['diameter_mm'] if closure and compatible(f,closure) else f.diameter, -extension, f.plug_length)
+                if closure and compatible(f,closure) and profile(closure)['operation']=='SOURCE_FORM_PORT_ENTRY':
+                    plugs[f.id]=plugs[f.id].intersect(cut).clean()
                 if f.direction:
                     plugs[f.id]=plugs[f.id].intersect(half).clean()
                 nodes[f.id] = cut.cut(plugs[f.id]).clean()

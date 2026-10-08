@@ -72,7 +72,7 @@ test('hung exact request times out visibly, retains usable view, then recovers',
   cancelRemote:(owner,version)=>cancels.push(version),onFast:()=>{},onExact:r=>shown.push(r),onStatus:s=>states.push(s),onError:e=>errors.push(e.message)});
  queue.schedule({value:1});await sleep(10);calls[0].resolve('fast');await sleep(10);calls[1].resolve('usable exact');await sleep(5);
  queue.schedule({value:2});await sleep(10);calls[2].resolve('fast');await sleep(60);
- assert.equal(states.at(-1),'error');assert.match(errors[0],/interactive time limit.*Last usable view retained/);
+ assert.equal(states.at(-1),'error');assert.match(errors[0],/timed out.*Saved geometry is retained/);
  assert.deepEqual(shown,['usable exact']);assert.equal(calls[3].options.signal.aborted,true);assert.ok(cancels.includes(2));
  queue.schedule({value:3});await sleep(10);calls[4].resolve('fast');await sleep(10);calls[5].resolve('recovered');await sleep(5);
  assert.equal(states.at(-1),'ready');assert.deepEqual(shown,['usable exact','recovered']);queue.cancel();

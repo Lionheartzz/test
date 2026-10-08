@@ -15,7 +15,7 @@ def manufacturing_outputs(design, g, folder, definitions=None):
     lib = definitions
     from .engineering_db import thread_definitions_for_design,closure_definitions_for_design,select_tool,resolve_machining_tools
     threads=thread_definitions_for_design(design)
-    from .closure_runtime import normalize_design
+    from .closure_runtime import normalize_design,bound,compatible,cutting_primitives,profile as closure_profile,entry_depth
     design=normalize_design(design)
     closures=closure_definitions_for_design(design)
     for i,f in enumerate(design.features,1):
@@ -31,6 +31,22 @@ def manufacturing_outputs(design, g, folder, definitions=None):
         selected_tool=select_tool(effective_diameter,drill_depth,tool_type='drill',unit=design.project_context,exact_diameter=bool(thread)) if effective_diameter else None
         operation_tools=resolve_machining_tools(definition,design.project_context) if definition else []
         closure=closures.get(f.closure_definition_id)
+        runtime_closure=bound(f)
+        closure_resolved=bool(runtime_closure and compatible(f,runtime_closure))
+        closure_operations=[];closure_thread=None;closure_thread_depth=None
+        if closure_resolved:
+            steps=cutting_primitives(f,runtime_closure)
+            closure_operations=[op for op in closure['machining'] if not op.get('operation','').startswith('SOURCE_')]
+            closure_thread=runtime_closure.get('closure_thread')
+            closure_thread_depth=next((op['depth_mm'] for op in closure_operations if op.get('operation')=='TAP'),None)
+            for index,op in enumerate(closure_operations,1):
+                if not op.get('tool_id'):continue
+                tool=runtime_closure['closure_tools'].get(op['tool_id'])
+                operation_tools.append(dict(operation=index,operation_name=op['operation'],tool_type=op['tool_type'],
+                    diameter_mm=op['diameter_mm'],depth_mm=op['depth_mm'],tool=tool,status='RESOLVED' if tool else 'UNRESOLVED'))
+        else:
+            # The exact geometry also declines incompatible selected definitions.
+            closure=None
         profile=dict(feature=f.id,definition=f.definition,source='PMC engineering database' if definition or thread else 'Explicit drilling parameters',
                       cutting_steps=steps,hydraulic_interfaces=[z.model_dump() for z in definition.zones] if definition else [],
                       definition_facts=(dict(id=definition.id,label=definition.label,thread_specification=definition.thread_note,
@@ -40,7 +56,10 @@ def manufacturing_outputs(design, g, folder, definitions=None):
                       selected_tool=selected_tool,operation_tools=operation_tools,machining_modifiers=[p.model_dump() for p in f.machining_modifiers],
                      tip_angle_degrees=None if definition else f.tip_angle,
                      closure=(dict(id=closure['id'],display_name=closure['display_name'],model=closure['model'],engagement_mm=closure['engagement_mm'],
-                                   machining=closure['machining'],envelope=closure['envelope'],entry_machining_status='resolved') if closure else
+                                   machining=closure_operations,envelope=closure['envelope'],
+                                   entry_diameter_mm=closure_profile(runtime_closure)['diameter_mm'],
+                                   entry_depth_mm=entry_depth(f,runtime_closure),thread_facts=closure_thread,
+                                   thread_depth_mm=closure_thread_depth,entry_machining_status='resolved') if closure else
                               dict(engagement_mm=f.plug_length,geometry='Declared cylindrical exclusion from hydraulic volume',
                                    entry_machining_status='unresolved',
                                    note='No executable plug-entry machining profile is bound to this feature; threads, counterbores and seats remain unresolved.')) if f.plugged else None)
@@ -48,13 +67,14 @@ def manufacturing_outputs(design, g, folder, definitions=None):
         common=dict(machining_id=f.machining_id or f'M{i:03}', feature=f.id, kind=f.kind, face=f.face,
                          axis_x=g.placements[f.id]['direction'][0],axis_y=g.placements[f.id]['direction'][1],axis_z=g.placements[f.id]['direction'][2],
                          u=f.u,v=f.v,plug_length=f.plug_length if f.plugged else '',
-                         thread=thread['display_name'] if thread else '',thread_depth=f.thread_depth if thread else '',
+                         thread=thread['display_name'] if thread else closure_thread['display_name'] if closure_thread else '',
+                         thread_depth=f.thread_depth if thread else closure_thread_depth if closure_thread else '',
                          port_spec=(definition.thread_note or definition.label) if definition and f.kind=='port' else '',
                          closure=closure['display_name'] if closure else ('UNRESOLVED' if f.plugged else ''),
-                         tooling=(selected_tool['id'] if selected_tool else
-                                  '; '.join(f"{row['operation_name']}: {row['tool']['id'] if row['tool'] else 'UNRESOLVED'}" for row in operation_tools)
-                                  if operation_tools else 'No source-backed tool reaches the required diameter/depth'))
-        if definition:
+                         tooling='; '.join(([selected_tool['id']] if selected_tool else [])+
+                                  [f"{row['operation_name']}: {row['tool']['id'] if row['tool'] else 'UNRESOLVED'}" for row in operation_tools])
+                                  or 'No source-backed tool reaches the required diameter/depth')
+        if definition or steps:
             for index,s in enumerate(steps,1):
                 rows.append(dict(**common,operation=index,profile=s['kind'],diameter=s['diameter'],depth=s['end'],start=s['start'],
                                  end_diameter=s.get('end_diameter',''),inner_diameter=s.get('inner_diameter',''),
@@ -88,11 +108,14 @@ def manufacturing_outputs(design, g, folder, definitions=None):
                               assumption='Full stated net flow through smallest bore; no branch distribution, valve loss or pressure rating calculation.'))
     native_recipes=[dict(definition=d.id,unit_system=d.unit_system,operations=d.machining)
                     for d in definitions.values() if any(f.definition==d.id and not f.suppressed for f in design.features)]
+    closure_recipes=[dict(feature=p['feature'],definition=p['closure']['id'],operations=p['closure']['machining'],
+                         tooling=p['operation_tools']) for p in profiles if (p.get('closure') or {}).get('entry_machining_status')=='resolved']
     stock=dict(material_id=design.block.material_id,material=design.block.material,stock_id=design.block.stock_id,
                finished_dimensions_mm=[design.block.length,design.block.width,design.block.height],
                stock_dimensions_mm=design.block.stock_dimensions,required_machining_allowance_mm=design.block.machining_allowance,
                actual_stock_excess_mm=design.block.stock_excess)
     (folder/'manufacturing.json').write_text(json.dumps(dict(status='ENGINEERING_REVIEW_REQUIRED',drill_chart=rows,meet_list=meets,velocity_screen=flows,
-                                                           machining_profiles=profiles,native_recipes=native_recipes,stock=stock,
+                                                           machining_profiles=profiles,native_recipes=native_recipes,
+                                                           closure_recipes=closure_recipes,stock=stock,
                                                            engravings=[row.model_dump() for row in design.engravings],
                                                            block_modifiers=[row.model_dump() for row in design.block_modifiers]),indent=2),encoding='utf-8')

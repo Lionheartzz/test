@@ -16,7 +16,10 @@ def migrated(monkeypatch):
     src=engineering_db._connect();db=sqlite3.connect(':memory:');db.row_factory=sqlite3.Row
     engineering_db.initialize_schema(db)
     for table in ('thread_definitions','external_port_definitions','closure_definitions'):
-        rows=src.execute('SELECT * FROM '+table).fetchall()
+        if table=='closure_definitions':
+            from manifold.admit_construction_closures import plan
+            rows,_=plan(src)
+        else:rows=src.execute('SELECT * FROM '+table).fetchall()
         db.executemany('INSERT INTO '+table+' VALUES ('+','.join('?' for _ in rows[0])+')',[tuple(r) for r in rows])
     src.close()
     before=[dict(r) for r in db.execute('SELECT * FROM closure_definitions')]

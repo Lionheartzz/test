@@ -9,7 +9,7 @@ import json
 import os
 import sqlite3
 import re
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 from pathlib import Path
 
 from .schema import CavityDefinition
@@ -46,7 +46,7 @@ def _connect(path: Path | None = None, *, writable: bool = False) -> sqlite3.Con
 
 def validate_database(path: Path | None = None, *, schema_version: int | None = None) -> dict:
     try:
-        with _connect(path) as connection:
+        with closing(_connect(path)) as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
             tables = {
                 row[0]
@@ -74,9 +74,9 @@ def validate_database(path: Path | None = None, *, schema_version: int | None = 
             from .technical_schema import TABLES
             required.update(TABLES)
             # v6 adds a read-only research layer; v5 runtime definitions remain valid.
-            expected_version = (version if version in (6,7) else SCHEMA_VERSION) if schema_version is None else schema_version
-            if expected_version not in (4, 5, 6, 7):
-                raise ValueError('Only explicit v4 preservation sources and v5/v6/v7 runtime schemas are supported')
+            expected_version = (version if version in (6,7,8) else SCHEMA_VERSION) if schema_version is None else schema_version
+            if expected_version not in (4, 5, 6, 7, 8):
+                raise ValueError('Only explicit v4 preservation sources and v5/v6/v7/v8 runtime schemas are supported')
             if expected_version >= 5:
                 from .relation_schema import TABLES as RELATION_TABLES
                 required.update(RELATION_TABLES)
@@ -895,8 +895,8 @@ def browse_closures(*, include_inactive=False):
             WHERE {where} ORDER BY c.display_name,c.id
         """).fetchall()
         from .generic_closures import products
-        return [dict(row) | {"closure_type":"expander", "products":products(connection,row['id']),
-                             "machining":[op for op in json.loads(row["machining_json"]) if op.get('operation')!='SOURCE_EXPANDER_ENTRY'],
+        return [dict(row) | {"closure_type":next((op.get('closure_type','expander') for op in json.loads(row['machining_json']) if op.get('operation') in ('SOURCE_EXPANDER_ENTRY','SOURCE_FORM_PORT_ENTRY')),'unknown'), "products":products(connection,row['id']),
+                             "machining":[op for op in json.loads(row["machining_json"]) if op.get('operation') not in ('SOURCE_EXPANDER_ENTRY','SOURCE_FORM_PORT_ENTRY')],
                              "envelope":json.loads(row["envelope_json"])} for row in rows]
 
 

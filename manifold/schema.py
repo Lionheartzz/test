@@ -193,6 +193,7 @@ class Feature(Strict):
     thread_definition_id: Identifier | None = None
     thread_depth: Positive | None = None
     closure_definition_id: Identifier | None = None
+    closure_selection_mode: Literal['automatic','manual'] = 'automatic'
     machining_modifiers: list[MachiningModifierPlacement] = Field(default_factory=list,max_length=20)
 
     @property
@@ -225,6 +226,7 @@ class Feature(Strict):
             value.pop('mounting_mode',None);value.pop('thread_definition_id',None);value.pop('thread_depth',None)
         if self.kind!='drilling':value.pop('closure_definition_id',None)
         elif value.get('closure_definition_id') is None:value.pop('closure_definition_id',None)
+        if self.kind!='drilling' or self.closure_selection_mode=='automatic':value.pop('closure_selection_mode',None)
         if not value.get('machining_modifiers'):value.pop('machining_modifiers',None)
         return value
 

@@ -119,6 +119,8 @@ def anchors(source):
             closure=profile.get('closure') or {}
             spec += (' / CLOSURE '+(closure.get('display_name') or closure.get('model') or closure.get('id')) if closure.get('entry_machining_status')=='resolved'
                      else f' / plug engagement {f.plug_length:g}; entry machining unresolved')
+            if closure.get('entry_machining_status')=='resolved' and closure.get('entry_diameter_mm') is not None:
+                spec+=f" / ENTRY Ø{closure['entry_diameter_mm']:g} × {closure['entry_depth_mm']:g} / ENGAGEMENT {closure['engagement_mm']:g}"
         # Display the pinned engineering definition, never a guessed product
         # identity or an internal database key in the PMC PORTINGS cells.
         if definition_id:
@@ -132,6 +134,8 @@ def anchors(source):
             closure=profile.get('closure') or {}
             pmc_spec+=(' / '+(closure.get('display_name') or closure.get('model') or closure.get('id'))
                        if closure.get('entry_machining_status')=='resolved' else f' / PLUG {f.plug_length:g}; ENTRY SPEC REQUIRED')
+            if closure.get('entry_machining_status')=='resolved' and closure.get('entry_diameter_mm') is not None:
+                pmc_spec+=f" / ENTRY Ø{closure['entry_diameter_mm']:g} × {closure['entry_depth_mm']:g} / ENGAGEMENT {closure['engagement_mm']:g}"
         row = dict(id=f.id, feature=f.id, face=f.face, label=label, specification=spec,
                    machining_label=result[key]['machining_label'],
                    kind=f.kind,pmc_specification=pmc_spec,
@@ -156,7 +160,12 @@ def anchors(source):
                 inner_diameter=step.get('inner_diameter') if step.get('kind')=='annulus' else None,
                 offset_u=step.get('offset_u', 0), offset_v=step.get('offset_v', 0),
                 rotation=f.rotation,
-                machining_notes=json.dumps(facts.get('machining_operations',recipes.get(definition_id,[])),ensure_ascii=False) if definition_id else '',tooling=[],
+                machining_notes=(json.dumps(facts.get('machining_operations',recipes.get(definition_id,[])),ensure_ascii=False) if definition_id else
+                    '; '.join(op.get('operation','') + (' '+op['thread'] if op.get('thread') else '') +
+                        (f" Ø{op['diameter_mm']:g}" if op.get('diameter_mm') is not None else '') +
+                        (f" × {op['depth_mm']:g} mm" if op.get('depth_mm') is not None else '')
+                        for op in (profile.get('closure') or {}).get('machining',[]))),
+                tooling=profile.get('operation_tools',[]),
                 profile=step.get('kind', 'cylinder'), tip_angle=None if definition_id or (f.kind=='mounting' and f.through) else f.tip_angle,
                 direction=direction, specification=spec, source=row['source'], closure=profile.get('closure')))
     for engraving in design.engravings:
