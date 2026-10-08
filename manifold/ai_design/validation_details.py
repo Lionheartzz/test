@@ -12,6 +12,8 @@ CUSTOM = {
     'A value needs a source or explicit inference provenance': 'A non-null value needs schematic/user provenance or explicit AI-inference provenance; unknown provenance cannot support an asserted value.',
     'Labels must be unique within their component or external-port group': 'Labels must be unique within the component or external-port group; do not merge distinct hydraulic entities to resolve this.',
     'Net names must be nonempty text or null': 'A net name must be nonempty text or null. Do not invent a connection for an unknown net.',
+    'Connected port needs a hydraulic net': 'A connected hydraulic port has no net assignment. Resolve the connection from the schematic; do not invent a net.',
+    'Blocked or terminated port cannot belong to a hydraulic net': 'A blocked or terminated port also has a net assignment. Resolve the conflicting connection from the schematic.',
 }
 EXPLANATIONS = {
     'missing': 'Required field is missing.',

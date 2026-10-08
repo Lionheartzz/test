@@ -276,7 +276,7 @@ def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, iden
         location = f'components[{i - 1}]'
         for index, field in identity_omissions:
             if index == i - 1:
-                unresolved(f'{field}: unsupported model value discarded because provenance was missing. Confirm from source or correct through engineer review before product selection.', key)
+                unresolved(f'{component.label} · {field}: unsupported or unknown model value discarded. Confirm from source or correct through engineer review before product selection.', key)
         ids = [label_claim(key, component.label, component.source, location)]
         ids += [claim(key, name, getattr(component, name), location=location) for name in ('functional_type', 'manufacturer', 'model', 'cavity')]
         ids += [claim(key, x.name, x.reading, x.unit, location=location) for x in component.parameters]
