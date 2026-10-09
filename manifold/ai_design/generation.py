@@ -78,22 +78,28 @@ def prepare(inputs, result, options):
     settings['material_id']=material_matches[0]['id'] if len(material_matches)==1 else None
     settings['engineering_facts']=material_matches[0].get('engineering_facts_summary') if len(material_matches)==1 else None
     if len(material_matches)==1:settings['material']=material_matches[0]['display_name']
-    blocked = list(settings['conflicts'])
+    # Preserve the existing admission messages/policy, but identify their UI owner.
+    blocked = []
+    decisions = []
+    def block(message, section='requirements', target_id=None, field=None):
+        blocked.append(message)
+        decisions.append(dict(message=message,section=section,target_id=target_id,field=field))
+    for message in settings['conflicts']:block(message)
     if any(net.get('status')=='uncertain' for net in result['nets']) and not options.topology_decision.strip():
-        blocked.append('AI connection proposals are unconfirmed. Review the schematic and record a topology decision before generating a draft.')
+        block('AI connection proposals are unconfirmed. Review the schematic and record a topology decision before generating a draft.', 'topology', field='decision')
     authored_count=len(result['components'])+sum(p['component_id'] is None and p.get('disposition') not in ('blocked','terminated') for p in result['ports'])+len(options.threaded_mounting_holes)
     if authored_count>PROJECT_FEATURES:
-        blocked.append(f'This circuit needs {authored_count} authored features; the editable project supports {PROJECT_FEATURES} total features including generated drillings. Split the circuit into projects.')
+        block(f'This circuit needs {authored_count} authored features; the editable project supports {PROJECT_FEATURES} total features including generated drillings. Split the circuit into projects.', 'analysis')
     if len(result['nets'])>PROJECT_NETS:
-        blocked.append(f'This circuit has {len(result["nets"])} nets; the editable project supports {PROJECT_NETS}. Split the circuit into projects; the complete analysis is retained.')
+        block(f'This circuit has {len(result["nets"])} nets; the editable project supports {PROJECT_NETS}. Split the circuit into projects; the complete analysis is retained.', 'analysis')
     if not result['ports'] or not result['nets'] and any(p.get('disposition')=='connected' for p in result['ports']):
-        blocked.append('No usable hydraulic topology was recognized. Review the source and analyze again.')
+        block('No usable hydraulic topology was recognized. Review the source and analyze again.', 'analysis')
     port_net = {p: n['id'] for n in result['nets'] for p in n['members']}
     for port in result['ports']:
         if port.get('disposition','unknown')=='unknown' and port['id'] in port_net:port['disposition']='connected'
     for port in result['ports']:
         if port.get('disposition','unknown') in ('connected','unknown') and port['id'] not in port_net:
-            blocked.append(library.display_label(result,port) + ': choose a hydraulic net for the unknown connection.')
+            block(library.display_label(result,port) + ': choose a hydraulic net for the unknown connection.', 'topology', port['id'], 'net')
     components = []
     known_components = {c['id'] for c in result['components']}
     known_external = {p['id'] for p in result['ports'] if p['component_id'] is None}
@@ -112,7 +118,7 @@ def prepare(inputs, result, options):
         if selected:
             definition = library.load(inputs, selected.definition_key, selected.definition_sha256)
             if identity.get('interface_requirements') and definition.id not in identity.get('interface_ids',[]):
-                blocked.append(f'{label}: selected interface conflicts with the declared source interface; correct or clarify the source requirement.')
+                block(f'{label}: selected interface conflicts with the declared source interface; correct or clarify the source requirement.', 'component', key, 'interface')
             mapping = selected.zone_ports
             decision = selected.decision.strip()
             resolution = {**resolution, 'code': 'manual_selection',
@@ -128,14 +134,15 @@ def prepare(inputs, result, options):
                 decision = row['reason'] + '; exact hydraulic interface labels matched by PMC. Engineer review remains required.'
             else:
                 definition, mapping, decision = None, {}, ''
-                blocked.append(f'{label}: {resolution["message"]} {resolution["action"]}')
+                block(f'{label}: {resolution["message"]} {resolution["action"]}', 'component', key,
+                      'mapping' if resolution['code']=='window_mapping_required' else 'interface')
         if definition:
             if definition.kind != 'cavity':
                 raise ValueError('An external-port definition cannot be used as a cartridge cavity')
             if not definition.active or not definition.usable:
-                blocked.append(f'{label}: selected cavity geometry is unavailable: {definition.unusable_reason}')
+                block(f'{label}: selected cavity geometry is unavailable: {definition.unusable_reason}', 'component', key, 'interface')
             if set(mapping) != {z.id for z in definition.zones} or set(mapping.values()) != set(component['port_ids']) or len(set(mapping.values())) != len(mapping):
-                blocked.append(f'{label}: map every cavity window to exactly one distinct schematic component port.')
+                block(f'{label}: map every cavity window to exactly one distinct schematic component port.', 'component', key, 'mapping')
         cartridge_id=next((row.get('cartridge_id') for row in choices if definition and row['key']=='db:'+definition.id),None)
         components.append(dict(id=key, label=label,
                                model=identity['recognized_model'] or '',
@@ -164,17 +171,17 @@ def prepare(inputs, result, options):
         if definition and (definition.kind!='external-port' or len(definition.zones)!=1):
             raise ValueError('External ports require a source external-port definition with one hydraulic interface')
         if definition and (not definition.active or not definition.usable):
-            blocked.append(f'{label}: selected port machining definition is unavailable: {definition.unusable_reason}')
+            block(f'{label}: selected port machining definition is unavailable: {definition.unusable_reason}', 'external_port', port['id'], 'interface')
         requested_standard,requested_size=library.port_standard(specification)
         if definition and requested_standard and (not requested_size or definition.id not in {
                 row['key'][3:] for row in library.exact_port_candidates(inputs,specification)}):
-            blocked.append(f'{label}: selected port conflicts with explicit source standard “{specification}”. Correct the source requirement before selecting a different standard.')
+            block(f'{label}: selected port conflicts with explicit source standard “{specification}”. Correct the source requirement before selecting a different standard.', 'external_port', port['id'], 'interface')
         provisional=port['id'] in options.provisional_ports
         thread=resolution['thread_resolution']['definition']
         if provisional and requested_standard:
-            blocked.append(f'{label}: explicit thread/standard {specification} cannot be replaced by a straight bore.')
+            block(f'{label}: explicit thread/standard {specification} cannot be replaced by a straight bore.', 'external_port', port['id'], 'interface')
         if provisional and not options.provisional_ports[port['id']].strip():
-            blocked.append(f'{label}: explicit one-off straight-bore use requires an engineering decision.')
+            block(f'{label}: explicit one-off straight-bore use requires an engineering decision.', 'external_port', port['id'], 'decision')
         if not definition and not thread and not provisional:
             group['unresolved_ids'].append(port['id']);port_blocks.setdefault((group_key,'','missing'),[]).append(label)
         external.append(dict(id=port['id'],label=label,specification=specification,definition=definition,
@@ -189,20 +196,20 @@ def prepare(inputs, result, options):
         elif resolution['code']=='port_specification_ambiguous':detail='Multiple non-equivalent complete machining definitions exist. Choose one.'
         elif resolution['normalized']:detail='No usable complete source-backed external-port definition is available.'
         else:detail='No complete external-port definition was selected. Select an existing definition or explicitly approve a one-off Custom Straight Bore.'
-        blocked.append(f'{label} · applies to {", ".join(labels)}: {detail}')
+        block(f'{label} · applies to {", ".join(labels)}: {detail}', 'port_group', port_groups[key]['id'], 'interface')
     from ..engineering_db import thread_definition
     mounting=[]
     if options.threaded_mounting_holes and not options.mounting_decision.strip():
-        blocked.append('Threaded mounting-hole placement requires an explicit engineering decision.')
+        block('Threaded mounting-hole placement requires an explicit engineering decision.', 'mounting', field='decision')
     for index,hole in enumerate(options.threaded_mounting_holes,1):
         thread=thread_definition(hole.thread_definition_id)
         if not thread['active'] or not thread['usable']:
-            blocked.append(f'Mounting hole {index}: thread definition is unavailable: {hole.thread_definition_id}')
+            block(f'Mounting hole {index}: thread definition is unavailable: {hole.thread_definition_id}', 'mounting')
         if hole.thread_depth>hole.depth:
-            blocked.append(f'Mounting hole {index}: thread depth exceeds tap-drill depth.')
+            block(f'Mounting hole {index}: thread depth exceeds tap-drill depth.', 'mounting')
         mounting.append(dict(hole=hole,thread=thread))
     from .intent import reconcile_mounting
-    blocked.extend(reconcile_mounting(settings['mounting_requirements'],mounting))
+    for message in reconcile_mounting(settings['mounting_requirements'],mounting):block(message,'mounting')
     for row in settings['dispositions']:
         if row['category'] == 'separation' and row['status'] == 'pending':
             sets = []
@@ -213,10 +220,10 @@ def prepare(inputs, result, options):
                 row.update(status='review_required', message='Separation target cannot be resolved to hydraulic terminals.')
             elif any(a & b for i,a in enumerate(sets) for b in sets[i+1:]):
                 row.update(status='conflict', message='Requested separation conflicts with the interpreted/confirmed topology. Correct the net assignment first.')
-                blocked.append(row['message'])
+                block(row['message'],'topology',field='decision')
             else:
                 row.update(status='applied', message='Targets remain distinct nets; cross-net physical intersections fail deterministic validation.')
-    return dict(inputs=inputs, result=result, settings=settings, blocked=blocked, components=components,
+    return dict(inputs=inputs, result=result, settings=settings, blocked=blocked, decisions=decisions, components=components,
                 external=external,port_groups=port_groups,mounting=mounting, port_net=port_net, options=options)
 
 
@@ -226,7 +233,7 @@ def preflight(key, request):
     def entry(row):
         return {**{k:v for k,v in row.items() if k != 'definition'},
                 'definition': library.summary('',row['definition']) if row['definition'] else None}
-    return dict(ready=not plan['blocked'], blocked=plan['blocked'], components=[entry(c) for c in plan['components']],
+    return dict(ready=not plan['blocked'], blocked=plan['blocked'], decisions=plan['decisions'], components=[entry(c) for c in plan['components']],
                 external_ports=[entry(p) for p in plan['external']], external_port_groups=list(plan['port_groups'].values()), dispositions=plan['settings']['dispositions'],
                 mounting_requirements=plan['settings']['mounting_requirements'],mounting_holes=[dict(hole=row['hole'].model_dump(),thread=row['thread']) for row in plan['mounting']],
                 ports=[dict(id=p['id'], component_id=p['component_id'], label=library.display_label(result,p),
