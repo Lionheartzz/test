@@ -69,12 +69,15 @@ class PortReading(Strict):
 
 
 class ComponentReading(Strict):
-    label: str = Field(min_length=1, max_length=120)
+    label: str = Field(min_length=1, max_length=120,
+                       description='Human-readable name of this physical component instance; distinguish repeated instances by diagram context.')
     source: Source = Field(default_factory=Source)
     functional_type: Observation = Field(default_factory=Observation)
     manufacturer: Observation = Field(default_factory=Observation)
-    model: Observation = Field(default_factory=Observation)
-    cavity: Observation = Field(default_factory=Observation)
+    model: Observation = Field(default_factory=Observation,
+                               description='Observed product model or full ordering code, separate from cavity, function and instance annotations.')
+    cavity: Observation = Field(default_factory=Observation,
+                                description='Separately observed machining cavity designation; never infer it from the model or a library match.')
     ports: list[PortReading] = Field(min_length=1, max_length=COMPONENT_INTERFACES)
     parameters: list[Parameter] = Field(default_factory=list, max_length=30)
 
@@ -151,6 +154,22 @@ cavity and functional_type are Observation objects, never scalar strings; keep t
 Component-level source may be omitted when unavailable (defaults to unknown); it never supplies missing
 provenance for these observations. Report observed manufacturer/model/cavity facts only with schematic
 support. A requested product or cavity belongs in requirements, not as an already-observed component fact.
+The drawing has NO prescribed text format, field names, ordering, punctuation or line layout. Interpret
+each component from its symbol, associated nearby annotations and hydraulic connections. A caption may
+combine a product model, cavity designation, function, setting and instance name, or spread them across
+different lines. Determine their meanings and return them in their separate Observation fields; do not
+copy the entire caption into model. A machining cavity designation belongs in cavity, independently of
+whether it appears before, after, above or beside the model. Preserve genuine full product ordering
+suffixes in model; do not strip text just because it resembles a cavity or another familiar code.
+Use the actual text supporting each observation in its own schematic source quote/document/page.
+Do not infer a manufacturer or cavity solely from a model, naming style, example or library reference.
+When the meaning or association is ambiguous, keep that observation uncertain/unknown and explain
+the specific ambiguity; do not silently concatenate distinct identities to avoid interpreting them.
+Repeated physical components can have identical observed models and cavities. Keep each instance and
+its hydraulic ports separate, with a distinct display label based on diagram position or visible context.
+An instance qualifier belongs in label, not in the product model, cavity or hydraulic port identity.
+Port labels may repeat across different components; preserve the actual port labels within each instance.
+Read the source identities even when runtime availability is unknown; library matching is a later step.
 For "USE SUN CARTRIDGES WHEN POSSIBLE", emit a requirement with that exact quote, category
 component_selection, property manufacturer, operator prefer, strength preference, value SUN. Leave each
 component manufacturer unknown unless the schematic itself supports it; do not copy SUN from this preference.
