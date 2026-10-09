@@ -138,7 +138,8 @@ def prepare(inputs, result, options):
                 blocked.append(f'{label}: map every cavity window to exactly one distinct schematic component port.')
         cartridge_id=next((row.get('cartridge_id') for row in choices if definition and row['key']=='db:'+definition.id),None)
         components.append(dict(id=key, label=label,
-                               model=library.identity_value(result,key,'model') or '',
+                               model=identity['recognized_model'] or '',
+                               recognized_interface=' / '.join(str(value) for value in identity.get('interface_requirements',[])),
                                recognized_facts=dict(component.get('facts',{})),
                                cartridge_id=cartridge_id,
                                function=library.value(result,key,'functional_type') or '',

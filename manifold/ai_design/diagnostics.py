@@ -81,7 +81,7 @@ class Diagnostics(Strict):
     max_tokens_parameter: Literal['max_tokens', 'max_completion_tokens'] = 'max_tokens'
     stream: bool = False
     timeout_seconds: float = Field(default=120, gt=0)
-    prompt_revision: Literal['circuit-reading-1-compact-v2', 'circuit-reading-1-compact-v3', 'circuit-reading-1-compact-v4', 'circuit-reading-1-compact-v5', 'circuit-reading-1-compact-v6', 'circuit-reading-1-compact-v7', 'circuit-reading-1-compact-v8', 'circuit-reading-1-compact-v9', 'circuit-reading-1-compact-v10'] = 'circuit-reading-1-compact-v10'
+    prompt_revision: Literal['circuit-reading-1-compact-v2', 'circuit-reading-1-compact-v3', 'circuit-reading-1-compact-v4', 'circuit-reading-1-compact-v5', 'circuit-reading-1-compact-v6', 'circuit-reading-1-compact-v7', 'circuit-reading-1-compact-v8', 'circuit-reading-1-compact-v9', 'circuit-reading-1-compact-v10', 'circuit-reading-1-compact-v11'] = 'circuit-reading-1-compact-v11'
     prompt_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     schema_chars: int = Field(default=0, ge=0)
     text_chars: int = Field(default=0, ge=0)

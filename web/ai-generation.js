@@ -83,6 +83,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
     if(!plan.components.length)content.append(element('p','No mounted components in this circuit. A port/distribution block can be generated if the net topology is usable.'));
     for(const component of plan.components){
       const card=element('section',null,'library-card');content.append(card);card.append(element('h4',component.label+(component.model&&component.model!==component.label?' · '+component.model:'')));
+      if(component.recognized_interface)card.append(element('p','Recognized machining interface: '+engineeringText(component.recognized_interface)));
       const conditions=Object.entries(component.recognized_facts||{}).filter(([key,value])=>value!=null&&/pressure|flow|passage|bore/i.test(key));if(conditions.length)card.append(element('p','Recognized schematic: '+conditions.map(([key,value])=>key.replaceAll('_',' ')+': '+value).join(' · ')));
       const binding=options.bindings[component.id],definition=component.definition;
       const choice=component.choices.find(row=>row.cartridge_id===component.cartridge_id);
@@ -98,7 +99,14 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
           else card.append(element('p',label+': '+(ports[component.mapping[zone.id]]||'Unmapped')));
         }
       }else card.append(element('p','Select the machining interface used by this component. Existing cartridge cavities, surface-mounted valve interfaces and other source-defined engineering families use the same catalogue; confirm the hydraulic port mapping and orientation.'));
-      for(const choice of component.choices)action(card,'Use candidate '+(choice.display_label||choice.label),safe(()=>selectCavity(component,choice,plan)));
+      for(const choice of component.choices){
+        const candidate=element('div',null,'library-candidate');card.append(candidate);
+        candidate.append(element('p',[choice.display_label||choice.label,choice.unit,choice.definition_origin,
+          choice.machining_depth_mm!=null?'Machining depth '+Number(choice.machining_depth_mm.toFixed(3))+' mm':'',
+          choice.usable?'Available':'Machining definition incomplete'].filter(Boolean).join(' · ')));
+        if(choice.usable)action(candidate,'Use candidate '+(choice.display_label||choice.label)+' · '+choice.unit,safe(()=>selectCavity(component,choice,plan)));
+        else if(choice.unusable_reason)candidate.append(element('p',engineeringText(choice.unusable_reason),'property-note'));
+      }
       librarySearch(card,task,'component-interface',component.label,choice=>selectCavity(component,choice,plan));
       field(card,'Mounting face · '+component.label,options.component_faces[component.id]||'',v=>{if(v)options.component_faces[component.id]=v;else delete options.component_faces[component.id];},faceOptions);
     }

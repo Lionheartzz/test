@@ -75,7 +75,7 @@ class ComponentReading(Strict):
     functional_type: Observation = Field(default_factory=Observation)
     manufacturer: Observation = Field(default_factory=Observation)
     model: Observation = Field(default_factory=Observation,
-                               description='Observed product model or full ordering code, separate from cavity, function and instance annotations.')
+                               description='Actual valve/cartridge product model or full ordering code, never its machining cavity or mounting standard. A product name mentioned in label must also be recorded here when independently observed.')
     cavity: Observation = Field(default_factory=Observation,
                                 description='Separately observed machining cavity designation; never infer it from the model or a library match.')
     mounting_interface: Observation = Field(default_factory=Observation,
@@ -171,7 +171,13 @@ Repeated physical components can have identical observed models and cavities. Ke
 its hydraulic ports separate, with a distinct display label based on diagram position or visible context.
 An instance qualifier belongs in label, not in the product model, cavity or hydraulic port identity.
 Port labels may repeat across different components; preserve the actual port labels within each instance.
+Each local symbol port label is distinct from its hydraulic net name or function. Preserve visible local
+port numbers even when their lines serve P/T/A/B; do not replace numbered ports with those net names.
 Read the source identities even when runtime availability is unknown; library matching is a later step.
+Keep all independently visible identity annotations: a valve/product code belongs in model even when
+it is also mentioned in the display label; its separately observed machining interface belongs in cavity
+or mounting_interface. These describe one physical component, not separate components. Never use an
+interface code as a substitute product model, or drop the product observation because it is in label.
 Hydraulic components are not all cartridges. Distinguish the product model and actuation/function
 from the block interface: use cavity for a cartridge cavity, and mounting_interface for an explicitly
 documented surface/subplate, sandwich or other mounting-interface designation. A solenoid or a

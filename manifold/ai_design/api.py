@@ -48,7 +48,12 @@ def delete(key:str):return call(jobs.delete_task,key)
 def analyze(key:str,payload:RunRequest):return call(service.analyze,key,payload.expected_revision,payload.provider)
 
 @router.get('/tasks/{key}/runs/{run_id}')
-def run(key:str,run_id:str):return call(service.load_run,key,run_id)
+def run(key:str,run_id:str):
+    def view():
+        saved=service.load_run(key,run_id)
+        if saved['status']!='completed':return saved
+        return {**saved,'identity_interpretations':library_resolution.identity_interpretations(saved['result'])}
+    return call(view)
 
 @router.get('/tasks/{key}/export')
 def export(key:str,run_id:str|None=None):

@@ -13,6 +13,10 @@ def summary(key,definition):
     return dict(key=key,sha256=digest(definition.model_dump()),label=definition.label,
                 display_label=interface_catalog.display_label(definition.label,definition.family),family=definition.family,
                 manufacturer=definition.manufacturer,role=definition.kind,
+                definition_origin='Custom definition' if definition.id.startswith('custom_') else
+                                  'Legacy definition' if definition.id.startswith('legacy_') else 'Imported definition',
+                machining_depth_mm=max([stage.end for stage in definition.stages]+
+                                       [cut.end for cut in definition.cutting_primitives]+[0]),
                 zones=[dict(**z.model_dump(),display_label=interface_catalog.hydraulic_label(z.id)) for z in definition.zones],
                 usable=definition.usable,unit=definition.unit_system,unusable_reason=definition.unusable_reason,
                 geometry_status='usable' if definition.usable else 'unusable')
@@ -211,6 +215,16 @@ def component_identity(result,component):
     identity=resolve_cartridge_identity(model,maker)
     declared=[(field,identity_value(result,component['id'],field)) for field in ('cavity','mounting_interface')]
     declared=[(field,value) for field,value in declared if value]
+    identity['model_role']='product' if model else None
+    # A source-backed designation can be placed in the wrong observation field.
+    # Resolve the full literal against the typed runtime catalogue, without
+    # splitting captions, mining display labels or guessing product compatibility.
+    # Known/ambiguous product identities keep their product semantics.
+    if identity['code']=='cartridge_identity_missing' and isinstance(model,str) and model.strip():
+        interface_ids=interface_catalog.exact_ids(model)
+        if interface_ids:
+            declared.append(('model',model))
+            identity.update(recognized_model=None,observed_model=model,model_role='engineering_interface')
     requirements=[value for _,value in declared]
     identity['interface_requirements']=requirements
     if requirements:
@@ -220,8 +234,20 @@ def component_identity(result,component):
         else:
             identity['interface_ids']=sorted(set.intersection(*matches))
             if identity['code']=='cartridge_identity_missing':
-                identity.update(code='resolved',method='explicit_engineering_interface',interface_only=True)
+                identity.update(code='resolved',method='typed_engineering_interface' if identity['model_role']=='engineering_interface'
+                                else 'explicit_engineering_interface',interface_only=True)
     return identity
+
+
+def identity_interpretations(result):
+    """Current catalogue interpretation for display, separate from saved facts."""
+    interpretations={}
+    for component in result['components']:
+        identity=component_identity(result,component)
+        if identity['model_role']=='engineering_interface':
+            interpretations[component['id']]=dict(model_role=identity['model_role'],
+                designation=identity['observed_model'])
+    return interpretations
 
 
 def candidates(inputs,result,component,identity=None):
@@ -229,7 +255,8 @@ def candidates(inputs,result,component,identity=None):
     if identity['code']!='resolved':return []
     if identity.get('interface_only'):
         return [dict(**summary('db:'+key,get_definition(key)),logical_id='definition:'+key,
-                     reason='Explicit source-backed engineering interface') for key in identity['interface_ids']]
+                     reason='Source-backed designation matched an existing engineering interface' if identity.get('model_role')=='engineering_interface'
+                     else 'Explicit source-backed engineering interface') for key in identity['interface_ids']]
     matches=identity['candidates']
     found=[]
     from ..engineering_facts import facts_batch
@@ -271,7 +298,7 @@ def resolution_status(inputs,result,component,choices,identity=None):
     elif blocked=='relationship_missing' and identity.get('interface_requirements'):blocked='interface_compatibility_conflict'
     usable=[row for row in choices if row['usable']]
     messages={
-        'cartridge_identity_missing':(f'Component “{identity["recognized_model"]}” was recognized; no automatic cartridge-cavity match is available.' if identity['recognized_model'] else 'No source-backed cartridge model was recognized.','Select an existing cavity or valve mounting interface. A surface-mounted valve does not require a cartridge identity.'),
+        'cartridge_identity_missing':(f'Observed model “{identity["recognized_model"]}” has no runtime product identity match.' if identity['recognized_model'] else 'No source-backed product or machining interface was recognized.','Choose the existing machining interface for this component. Product identity and mounting interface are resolved separately.'),
         'cartridge_identity_ambiguous':('Multiple runtime cartridge identities match the recognized source identity.','Resolve the cartridge identity before automatic cavity selection.'),
         'interface_definition_missing':('The declared engineering interface has no exact runtime definition or standard-family match.','Search the interface catalogue or clarify the source designation; no geometry is inferred.'),
         'interface_requirements_conflict':('The declared cavity and mounting interface select different engineering definitions.','Resolve the source identity conflict before generation.'),
