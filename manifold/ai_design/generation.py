@@ -141,6 +141,7 @@ def prepare(inputs, result, options):
                                model=identity['recognized_model'] or '',
                                recognized_interface=' / '.join(str(value) for value in identity.get('interface_requirements',[])),
                                recognized_facts=dict(component.get('facts',{})),
+                               observed_identity_annotations=list(component.get('observed_identity_annotations',[])),
                                cartridge_id=cartridge_id,
                                function=library.value(result,key,'functional_type') or '',
                                choices=choices, definition=definition, mapping=dict(mapping or {}),

@@ -50,7 +50,7 @@ def schema_fields():
 
 def safe_validation_errors(exc):
     from .observation_adapter import input_shape
-    allowed=schema_fields()
+    allowed=schema_fields() | {'captions','identity_captions'}
     details=[]
     for error in exc.errors(include_input=True,include_url=False):
         path=[];redacted=False

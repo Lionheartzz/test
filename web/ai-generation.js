@@ -84,6 +84,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
     for(const component of plan.components){
       const card=element('section',null,'library-card');content.append(card);card.append(element('h4',component.label+(component.model&&component.model!==component.label?' · '+component.model:'')));
       if(component.recognized_interface)card.append(element('p','Recognized machining interface: '+engineeringText(component.recognized_interface)));
+      for(const text of component.observed_identity_annotations||[])card.append(element('p','Observed annotation: '+engineeringText(text),'property-note'));
       const conditions=Object.entries(component.recognized_facts||{}).filter(([key,value])=>value!=null&&/pressure|flow|passage|bore/i.test(key));if(conditions.length)card.append(element('p','Recognized schematic: '+conditions.map(([key,value])=>key.replaceAll('_',' ')+': '+value).join(' · ')));
       const binding=options.bindings[component.id],definition=component.definition;
       const choice=component.choices.find(row=>row.cartridge_id===component.cartridge_id);

@@ -1,11 +1,10 @@
 """Source-bound identities; an ordering suffix is never guessed or stripped."""
 import json
-import re
 from functools import lru_cache
 from ..engineering_db import _connect,database_path
 
 
-def norm(value):return re.sub(r'[^a-z0-9]','',str(value or '').lower())
+def norm(value):return ''.join(character for character in str(value or '').casefold() if character.isalnum())
 
 
 def _aliases(original):

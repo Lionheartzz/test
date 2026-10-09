@@ -15,6 +15,8 @@ from .transport_controls import reasoning_parameters
 from .validation_details import safe_validation_errors
 from .identity_admission import recover_unknown_identity
 from .observation_adapter import adapt_observations
+from .identity_reading import IdentityReading, INSTRUCTIONS as IDENTITY_INSTRUCTIONS, validate_reading
+from .identity_lookup import lookup as lookup_identities
 
 
 class MultimodalProvider:
@@ -60,10 +62,12 @@ class MultimodalProvider:
             diag.update(image_count=len(manifest), schema_chars=len(schema),
                         text_chars=len(system)+sum(len(p['text']) for p in content if p['type']=='text'),
                         prompt_sha256=hashlib.sha256(system.encode()).hexdigest(), phase='provider_call')
-            result = asyncio.run(self._analyze(request, messages, pages_by_doc, controls, diag))
+            result, identity_reading = asyncio.run(self._analyze(request, messages, pages_by_doc, controls, diag))
             metadata = dict(transport='chat-completions', schema='circuit-reading-1', requests=diag['request_count'],
                             document_pages=manifest, page_counts=pages_by_doc, image_max_side=settings.image_max_side,
-                            endpoint_sha256=hashlib.sha256(settings.base_url.encode()).hexdigest())
+                            endpoint_sha256=hashlib.sha256(settings.base_url.encode()).hexdigest(),
+                            pipeline='source-captions/sqlite-reference/hydraulic-analysis',
+                            identity_reading=identity_reading.model_dump())
             return ProviderResponse(result.model_dump(), metadata=metadata, diagnostics=diag,
                                     **{field: diag['usage'][field] for field in TOKENS})
         except ProviderFailure as exc:
@@ -74,14 +78,56 @@ class MultimodalProvider:
                                   diagnostics=aggregate(diag)) from None
 
     async def _analyze(self, request, messages, pages_by_doc, controls, diag):
-        settings = self.settings
-        # One total deadline for all HTTP attempts, not an idle timeout reset by each chunk.
+        settings=self.settings
+        # One deadline for the complete planned pipeline and any opted-in retries.
         deadline = time.monotonic() + settings.timeout_seconds
-        for index in range(settings.contract_retries+1):
+        caption_content=[part for part in messages[1]['content'] if part['type']=='image_url'
+            or part['type']=='text' and part['text'].startswith('Document ')]
+        caption_messages=[dict(role='system',content=IDENTITY_INSTRUCTIONS+'\nJSON schema:\n'+
+                              json.dumps(prompt_schema(IdentityReading),separators=(',',':'))),
+                          dict(role='user',content=caption_content)]
+        inventory=await self._stage(request,caption_messages,pages_by_doc,controls,diag,deadline,
+                                    'identity_reading')
+        diag['phase']='knowledge_resolution'
+        lookup_started=time.monotonic()
+        remaining=deadline-time.monotonic()
+        if remaining<=0:raise ProviderFailure('PROVIDER_TIMEOUT')
+        try:
+            async with asyncio.timeout(remaining):
+                reference=await asyncio.to_thread(lookup_identities,inventory,deadline=deadline)
+        except TimeoutError:
+            raise ProviderFailure('PROVIDER_TIMEOUT') from None
+        context=json.dumps(reference,ensure_ascii=False,separators=(',',':'))
+        diag.update(identity_lookup_tables=reference['searched_tables'],identity_caption_count=len(inventory.captions),
+                    identity_lookup_matches=reference['matched_records'],
+                    identity_lookup_ms=round((time.monotonic()-lookup_started)*1000,2),
+                    identity_reference_sha256=hashlib.sha256(context.encode()).hexdigest())
+        final_messages=[*messages,dict(role='user',content='Source identity reading and current SQLite identity-field '
+            'reference matches, numbered by caption. Compare them before completing CircuitReading. Preserve '
+            'both product models and machining interfaces, and attach identity_captions references. Similarity '
+            'does not justify correcting source text or claiming geometry/compatibility.\n'+context)]
+        try:
+            result=await self._stage(request,final_messages,pages_by_doc,controls,diag,deadline,
+                                     'hydraulic_analysis',inventory)
+        except ProviderFailure as exc:
+            exc.identity_reading=inventory.model_dump()
+            raise
+        return result,inventory
+
+    async def _stage(self, request, messages, pages_by_doc, controls, diag, deadline, stage, inventory=None):
+        settings=self.settings
+        retry_budget=max(0,settings.contract_retries-diag['retry_count'])
+        for index in range(retry_budget+1):
             if time.monotonic() >= deadline:
                 raise ProviderFailure('PROVIDER_TIMEOUT')
-            attempt = Attempt(index=index+1).model_dump()
+            attempt = Attempt(index=len(diag['attempts'])+1,request_stage=stage,contract_attempt=index+1).model_dump()
+            attempt['text_chars']=sum(len(message['content']) if isinstance(message['content'],str) else
+                sum(len(part['text']) for part in message['content'] if part['type']=='text') for message in messages)
+            attempt['image_count']=sum(part['type']=='image_url' for message in messages
+                if isinstance(message['content'],list) for part in message['content'])
+            attempt['prompt_sha256']=hashlib.sha256(messages[0]['content'].encode()).hexdigest()
             diag['attempts'].append(attempt)
+            diag['text_chars']=sum(row.get('text_chars') or 0 for row in diag['attempts'])
             started = time.monotonic()
             body = dict(model=settings.model, messages=messages, stream=settings.stream, **controls)
             if settings.max_tokens is not None:
@@ -106,24 +152,32 @@ class MultimodalProvider:
                     lines = text.strip().splitlines()
                     if lines[-1].strip() == '```':
                         text = '\n'.join(lines[1:-1])
-                raw, shape_details = adapt_observations(text)
-                if shape_details:
-                    attempt['validation_errors'] = shape_details
-                    attempt['validation_error_count'] = len(shape_details)
-                try:
-                    reading = CircuitReading.model_validate(raw) if shape_details else CircuitReading.model_validate_json(text)
-                except ValidationError as exc:
-                    attempt['validation_error_count'] = len(shape_details) + exc.error_count()
-                    attempt['validation_errors'] = [*shape_details, *safe_validation_errors(exc)]
-                    recovered = recover_unknown_identity(json.dumps(raw) if shape_details else text, exc)
-                    if recovered is None:
+                if stage=='identity_reading':
+                    try:reading=IdentityReading.model_validate_json(text)
+                    except ValidationError as exc:
+                        attempt['validation_error_count']=exc.error_count()
+                        attempt['validation_errors']=safe_validation_errors(exc)
                         raise ProviderFailure('INVALID_STRUCTURED_OUTPUT') from None
-                    reading, identity_details, identity_omissions = recovered
-                    attempt['validation_errors'] = [*shape_details, *identity_details]
+                else:
+                    raw, shape_details = adapt_observations(text)
+                    if shape_details:
+                        attempt['validation_errors'] = shape_details
+                        attempt['validation_error_count'] = len(shape_details)
+                    try:
+                        reading = CircuitReading.model_validate(raw) if shape_details else CircuitReading.model_validate_json(text)
+                    except ValidationError as exc:
+                        attempt['validation_error_count'] = len(shape_details) + exc.error_count()
+                        attempt['validation_errors'] = [*shape_details, *safe_validation_errors(exc)]
+                        recovered = recover_unknown_identity(json.dumps(raw) if shape_details else text, exc)
+                        if recovered is None:
+                            raise ProviderFailure('INVALID_STRUCTURED_OUTPUT') from None
+                        reading, identity_details, identity_omissions = recovered
+                        attempt['validation_errors'] = [*shape_details, *identity_details]
                 attempt['phase'] = 'normalization'
                 try:
-                    result = normalize(reading, request.inputs, pages_by_doc, identity_omissions,
-                                       requirement_omissions=attempt['normalization_omissions'])
+                    result = (validate_reading(reading,request.inputs,pages_by_doc) if stage=='identity_reading' else
+                        normalize(reading, request.inputs, pages_by_doc, identity_omissions,
+                                  requirement_omissions=attempt['normalization_omissions'],identity_reading=inventory))
                 except (ValueError, TypeError, KeyError) as exc:
                     detail = exc.detail if isinstance(exc, NormalizationFailure) else NormalizationDetail(category='other_normalization_error')
                     attempt['normalization_error'] = detail.model_dump()
@@ -141,7 +195,7 @@ class MultimodalProvider:
                 raise ProviderFailure('PROVIDER_NETWORK') from None
             except ProviderFailure as exc:
                 attempt.update(status='failed', error=exc.code)
-                if index == settings.contract_retries or exc.code not in ('INVALID_STRUCTURED_OUTPUT','NORMALIZATION_FAILED'):
+                if index == retry_budget or exc.code not in ('INVALID_STRUCTURED_OUTPUT','NORMALIZATION_FAILED'):
                     raise
                 # Opt-in fresh contract attempt. Never replay the response or reasoning text.
                 errors = json.dumps(dict(validation_errors=attempt['validation_errors'],

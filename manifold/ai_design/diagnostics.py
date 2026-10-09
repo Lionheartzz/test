@@ -33,7 +33,7 @@ class NormalizationDetail(Strict):
                       'other_normalization_error']
     # Only contract-owned fields and bounded array indices; never provider labels/text.
     location: str | None = Field(default=None, max_length=80,
-        pattern=r'^(?:requirements\[[0-9]{1,3}\]|components\[[0-9]{1,3}\](?:\.ports\[[0-9]{1,3}\])?|external_ports\[[0-9]{1,3}\])$')
+        pattern=r'^(?:identity_captions\[[0-9]{1,3}\]|requirements\[[0-9]{1,3}\]|components\[[0-9]{1,3}\](?:\.ports\[[0-9]{1,3}\])?|external_ports\[[0-9]{1,3}\])$')
 
 
 class NormalizationFailure(ValueError):
@@ -44,6 +44,11 @@ class NormalizationFailure(ValueError):
 
 class Attempt(Strict):
     index: int = Field(ge=1)
+    request_stage: Literal['identity_reading','hydraulic_analysis'] | None = None
+    contract_attempt: int | None = Field(default=None,ge=1,le=2)
+    text_chars: int | None = Field(default=None,ge=0)
+    image_count: int | None = Field(default=None,ge=0)
+    prompt_sha256: str | None = Field(default=None,pattern=r'^[0-9a-f]{64}$')
     phase: Phase = 'provider_call'
     status: Literal['running', 'completed', 'failed'] = 'running'
     error: str | None = Field(default=None, pattern=r'^[A-Z_]{1,80}$')
@@ -72,7 +77,12 @@ class Diagnostics(Strict):
     request_count: int = Field(default=0, ge=0)
     retry_count: int = Field(default=0, ge=0)
     configured_retries: int = Field(default=0, ge=0, le=1)
-    attempts: list[Attempt] = Field(default_factory=list, max_length=2)
+    attempts: list[Attempt] = Field(default_factory=list, max_length=3)
+    identity_lookup_tables: dict[str,int] = Field(default_factory=dict)
+    identity_caption_count: int | None = Field(default=None,ge=0)
+    identity_lookup_matches: int | None = Field(default=None,ge=0)
+    identity_lookup_ms: float | None = Field(default=None,ge=0)
+    identity_reference_sha256: str | None = Field(default=None,pattern=r'^[0-9a-f]{64}$')
     reasoning: ReasoningSettings = Field(default_factory=ReasoningSettings)
     reasoning_control: Literal['provider_default', 'requested_unverified', 'partially_requested', 'not_sent'] = 'provider_default'
     control_warnings: list[Literal['reasoning_dialect_required', 'effort_required', 'effort_ignored_when_disabled',
@@ -81,7 +91,7 @@ class Diagnostics(Strict):
     max_tokens_parameter: Literal['max_tokens', 'max_completion_tokens'] = 'max_tokens'
     stream: bool = False
     timeout_seconds: float = Field(default=120, gt=0)
-    prompt_revision: Literal['circuit-reading-1-compact-v2', 'circuit-reading-1-compact-v3', 'circuit-reading-1-compact-v4', 'circuit-reading-1-compact-v5', 'circuit-reading-1-compact-v6', 'circuit-reading-1-compact-v7', 'circuit-reading-1-compact-v8', 'circuit-reading-1-compact-v9', 'circuit-reading-1-compact-v10', 'circuit-reading-1-compact-v11'] = 'circuit-reading-1-compact-v11'
+    prompt_revision: Literal['circuit-reading-1-compact-v2', 'circuit-reading-1-compact-v3', 'circuit-reading-1-compact-v4', 'circuit-reading-1-compact-v5', 'circuit-reading-1-compact-v6', 'circuit-reading-1-compact-v7', 'circuit-reading-1-compact-v8', 'circuit-reading-1-compact-v9', 'circuit-reading-1-compact-v10', 'circuit-reading-1-compact-v11', 'circuit-reading-1-compact-v12'] = 'circuit-reading-1-compact-v12'
     prompt_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     schema_chars: int = Field(default=0, ge=0)
     text_chars: int = Field(default=0, ge=0)
@@ -112,7 +122,8 @@ def normalize_usage(raw):
 def aggregate(diag):
     attempts = diag['attempts']
     diag['request_count'] = len(attempts)
-    diag['retry_count'] = max(0, len(attempts)-1)
+    diag['retry_count'] = (sum(a.get('contract_attempt',1)>1 for a in attempts)
+        if attempts and all(a.get('contract_attempt') is not None for a in attempts) else max(0,len(attempts)-1))
     for field in TOKENS:
         reported = [a['usage'].get(field) for a in attempts if a['usage'].get(field) is not None]
         diag['reported_usage'][field] = sum(reported) if reported else None

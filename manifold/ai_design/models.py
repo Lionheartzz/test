@@ -143,8 +143,10 @@ class Unresolved(Strict):
 class KnowledgeLookup(Strict):
     id: Key
     component_id: Key
-    manufacturer: str = Field(default='',max_length=120)
-    model: str = Field(default='',max_length=120)
+    manufacturer: str = Field(default='',max_length=2000)
+    model: str = Field(default='',max_length=2000)
+    cavity: str = Field(default='',max_length=2000)
+    mounting_interface: str = Field(default='',max_length=2000)
     status: Literal['unresolved','ambiguous','resolved'] = 'unresolved'
     candidates: list[KnowledgeReference] = Field(default_factory=list,max_length=20)
     message: Text = ''

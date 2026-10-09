@@ -10,7 +10,7 @@ from .. import store
 from ..workflow import asset_path
 from .models import TaskInput,HydraulicRepresentation,validate_context
 from .providers import AnalysisRequest,DocumentContent,ProviderFailure,available_providers
-from .knowledge import UnavailableKnowledgeResolver,resolve_knowledge
+from .knowledge import SQLiteKnowledgeResolver,resolve_knowledge
 from .diagnostics import Diagnostics, TOKENS, failure_help
 
 
@@ -42,28 +42,34 @@ def write(record,previous=None):
 def compact_result(result:HydraulicRepresentation):
     """Drop transient observation provenance before persisting product intent."""
     claims={row.id:row for row in result.claims}
+    evidence={row.id:row for row in result.evidence}
     def facts(ids):
         rows={}
         for key in ids:
             claim=claims[key]
+            if claim.predicate=='observed_identity_annotation':continue
             # Display labels are metadata, not accepted engineering facts/topology.
             rows[claim.predicate]=claim.value if claim.predicate=='label' or claim.status=='confirmed' else None
         return rows
     def unconfirmed(ids):
         return {claims[key].predicate:dict(value=claims[key].value,unit=claims[key].unit)
                 for key in ids if claims[key].predicate!='label' and claims[key].value is not None
-                and claims[key].status!='confirmed'}
+                and claims[key].predicate!='observed_identity_annotation' and claims[key].status!='confirmed'}
     components=[]
     for row in result.components:
         values=facts(row.claim_ids)
         components.append(dict(id=row.id,port_ids=row.port_ids,label=values.pop('label',row.id),facts=values,
             unconfirmed_observations=unconfirmed(row.claim_ids),
+            observed_identity_annotations=[evidence[ref].quote for key in row.claim_ids
+                if claims[key].predicate=='observed_identity_annotation' for ref in claims[key].evidence_ids],
             identity_valid={name:bool(next((c for c in result.claims if c.subject_id==row.id and c.predicate==name and c.status=='confirmed' and c.kind in ('schematic','user_requirement')),None)) for name in ('manufacturer','model','cavity','mounting_interface')}))
     ports=[]
     for row in result.ports:
         values=facts(row.claim_ids)
         ports.append(dict(id=row.id,component_id=row.component_id,label=values.pop('label',row.id),facts=values,disposition=row.disposition,
             unconfirmed_observations=unconfirmed(row.claim_ids),
+            observed_identity_annotations=[evidence[ref].quote for key in row.claim_ids
+                if claims[key].predicate=='observed_identity_annotation' for ref in claims[key].evidence_ids],
             fact_kinds={claims[key].predicate:claims[key].kind for key in row.claim_ids},
             fact_units={claims[key].predicate:claims[key].unit for key in row.claim_ids}))
     nets=[]
@@ -192,16 +198,22 @@ def analyze(key,expected,provider_key):
         run['usage']=usage
         if response.diagnostics is not None:run['diagnostics']=Diagnostics.model_validate(response.diagnostics).model_dump()
         if response.metadata is not None:run['adapter']=response.metadata
+        if response.metadata and 'identity_reading' in response.metadata:
+            from .identity_reading import IdentityReading
+            run['identity_reading']=IdentityReading.model_validate(response.metadata['identity_reading']).model_dump()
         phase='admission'
         serialized=json.dumps(response.representation,allow_nan=False)
         result=validate_context(HydraulicRepresentation.model_validate(response.representation),inputs)
         phase='knowledge_resolution'
-        result=resolve_knowledge(result,UnavailableKnowledgeResolver())
+        result=resolve_knowledge(result,SQLiteKnowledgeResolver())
         validate_context(result,inputs,provider_output=False)
         run.update(status='completed',result=compact_result(result),usage=usage)
         phase='completed'
     except ProviderFailure as exc:
         run['error']=exc.code
+        if getattr(exc,'identity_reading',None) is not None:
+            from .identity_reading import IdentityReading
+            run['identity_reading']=IdentityReading.model_validate(exc.identity_reading).model_dump()
         if exc.diagnostics is not None:
             try:
                 run['diagnostics']=Diagnostics.model_validate(exc.diagnostics).model_dump()
