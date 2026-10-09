@@ -165,6 +165,21 @@ def load_run(key,run_id):
     return run
 
 
+def correct_ports(key,request):
+    from .generation_models import PortCorrections
+    from .intent import effective_result
+    with store.project_lock():
+        record=read(key);check(record,request.expected_revision)
+        run=load_run(key,request.run_id)
+        if run['status']!='completed' or run['input_revision']!=digest(record['inputs']):
+            raise ValueError('Port corrections require the current completed analysis')
+        corrections=PortCorrections(run_id=run['id'],input_revision=run['input_revision'],
+            reviewed_at=now(),excluded_port_ids=request.excluded_port_ids,net_overrides=request.net_overrides).model_dump()
+        reviewed=effective_result(run,corrections)  # Validate all removals/references before writing.
+        task=write({**record,'port_corrections':corrections},record)
+    return dict(task=task,port_corrections=corrections,reviewed_result=reviewed)
+
+
 def analyze(key,expected,provider_key):
     with store.project_lock():
         record=read(key);check(record,expected)

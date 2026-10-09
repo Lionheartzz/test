@@ -6,7 +6,7 @@ from .models import TaskInput,Digest,RecordId,HydraulicRepresentation
 from .providers import provider_info
 from . import service
 from . import config,jobs,generation,library_resolution
-from .generation_models import GenerationRequest
+from .generation_models import GenerationRequest,PortCorrectionRequest
 
 router=APIRouter(prefix='/api/ai-design')
 
@@ -52,7 +52,12 @@ def run(key:str,run_id:str):
     def view():
         saved=service.load_run(key,run_id)
         if saved['status']!='completed':return saved
-        return {**saved,'identity_interpretations':library_resolution.identity_interpretations(saved['result'])}
+        from .intent import effective_result
+        corrections=service.read(key).get('port_corrections')
+        reviewed=effective_result(saved,corrections)
+        current=corrections and corrections['run_id']==saved['id'] and corrections['input_revision']==saved['input_revision']
+        return {**saved,'identity_interpretations':library_resolution.identity_interpretations(reviewed),
+                **(dict(port_corrections=corrections,reviewed_result=reviewed) if current else {})}
     return call(view)
 
 @router.get('/tasks/{key}/export')
@@ -107,6 +112,11 @@ def analyze_job(key:str,payload:RunRequest):
 @router.post('/tasks/{key}/generation/preflight')
 def generation_preflight(key:str,payload:GenerationRequest):
     return call(generation.preflight,key,payload)
+
+
+@router.post('/tasks/{key}/port-corrections')
+def port_corrections(key:str,payload:PortCorrectionRequest):
+    return call(service.correct_ports,key,payload)
 
 
 @router.post('/tasks/{key}/generation/jobs')

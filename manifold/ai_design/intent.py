@@ -133,8 +133,33 @@ def reconcile_mounting(requirements, mounting):
     return blocked
 
 
-def effective_result(run):
-    return copy.deepcopy(run['result'])
+def effective_result(run, corrections=None):
+    """Apply explicit engineer corrections without rewriting the AI observations."""
+    result=copy.deepcopy(run['result'])
+    if not corrections:return result
+    from .generation_models import PortCorrections
+    review=PortCorrections.model_validate(corrections)
+    if review.run_id!=run['id'] or review.input_revision!=run['input_revision']:return result
+    ports={p['id']:p for p in result['ports']}
+    excluded=set(review.excluded_port_ids)
+    if len(excluded)!=len(review.excluded_port_ids):raise ValueError('Duplicate excluded port')
+    if not excluded<=set(ports) or not set(review.net_overrides)<=set(ports):raise ValueError('Port correction refers to a missing port')
+    if excluded & set(review.net_overrides):raise ValueError('An excluded port cannot also be assigned to a hydraulic net')
+    if any(ports[key]['component_id'] is None for key in excluded):raise ValueError('Boundary ports cannot be removed as component recognition errors')
+    for component in result['components']:
+        component['port_ids']=[key for key in component['port_ids'] if key not in excluded]
+        if not component['port_ids']:raise ValueError('A component must retain at least one physical port')
+    nets={n['id']:n for n in result['nets']}
+    for port_id,target in review.net_overrides.items():
+        if target not in nets:raise ValueError('Corrected hydraulic net is missing')
+        if ports[port_id].get('disposition') in ('blocked','terminated'):raise ValueError('A blocked or terminated port cannot be assigned to a net')
+        for net in result['nets']:net['members']=[key for key in net['members'] if key!=port_id]
+        nets[target]['members'].append(port_id)
+        ports[port_id]['reviewed_net_label']=nets[target].get('label') or target
+    result['ports']=[p for p in result['ports'] if p['id'] not in excluded]
+    for net in result['nets']:net['members']=[key for key in net['members'] if key not in excluded]
+    result['nets']=[n for n in result['nets'] if n['members']]
+    return result
 
 
 def interpret(result, options):

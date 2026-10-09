@@ -167,6 +167,13 @@ termination. Unreadable or unconnected-looking terminals remain unknown; never t
 Represent each cartridge/component separately with all its hydraulic ports; do NOT connect different
 ports internally just because they belong to one valve. External ports are manifold boundary terminals,
 not every component terminal. Preserve labels such as P1/P2, port numbers, manufacturers and exact models.
+Count actual physical connection stubs on each symbol. Internal pilot paths, spring/actuator arrows,
+nearby line crossings and another component's terminals are not extra hydraulic ports. Compare a
+source-matched interface's retrieved hydraulic_interfaces count/labels with the observed terminals.
+Do not pad the port list to a generic valve family or invent a third port on a two-port symbol. If the
+schematic genuinely conflicts with the matched interface, retain the ambiguity for review; never drop
+an actually visible port or merge distinct nets just to fit the catalogue. Reference data is a cross-check,
+not permission to change the source topology.
 If a line, label or model is unclear, return null/unknown or uncertain, never complete it by guessing.
 Capture pressure, flow, settings, orifices, coils and electrical notes in parameters with explicit units.
 Distinguish observed component facts from user component-selection preferences. Manufacturer, model,

@@ -33,6 +33,7 @@ class GenerationOptions(Strict):
     mounting_decision: str = Field(default='',max_length=2000)
     net_overrides: dict[Key, str] = Field(default_factory=dict, max_length=ANALYSIS_PORTS)
     topology_decision: str = Field(default='', max_length=2000)
+    topology_confirmation: Digest | None = None
     component_faces: dict[Key, Face] = Field(default_factory=dict, max_length=ANALYSIS_COMPONENTS)
     port_faces: dict[Key, Face] = Field(default_factory=dict, max_length=ANALYSIS_PORTS)
     placement_decision: str = Field(default='', max_length=2000)
@@ -50,3 +51,19 @@ class GenerationRequest(Strict):
     expected_revision: Digest
     run_id: RecordId
     options: GenerationOptions = Field(default_factory=GenerationOptions)
+
+
+class PortCorrections(Strict):
+    kind: str = Field(default='engineer_port_correction',pattern=r'^engineer_port_correction$')
+    run_id: RecordId
+    input_revision: Digest
+    reviewed_at: str = Field(default='',max_length=80)
+    excluded_port_ids: list[Key] = Field(default_factory=list,max_length=ANALYSIS_PORTS)
+    net_overrides: dict[Key,Key] = Field(default_factory=dict,max_length=ANALYSIS_PORTS)
+
+
+class PortCorrectionRequest(Strict):
+    expected_revision: Digest
+    run_id: RecordId
+    excluded_port_ids: list[Key] = Field(default_factory=list,max_length=ANALYSIS_PORTS)
+    net_overrides: dict[Key,Key] = Field(default_factory=dict,max_length=ANALYSIS_PORTS)

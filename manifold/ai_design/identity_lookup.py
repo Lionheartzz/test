@@ -70,6 +70,10 @@ def _index(stamp):
         records.append(dict(source_table=table,role=role,record_id=key,fields=readable,
                             reference_only=reference_only,execution_permission=False))
     with closing(_connect()) as db:
+        interface_labels=defaultdict(list)
+        for row in db.execute('SELECT cavity_id,interface_id FROM cavity_interfaces ORDER BY cavity_id,interface_id'):
+            interface_labels[row['cavity_id']].append(row['interface_id'])
+        coverage['cavity_interfaces']=sum(len(labels) for labels in interface_labels.values())
         for table,role,columns in TABLES:
             rows=db.execute('SELECT id,'+','.join(columns)+' FROM '+table+' ORDER BY id')
             count=0
@@ -79,6 +83,10 @@ def _index(stamp):
                     fields.update({f'standard_alias_{i}':alias for i,alias in
                                    enumerate(standard_aliases(row['name'],row['family']),1)})
                 add(table,role,row['id'],fields);count+=1
+                if table=='cavities':
+                    labels=interface_labels.get(row['id'],[])
+                    records[-1]['hydraulic_interfaces']=dict(count=len(labels),labels=labels,
+                        source_table='cavity_interfaces',scope='Physical machining windows, not an inferred schematic connection')
             coverage[table]=count
         rows=db.execute('''SELECT domain,id,manufacturer_original,full_part_number,base_model,
             series,product_family,disposition,original_json FROM technical_identities ORDER BY domain,id''')

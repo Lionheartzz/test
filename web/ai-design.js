@@ -83,7 +83,8 @@ export function aiDesign(ctx,open){
       parent.append(captions);
     }
     if(run.status!=='completed')return;
-    const result=run.result;parent.append(element('h3','Hydraulic connections'),element('p',`${result.components.length} components · ${result.ports.length} ports · ${result.nets.length} nets · ${result.design_intent.length} requirements · ${result.unresolved.length} unresolved`,'ai-summary'));
+    const result=run.reviewed_result||run.result;parent.append(element('h3','Hydraulic connections'),element('p',`${result.components.length} components · ${result.ports.length} ports · ${result.nets.length} nets · ${result.design_intent.length} requirements · ${result.unresolved.length} unresolved`,'ai-summary'));
+    if(run.port_corrections)parent.append(element('p','Engineer port corrections applied. The original AI analysis is retained; excluded recognition errors can be restored in the generation settings.','property-note'));
     for(const [title,rows]of [['Components',result.components],['Hydraulic ports',result.ports],['Hydraulic nets',result.nets]]){const section=element('details');section.open=title==='Components';section.append(element('summary',title+' · '+rows.length));for(const row of rows){const card=element('section',null,'library-card');card.append(element('h4',engineeringName(row.label,'Item')));if(row.members)card.append(element('p',row.members.map(id=>{const p=result.ports.find(port=>port.id===id),c=result.components.find(component=>component.id===p?.component_id);return [engineeringName(c?.label,''),engineeringName(p?.label,'Port')].filter(Boolean).join(' · ');}).join(' ↔ ')));if(row.facts&&Object.keys(row.facts).length)Object.entries(row.facts).filter(([,value])=>value!==null&&['string','number','boolean'].includes(typeof value)).forEach(([name,value])=>card.append(element('p',observationName(row,name)+': '+engineeringText(value))));unconfirmedReadings(card,row);section.append(card);}parent.append(section);}
     if(result.design_intent.length){const section=element('details');section.append(element('summary','Design intent · '+result.design_intent.length));for(const row of result.design_intent)section.append(element('p',`${row.target_labels.join(', ')||'Manifold'} · ${row.property} ${row.operator} ${row.value??'unresolved'} ${row.unit||''}`));parent.append(section);}
     for(const row of result.unresolved)parent.append(element('p',engineeringText(row.description),'ai-provider-note'));
@@ -97,7 +98,8 @@ export function aiDesign(ctx,open){
   function unconfirmedReadings(parent,row){
     for(const text of row.observed_identity_annotations||[])parent.append(element('p','Observed annotation: '+engineeringText(text),'property-note'));
     if(row.members&&row.status&&row.status!=='confirmed')parent.append(element('p','AI connection proposal · unconfirmed. Review the schematic before relying on this connection.','review-warning'));
-    const readings=Object.entries(row.unconfirmed_observations||{}).filter(([,reading])=>reading.value!=null&&['string','number','boolean'].includes(typeof reading.value));
+    if(row.reviewed_net_label)parent.append(element('p','Corrected hydraulic connection: '+engineeringText(row.reviewed_net_label),'property-note'));
+    const readings=Object.entries(row.unconfirmed_observations||{}).filter(([name,reading])=>!(name==='net_assignment'&&row.reviewed_net_label)&&reading.value!=null&&['string','number','boolean'].includes(typeof reading.value));
     if(!readings.length)return;
     parent.append(element('p','AI readings · unconfirmed. These are proposals, not defined engineering facts.','review-warning'));
     for(const [name,reading]of readings)parent.append(element('p',engineeringText(name.replaceAll('_',' '))+': '+engineeringText(reading.value)+(reading.unit?' '+engineeringText(reading.unit):'')));

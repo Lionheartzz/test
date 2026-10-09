@@ -31,7 +31,7 @@ def context(key, run_id, expected):
     if run['input_revision'] != service.digest(record['inputs']):
         raise ValueError('Analysis is stale. Analyze the current inputs before generation.')
     inputs = TaskInput.model_validate(record['inputs'])
-    return record, run, inputs, effective_result(run),
+    return record, run, inputs, effective_result(run,record.get('port_corrections')),
 
 
 def topology(result, options):
@@ -39,8 +39,6 @@ def topology(result, options):
     ports = {p['id']: p for p in result['ports']}
     if not set(options.net_overrides) <= set(ports):
         raise ValueError('Net override refers to a missing port')
-    if options.net_overrides and not options.topology_decision.strip():
-        raise ValueError('Changing hydraulic connections needs an engineer decision')
     by_id = {n['id']: n for n in result['nets']}
     for port_id, target in options.net_overrides.items():
         if ports[port_id].get('disposition') in ('blocked', 'terminated'):
@@ -66,6 +64,13 @@ def topology(result, options):
     return result
 
 
+def topology_signature(inputs,result):
+    return service.digest(dict(documents=[(d.id,d.asset.sha256) for d in inputs.documents],
+        components=[dict(id=c['id'],ports=c['port_ids']) for c in result['components']],
+        ports=[{key:p.get(key) for key in ('id','component_id','label','disposition')} for p in result['ports']],
+        nets=[{key:n.get(key) for key in ('id','label','status','members')} for n in result['nets']]))
+
+
 def prepare(inputs, result, options):
     result = topology(result, options)
     settings = interpret(result, options)
@@ -85,8 +90,11 @@ def prepare(inputs, result, options):
         blocked.append(message)
         decisions.append(dict(message=message,section=section,target_id=target_id,field=field))
     for message in settings['conflicts']:block(message)
-    if any(net.get('status')=='uncertain' for net in result['nets']) and not options.topology_decision.strip():
-        block('AI connection proposals are unconfirmed. Review the schematic and record a topology decision before generating a draft.', 'topology', field='decision')
+    signature=topology_signature(inputs,result)
+    confirmed=bool(options.topology_decision.strip()) or options.topology_confirmation==signature
+    review_required=bool(options.net_overrides) or any(net.get('status')=='uncertain' for net in result['nets'])
+    if review_required and not confirmed:
+        block('Review the hydraulic connections, then click Confirm hydraulic connections before generating a draft.', 'topology', field='decision')
     authored_count=len(result['components'])+sum(p['component_id'] is None and p.get('disposition') not in ('blocked','terminated') for p in result['ports'])+len(options.threaded_mounting_holes)
     if authored_count>PROJECT_FEATURES:
         block(f'This circuit needs {authored_count} authored features; the editable project supports {PROJECT_FEATURES} total features including generated drillings. Split the circuit into projects.', 'analysis')
@@ -224,16 +232,24 @@ def prepare(inputs, result, options):
             else:
                 row.update(status='applied', message='Targets remain distinct nets; cross-net physical intersections fail deterministic validation.')
     return dict(inputs=inputs, result=result, settings=settings, blocked=blocked, decisions=decisions, components=components,
+                topology_review=dict(signature=signature,confirmed=confirmed,required=review_required),
                 external=external,port_groups=port_groups,mounting=mounting, port_net=port_net, options=options)
 
 
 def preflight(key, request):
-    _, _, inputs, result = context(key, request.run_id, request.expected_revision)
+    record, run, inputs, result = context(key, request.run_id, request.expected_revision)
     plan = prepare(inputs, result, request.options)
     def entry(row):
         return {**{k:v for k,v in row.items() if k != 'definition'},
                 'definition': library.summary('',row['definition']) if row['definition'] else None}
+    corrections=record.get('port_corrections') or {}
+    if corrections.get('run_id')!=run['id'] or corrections.get('input_revision')!=run['input_revision']:corrections={}
+    excluded=set(corrections.get('excluded_port_ids',[]))
+    owners={c['id']:c['label'] for c in run['result']['components']}
+    excluded_ports=[dict(id=p['id'],component_id=p['component_id'],label=p['label'],owner_label=owners[p['component_id']])
+                    for p in run['result']['ports'] if p['id'] in excluded]
     return dict(ready=not plan['blocked'], blocked=plan['blocked'], decisions=plan['decisions'], components=[entry(c) for c in plan['components']],
+                topology_review=plan['topology_review'],port_corrections=corrections,excluded_ports=excluded_ports,
                 external_ports=[entry(p) for p in plan['external']], external_port_groups=list(plan['port_groups'].values()), dispositions=plan['settings']['dispositions'],
                 mounting_requirements=plan['settings']['mounting_requirements'],mounting_holes=[dict(hole=row['hole'].model_dump(),thread=row['thread']) for row in plan['mounting']],
                 ports=[dict(id=p['id'], component_id=p['component_id'], label=library.display_label(result,p),
@@ -541,6 +557,9 @@ def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False
                   source_task_revision=request.expected_revision,
                   options=request.options.model_dump(),
                   engine_revision=store.engine_revision())
+    corrections=record.get('port_corrections')
+    if corrections and corrections['run_id']==run['id'] and corrections['input_revision']==run['input_revision']:
+        packet['port_corrections']=corrections
     store.atomic_json(folder/'generation.json',packet)
     with store.project_lock():
         latest=service.read(key)

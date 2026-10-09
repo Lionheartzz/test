@@ -79,6 +79,12 @@ Normalization failures now include contract-owned field names, fixed reasons and
 
 Diagnostics contain safe validation metadata, fixed classifications, counts and hashes. Raw provider error bodies, reasoning text, prompts and credentials are not written to diagnostic records. Keys remain server-local and excluded from project/analysis exports. Provider failure does not touch CAD, Library or saved projects.
 
+Prompt v14 supplies the actual `cavity_interfaces` counts and labels alongside retrieved physical-interface records. The model must distinguish physical symbol terminals from internal pilot paths, actuator/spring arrows and nearby crossings, and cross-check source-matched interfaces without padding or deleting observed ports to fit a catalogue. Conflicts remain reviewable; no family-specific repair or automatic port deletion is performed. No provider settings or paid-call count changes.
+
+Generation uses a Confirm hydraulic connections action instead of a free-text topology justification. Its confirmation is bound to the current source-document hashes and effective terminal/net assignments; edited connections or port corrections invalidate it. Legacy `topology_decision` remains accepted for old clients. Generation still stops on unresolved topology and exact interface-mapping conflicts.
+
+Explicit incorrect-port exclusions and existing-net reassignments can be saved through the optimistic-revision-checked `/tasks/{key}/port-corrections` endpoint. Corrections are separate task metadata bound to the exact run/input revision; the original AI run/result is never rewritten. Missing IDs, boundary-port exclusions, removal of a component's last port, and contradictory/invalid assignments are rejected before writing. Excluded ports remain restorable. Preflight, the reviewed analysis view and generation use the same effective graph, and generation packets record the corrections. No SQLite, cavity machining or compatibility data changes.
+
 ## Next real test
 
 Keep the working endpoint, model and key. For an endpoint that documents DeepSeek-compatible controls, choose the `thinking.type + reasoning_effort` dialect and start with **Enabled / low** for schematic extraction. This is an operator test choice, not a new preset or a promise of recognition quality. Preserve the schematic, requirements and image resolution so results are comparable. For other endpoints, choose their documented dialect.
