@@ -23,7 +23,7 @@ import {displayIdentity,displayRuleName,displayInterfaceName,displayNetName} fro
 import {engineeringFactsUI} from './engineering-facts-ui.js';
 import {createStudioShell} from './studio-shell.js';
 import {createViewCube} from './viewcube.js';
-import {reportSource,resolveCheckTargets,issueReferences} from './validation-view.js';
+import {reportSource,resolveCheckTargets,issueReferences,groupRepairIssues} from './validation-view.js';
 import {createValidationProgress,validationProgressUI,calculationProgressUI} from './validate-progress.js';
 import './validate-progress.css';
 import './studio.css';
@@ -94,7 +94,7 @@ retryPreview.onclick=async()=>{
   finally{retryPending=false;retryPreview.disabled=busy||['queued','routing','exact','settling'].includes(previewStatus);}
 };
 saveDraft.onclick=()=>saveProject(true).catch(e=>notice(e.message,true));
-function showSolid(result,snapshot=draft,context=null){snapshot=ownedPreviewSnapshot(snapshot);if(!snapshot)return;previewRouting.acceptExact(result,snapshot,String(projectEpoch));solidStatus();resolved=hydrateDesign({...snapshot,features:result.features},draft.library,draft.threads);viewer?.setReferences(result.features);viewer?.load(result.model,resolved);markDisplayed(snapshot,'proposal');viewer?.setDesign(draft);exactPreview=context&&result.model.deferred_layers?.length?{...context,designRevision:result.design_revision,pending:new Set()}:null;lastUsablePreview={model:result.model,design:resolved,draftSignature:displayedDraftSignature};renderTree();select(selection);renderReport();previewState('exact-proposal','EXACT BREP · CURRENT PROPOSAL · NOT VALIDATED / NOT OPTIMIZED'+(result.model.brep_valid===false?' · BREP TOPOLOGY INVALID':''));notice(draft.nets.find(n=>n.route_issue)?.route_issue||(result.routing_update?.fixed_nets_affected?.length?'Fixed routing retained: '+result.routing_update.fixed_nets_affected.join(', ')+'. Moved interfaces require Validate before use.':result.model.brep_valid===false?'Exact preview ready. Current proposal has invalid BRep topology; Validate reports engineering failures.':'Exact preview ready. Current proposal is not validated or optimized.'));requestLayer(viewMode);}
+function showSolid(result,snapshot=draft,context=null){snapshot=ownedPreviewSnapshot(snapshot);if(!snapshot)return;previewRouting.acceptExact(result,snapshot,String(projectEpoch));solidStatus();const proposal=previewRouting.current(snapshot,String(projectEpoch)),shown=proposal?mergeVisibleRoutes(snapshot,proposal):snapshot;resolved=hydrateDesign({...shown,features:result.features},draft.library,draft.threads);viewer?.setReferences(result.features);viewer?.load(result.model,resolved);markDisplayed(snapshot,'proposal');viewer?.setDesign(draft);exactPreview=context&&result.model.deferred_layers?.length?{...context,designRevision:result.design_revision,pending:new Set()}:null;lastUsablePreview={model:result.model,design:resolved,draftSignature:displayedDraftSignature};renderTree();select(selection);renderReport();previewState('exact-proposal','EXACT BREP · CURRENT PROPOSAL · NOT VALIDATED / NOT OPTIMIZED'+(result.model.brep_valid===false?' · BREP TOPOLOGY INVALID':''));notice(resolved.nets.find(n=>n.route_issue)?.route_issue||(result.routing_update?.fixed_nets_affected?.length?'Fixed routing retained: '+result.routing_update.fixed_nets_affected.join(', ')+'. Moved interfaces require Validate before use.':result.model.brep_valid===false?'Exact preview ready. Current proposal has invalid BRep topology; Validate reports engineering failures.':'Exact preview ready. Current proposal is not validated or optimized.'));requestLayer(viewMode);}
 const previews=createPreviewQueue({post:(url,design,{preview,...options}={})=>post(url,preview?{design,...preview}:design,options),stream:streamExactPreview,
   onProposal(p,snapshot){const current=ownedPreviewSnapshot(snapshot);if(!current)return;if(externalChange)previewRouting.clear();else previewRouting.accept(p,snapshot,String(projectEpoch),current);if(p.routing_update)previewTiming({kind:'routing-update',...p.routing_update});},
   cancelRemote:(owner,version)=>post('/api/preview-cancel',{owner,version},{signal:AbortSignal.timeout(2000)}),
@@ -586,9 +586,25 @@ function renderReport(){
   $('limitations').replaceChildren(...report.limitations.map(s=>element('li',s)));
   viewer?.setIssueMarkers(source.spatial?issueReferences(report,{displayed,draft}):[]);
   const filter=$('report-filter').value;
-  const checks=report.checks.filter(c=>filter==='all'||(filter==='issues'?c.status!=='PASS':c.items.some(i=>i.split(':')[0]===selection)));
+  const checks=report.checks.filter(c=>filter==='all'||(filter==='issues'?c.status!=='PASS':(c.items||[]).some(i=>i.split(':')[0]===selection)));
   const container=$('validation-results');
   container.replaceChildren();
+  const groups=groupRepairIssues(checks,source.kind==='draft'?displayed:reportDesign||displayed||draft);
+  if(groups.length){
+    const summary=element('details');summary.open=true;summary.append(element('summary',`Repair summary · ${groups.length} affected groups`));
+    summary.append(element('p',source.label+'. All underlying engineering checks remain listed below.','property-note'));
+    for(const group of groups.slice(0,8)){
+      const row=element('div',null,'action-row');row.append(element('span',group.label+' · '+group.objects+` · ${group.checks.length} checks`));
+      const targets=resolveCheckTargets({items:group.items},{displayed,draft});
+      if(targets.primary)action(row,source.spatial?'Locate affected objects':'View current references',()=>{
+        select(targets.primary);viewer?.setSecondary(targets.secondary);viewer?.frame(targets.ids);
+        if(!source.spatial)notice('These checks belong to previous geometry. Current objects are references only.');
+      });
+      summary.append(row);
+    }
+    if(groups.length>8)summary.append(element('p',`${groups.length-8} further affected groups are included in the validation rows below.`));
+    container.append(summary);
+  }
   if(!checks.length){
     container.append(element('div','No issues in this build’s selected checks. Geometry results are not a pressure or manufacturing certification.','pass-message'));
     return;
@@ -603,7 +619,7 @@ function renderReport(){
     row.append(
       element('td',c.status,c.status),
       element('td',displayRuleName(c.rule)),
-      element('td',c.items.map(item=>displayIdentity(source.kind==='draft'?displayed:reportDesign||displayed||draft,item)).join(' ↔ ')),
+      element('td',(c.items||[]).map(item=>displayIdentity(source.kind==='draft'?displayed:reportDesign||displayed||draft,item)).join(' ↔ ')),
       element('td',`${c.actual} ${c.unit}`),
       element('td',`${c.required} ${c.unit||''}`)
     );

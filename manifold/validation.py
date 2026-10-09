@@ -50,6 +50,8 @@ def validate(design, g, definitions=None):
         return definitions[feature.port_definition_id].zones[0].diameter if feature.port_definition_id else feature.diameter
     graph = {k: set() for k in g.nodes}
     overlaps = {}
+    from .spatial import geometry_pairs
+    pairs=geometry_pairs(g);protected_ports={};protected_cavities={}
 
     def result(rule, items, actual, required, passed, message, severity='FAIL', unit=''):
         checks.append(dict(rule=rule, items=items, actual=round(actual, 5) if isinstance(actual, float) else actual,
@@ -70,7 +72,7 @@ def validate(design, g, definitions=None):
     def overlap(a, b):
         key = tuple(sorted((a, b)))
         if key not in overlaps:
-            overlaps[key] = g.nodes[a].intersect(g.nodes[b]).Volume()
+            overlaps[key] = pairs.volume(g.nodes[a],g.nodes[b])
         return overlaps[key]
 
     expected = {tuple(sorted((f.id, t))) for f in design.features if not f.suppressed for t in f.connects_to}
@@ -138,11 +140,11 @@ def validate(design, g, definitions=None):
     for a, b in combinations(g.cuts, 2):
         sa, sb = g.cuts[a], g.cuts[b]
         fa, fb = by_id[a], by_id[b]
-        volume = sa.intersect(sb).Volume()
+        volume = pairs.volume(sa,sb)
         if fa.kind=='mounting' or fb.kind=='mounting':
-            distance=sa.distance(sb)
             required=required_wall(design,fa,fb,definitions=definitions)
-            result('mounting_separation',[a,b],distance,required,volume<=EPS and distance+EPS>=required,
+            distance,separated=pairs.separation(sa,sb,required)
+            result('mounting_separation',[a,b],distance,required,volume<=EPS and separated,
                    'Non-hydraulic mounting cuts must retain the minimum wall to every other cut; hydraulic contact cannot authorize them.',unit='mm')
             continue
         for port, other in ((fa,fb),(fb,fa)):
@@ -157,26 +159,27 @@ def validate(design, g, definitions=None):
                        and other.diameter <= min(z.diameter,port_diameter(port)) and other.circuit == port.circuit
                        and all(abs(x-y)<EPS for x,y in zip(g.placements[port.id]['direction'],g.placements[other.id]['direction']))
                        and tuple(sorted((port.id,other.id))) in expected)
-            protected = g.cuts[port.id].cut(window)
-            intrusion = protected.intersect(g.cuts[other.id]).Volume() if protected.Volume()>EPS else 0
+            if port.id not in protected_ports:protected_ports[port.id]=g.cuts[port.id].cut(window)
+            protected=protected_ports[port.id]
+            intrusion = pairs.volume(protected,g.cuts[other.id]) if protected.Volume()>EPS else 0
             result('port_protected_region',[port.id,other.id],intrusion,0,coaxial or intrusion<=EPS,
                    'Lateral cuts may enter only the declared hydraulic window, never the spotface, seal or thread region.',unit='mm³')
         both_cavities = fa.kind == fb.kind == 'cavity'
         if both_cavities:
             result('cavity_collision', [a, b], volume, 0, volume <= EPS, 'Cartridge cutting volumes must not intersect.', unit='mm³')
         if volume <= EPS or both_cavities:
-            distance = sa.distance(sb)
             required=required_wall(design,fa,fb,definitions=definitions)
-            result('minimum_feature_wall', [a, b], distance, round(required,5), distance + EPS >= required,
+            distance,separated=pairs.separation(sa,sb,required)
+            result('minimum_feature_wall', [a, b], distance, round(required,5), separated,
                    'Solid distance between non-connected cutting volumes.', unit='mm')
         if (fa.kind == 'cavity') != (fb.kind == 'cavity') and volume > EPS:
             cavity, bore = (a, b) if fa.kind == 'cavity' else (b, a)
-            allowed = [shape for n, shape in g.nodes.items() if n.startswith(cavity + ':')
+            allowed = [n for n in g.nodes if n.startswith(cavity + ':')
                        and tuple(sorted((bore, n))) in expected and g.circuits[n] == g.circuits[bore]]
-            forbidden = g.cuts[cavity]
-            if allowed:
-                forbidden = forbidden.cut(*allowed)
-            intrusion = forbidden.intersect(g.cuts[bore]).Volume()
+            key=(cavity,tuple(sorted(allowed)))
+            if key not in protected_cavities:
+                protected_cavities[key]=g.cuts[cavity].cut(*(g.nodes[n] for n in allowed)) if allowed else g.cuts[cavity]
+            intrusion = pairs.volume(protected_cavities[key],g.cuts[bore])
             result('cavity_protected_region', [cavity, bore], intrusion, 0, intrusion <= EPS,
                    'Drilling must meet only its assigned interface window, not seals, threads or another zone.', unit='mm³')
         elif not both_cavities and fa.kind != 'cavity' and fb.kind != 'cavity':
@@ -248,7 +251,7 @@ def validate(design, g, definitions=None):
             result('drilling_entry_closure', [f.id], len(ports), '>= 1 port or a plug', bool(ports),
                    'Every drilling opening requires a coaxial external port or a declared plug.')
         if f.plugged:
-            intrusion = sum(plug_shape.intersect(g.cuts[other]).Volume()
+            intrusion = sum(pairs.volume(plug_shape,g.cuts[other])
                             for other in g.cuts if other != f.id
                             for plug_shape in [g.plugs[f.id]])
             result('plug_engagement', [f.id], intrusion, 0, intrusion <= EPS,
@@ -270,9 +273,9 @@ def validate(design, g, definitions=None):
                                'Qualified source tool for the declared closure operation',bool(tool and tool['usable'] and tool['active']),
                                'Closure forming and tapping use the declared source operation capabilities, without extrapolating reach.')
     for a, b in combinations(g.envelopes, 2):
-        distance = g.envelopes[a].distance(g.envelopes[b])
+        distance,separated=pairs.separation(g.envelopes[a],g.envelopes[b],design.rules.minimum_access_gap)
         result('installation_access', [a, b], distance, design.rules.minimum_access_gap,
-               distance + EPS >= design.rules.minimum_access_gap,
+               separated,
                'Declared cartridge, fitting and plug tool envelopes need separation.', unit='mm')
 
     for key, boundary in g.boundaries.items():
@@ -286,14 +289,14 @@ def validate(design, g, definitions=None):
         for other in g.envelopes:
             if other==owner:
                 continue
-            distance=shape.distance(g.envelopes[other])
-            result('boundary_access',[owner,other],distance,design.rules.minimum_access_gap,distance+EPS>=design.rules.minimum_access_gap,'Declared mounting/body/service boundary versus neighboring fitting or tool envelope.',unit='mm')
+            distance,separated=pairs.separation(shape,g.envelopes[other],design.rules.minimum_access_gap)
+            result('boundary_access',[owner,other],distance,design.rules.minimum_access_gap,separated,'Declared mounting/body/service boundary versus neighboring fitting or tool envelope.',unit='mm')
     for a,b in combinations(g.boundaries,2):
         aa,bb=g.boundaries[a],g.boundaries[b]
         if aa['owner']==bb['owner']:
             continue
-        distance=aa['shape'].distance(bb['shape'])
-        result('component_boundary_clearance',[aa['owner'],bb['owner']],distance,design.rules.minimum_access_gap,distance+EPS>=design.rules.minimum_access_gap,'Distinct source-backed mounting/body/service regions require separation; no undeclared body height is assumed.',unit='mm')
+        distance,separated=pairs.separation(aa['shape'],bb['shape'],design.rules.minimum_access_gap)
+        result('component_boundary_clearance',[aa['owner'],bb['owner']],distance,design.rules.minimum_access_gap,separated,'Distinct source-backed mounting/body/service regions require separation; no undeclared body height is assumed.',unit='mm')
 
     for net in design.nets:
         missing = sorted(set(net.members) - set(g.nodes))
@@ -339,7 +342,7 @@ def validate(design, g, definitions=None):
                 routed_zones=[z for z in definition.zones if (f.id if f.kind=='port' else f'{f.id}:{z.id}') in g.nodes]
                 for a,z in combinations(routed_zones,2):
                     keys=[f'{f.id}:{a.id}',f'{f.id}:{z.id}']
-                    volume=g.nodes[keys[0]].intersect(g.nodes[keys[1]]).Volume()
+                    volume=pairs.volume(g.nodes[keys[0]],g.nodes[keys[1]])
                     result('mapped_interface_separation',keys,volume,0,volume<=EPS,
                            'Separate installed hydraulic windows must not overlap. Native draft mappings retain conflicts for correction.',unit='mm³')
             for z in definition.zones:
@@ -371,6 +374,7 @@ def validate(design, g, definitions=None):
                 unresolved_machining=unresolved_machining,
                 unresolved_plug_entries=unresolved_plug_entries,
                 checks=checks, graph={n: sorted(v) for n, v in graph.items()},
+                calculation_reuse=dict(pairs.stats),
                 scope='Exact geometry, declared interfaces, velocity/flow area and pressure-derived ligament screening. No fatigue, pressure-drop or vendor certification.',
                 limitations=['SQLite engineering definitions are used as imported; custom straight-bore ports remain engineer-defined rather than manufacturer machining specifications.',
                              'Cartridge zones assume an installed sealing cartridge; valve-state flow is not simulated.',

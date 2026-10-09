@@ -137,10 +137,14 @@ async def build(payload: BuildRequest):
 
 
 @app.post('/api/check-design')
-def check_design(design: Design):
+def check_design(design: Design,initial_layout:bool=False):
     """Normalize an editor draft without saving or running CAD."""
     from .engineering_db import validate_references
-    try:validate_references(design)
+    try:
+        validate_references(design)
+        if initial_layout:
+            from .layout import initial_placement
+            design=initial_placement(design)
     except (ValueError,RuntimeError) as exc:raise HTTPException(422,str(exc)) from exc
     return design.model_dump()
 

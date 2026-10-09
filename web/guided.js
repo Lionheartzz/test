@@ -108,7 +108,7 @@ export function guided(ctx,open){
         for(const s of selected){for(let j=0;j<s.quantity;j++){
           const [u,v]=axes[s.face],f={id:'CV'+(++count),kind:'cavity',face:s.face,u:dims[u]*count/(total+1),v:dims[v]/2,cavity_id:s.def.id,interface_nets:{...s.mapping},cartridge_id:s.cartridge_id};[f.u,f.v]=clamp(f,d,f.u,f.v);d.features.push(f);
         }}
-        syncNets(d);const checked=await post('/api/check-design',d);if(newProject(checked,Object.fromEntries(d.library.map(x=>[x.id,x])))){dialog.close();notice('New project ready. Refine placement and routes, then Save Project or Validate.');}
+        syncNets(d);const checked=await post('/api/check-design?initial_layout=true',d);if(newProject(checked,Object.fromEntries(d.library.map(x=>[x.id,x])))){dialog.close();notice('New project ready. Refine placement and routes, then Save Project or Validate.');}
       }));
     };block();loadMaterials();
   };

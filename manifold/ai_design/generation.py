@@ -13,8 +13,8 @@ import uuid
 from .. import store
 from ..schema import Design, Feature, CavityDefinition
 from ..kinematics import FACE_AXES, dimensions, clamp_placement, pose,definition_planar_radius
-from ..routing import terminal_points, route_cost
-from ..engineering import calculate_sync,CalculationError
+from ..routing import terminal_points
+from ..engineering import CalculationError
 from . import service, library_resolution as library
 from .models import TaskInput
 from .intent import effective_result, interpret, parameter_for
@@ -263,24 +263,8 @@ def preflight(key, request):
 
 
 def packing(group,face,wall,gap,maximum,*,rectangular=False):
-    """Conservative source-footprint grid, fitted before any native CAD work."""
-    radius=max(definition_planar_radius(c['definition']) for c in group)
-    pitch=2*radius+2*wall+gap
-    u,v,_,_=FACE_AXES[face]
-    choices=[]
-    for cols in range(1,len(group)+1):
-        rows=math.ceil(len(group)/cols)
-        width,height=cols*pitch+2*wall,rows*pitch+2*wall
-        if width<=maximum[u] and height<=maximum[v]:
-            choices.append((max(width,height),width*height,cols,rows,width,height,pitch))
-    if not choices and gap:
-        # Preferred connector spacing is a proposal, not a source dimension.
-        return packing(group,face,wall,0,maximum,rectangular=rectangular)
-    if not choices:raise ValueError(f'{face}: source machining/installed footprints cannot fit {len(group)} cavities within the requested block envelope and minimum wall.')
-    # An alternate compact rectangle avoids partially occupied square grids;
-    # it is a different placement, not more OCCT attempts on the same layout.
-    chosen=min(choices,key=lambda row:(row[1],row[0],row[2:])) if rectangular else min(choices)
-    return chosen[2:]
+    from ..layout import packing_dimensions
+    return packing_dimensions(group,face,wall,gap,maximum,rectangular=rectangular)
 
 
 def fid(generation_id, key, prefix):
@@ -473,88 +457,39 @@ def candidate(plan, generation_id, variant):
         design.nets.append(HydraulicNet(id=net_ids[net['id']],label=str(library.value(result,net['id'],'label') or net['id'])[:120],
             members=[terminal_map[p] for p in net['members']],routing='automatic',diameter=diameter,
             flow_lpm=prototype.flow_lpm,pressure_bar=prototype.pressure_bar,velocity_limit=prototype.velocity_limit,drilling_mode=prototype.drilling_mode))
+    from ..layout import initial_placement
+    design=initial_placement(design,by_definition)
     return Design.model_validate(design.model_dump()),feature_map,terminal_map
 
 
-def score(report, design):
-    # Search can improve geometry without pretending unreviewed schematic facts are approved.
-    geometry_failures=sum(c['status']=='FAIL' for c in report['checks'] if c['rule']!='engineering_review'
-                         and not (c['rule']=='schematic_conformance' and c['actual'] is True))
-    return (geometry_failures,report['counts']['FAIL'],report['counts']['WARNING'],
-            route_cost(design,[f for f in design.features if f.kind=='drilling']))
-
-
 def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False):
+    """Compile one normal project. Model owns routing, preview and validation."""
     started=time.monotonic()
     record,run,inputs,result=context(key,request.run_id,request.expected_revision)
     service.verified_documents(inputs)
     plan=prepare(inputs,result,request.options)
     if plan['blocked']:
         return dict(status='needs_input',blocked=plan['blocked'],preflight=preflight(key,request))
+    if cancelled():raise CalculationError('Draft creation cancelled; analysis retained.',409)
+    progress(dict(message='Arranging resolved engineering components in a standard project',
+        progress=dict(stage='layout',stage_text='Arranging engineering components',percent=5,elapsed_s=0)))
     generation_id=uuid.uuid4().hex
     folder=store.OUTPUT/'ai-design'/key/'generations'/generation_id
     folder.mkdir(parents=True,exist_ok=False)
-    attempts=[];best=None;checkpoint=None;interruption=None
-    for index in range(request.options.max_attempts):
-        if cancelled():interruption='Generation cancelled; the latest authored draft and analysis are retained.';break
-        progress(f'Exact candidate {index+1}/{request.options.max_attempts}: placement, routing, wall and connectivity checks')
-        try:
-            design,feature_map,terminal_map=candidate(plan,generation_id,index)
-            from ..schema import DesignOrigin
-            design.origin=DesignOrigin(author='PMC AI Design',method='ai-assisted',provider=run['provider']['id'],model=run['provider']['model'],
-                notes='AI-generated draft. Exact engineering validation remains authoritative.')
-            checkpoint=(design,feature_map,terminal_map)
-            store.atomic_json(folder/'authored-draft.json',design.model_dump())
-            def calculation_progress(detail):
-                progress(dict(message=detail['stage_text'],progress={**detail,
-                    'layout':index+1,'layout_limit':request.options.max_attempts,
-                    'elapsed_s':round(time.monotonic()-started,3),
-                    'percent':(index*100+detail['percent'])/request.options.max_attempts}))
-            checked=calculate_sync('ai-generate',dict(design=design.model_dump(),max_attempts=request.options.max_exact_attempts),
-                                   cancelled=cancelled,on_progress=calculation_progress)
-            resolved=Design.model_validate(checked['design']);routes=checked['routes'];report=checked['report']
-            # Keep the actual owned proposal, not just a variant on unresolved nets.
-            from ..route_state import merge_routes
-            design=merge_routes(design,resolved)
-            store.atomic_json(folder/f'attempt-{index:02}'/'design.json',design.model_dump())
-            store.atomic_json(folder/f'attempt-{index:02}'/'resolved_design.json',resolved.model_dump())
-            store.atomic_json(folder/f'attempt-{index:02}'/'validation.json',report)
-            ranking=score(report,resolved)
-            attempts.append(dict(index=index,score=ranking,counts=report['counts'],
-                                 geometry_failures=ranking[0],block=design.block.model_dump(),routes=routes,
-                                 failed_rules=sorted({c['rule'] for c in report['checks'] if c['status']=='FAIL'})))
-            if best is None or ranking<best[0]:best=(ranking,design,report,index,feature_map,terminal_map)
-            if ranking[0]==0:
-                break
-        except CalculationError as exc:
-            # A busy/native-worker failure needs explicit recovery, not
-            # another expensive placement attempt hiding the execution failure.
-            interruption=str(exc)
-            attempts.append(dict(index=index,error='cancelled' if cancelled() else 'calculation_failed',message=interruption))
-            store.atomic_json(folder/f'attempt-{index:02}'/'failure.json',attempts[-1])
-            break
-        except (ValueError,RuntimeError) as exc:
-            attempts.append(dict(index=index,error=type(exc).__name__,message=str(exc)[:2000] or 'Candidate could not be built; review mapping and block constraints.'))
-            store.atomic_json(folder/f'attempt-{index:02}'/'failure.json',attempts[-1])
-    if best is None:
-        packet=dict(id=generation_id,task_id=key,run_id=run['id'],status='no_buildable_candidate',attempts=attempts,
-                    message='No candidate could be built within the requested envelope. Review selected cavity mapping and block constraints.')
-        if cancelled():packet['status']='cancelled'
-        if checkpoint:
-            design,feature_map,terminal_map=checkpoint
-            from ..route_state import preserve_draft
-            packet.update(status='cancelled' if cancelled() else 'incomplete_draft',design=preserve_draft(design).model_dump(),
-                          feature_mapping=feature_map,terminal_mapping=terminal_map)
-    else:
-        _,design,report,chosen,feature_map,terminal_map=best
-        packet=dict(id=generation_id,task_id=key,run_id=run['id'],status='draft',design=design.model_dump(),validation=report,
-                    selected_attempt=chosen,geometry_failures=best[0][0],attempts=attempts,feature_mapping=feature_map,
-                    terminal_mapping=terminal_map,dispositions=plan['settings']['dispositions'],
-                    message='Editable AI Draft; exact validation and engineering review status are separate from manufacturing approval.')
-    if interruption:packet['message']=interruption;packet['interruption']=interruption
+    design,feature_map,terminal_map=candidate(plan,generation_id,0)
+    from ..schema import DesignOrigin
+    design.origin=DesignOrigin(author='PMC AI Design',method='ai-assisted',provider=run['provider']['id'],model=run['provider']['model'],
+        notes='Resolved schematic compiled into an editable project. Shared Model routing and Validate remain explicit engineering operations.')
+    store.atomic_json(folder/'authored-draft.json',design.model_dump())
+    progress(dict(message='Preparing editable project',progress=dict(stage='finalizing',
+        stage_text='Preparing editable project',percent=90,elapsed_s=round(time.monotonic()-started,3))))
+    packet=dict(id=generation_id,task_id=key,run_id=run['id'],status='draft',design=design.model_dump(),
+        validation=None,attempts=[],feature_mapping=feature_map,terminal_mapping=terminal_map,
+        dispositions=plan['settings']['dispositions'],route_status='NOT_ROUTED_NOT_VALIDATED',
+        message='Editable project created. Open in Model to start the shared routing proposal; edit, Save and Validate there. No layout optimization or CAD validation was performed during draft creation.')
     packet['elapsed_s']=round(time.monotonic()-started,2)
-    packet['resource_limits']=dict(total_features=PROJECT_FEATURES,nets=PROJECT_NETS,placement_attempts=request.options.max_attempts,
-                                  exact_route_attempts_per_placement=request.options.max_exact_attempts,total_seconds=None)
+    packet['resource_limits']=dict(total_features=PROJECT_FEATURES,nets=PROJECT_NETS,placement_attempts=1,
+                                  exact_route_attempts_per_placement=0,total_seconds=None)
     packet['topology_acceptance']=dict(action='generate',signature=plan['topology_review']['signature'])
     packet.update(created_at=service.now(),provider=run['provider'],input_revision=run['input_revision'],
                   source_task_revision=request.expected_revision,

@@ -236,9 +236,9 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
     }
     navigation.register('topology',null,'decision',topology,()=>topology.querySelector('input'));
     field(content,'Placement override decision',options.placement_decision,v=>options.placement_decision=v).placeholder='Required only when overriding proposed component/port faces';
-    const dimensions=element('details');dimensions.append(element('summary','Draft geometry assumptions and search budget'));content.append(dimensions);
-    for(const [key,label]of [['drilling_diameter','Minimum proposed drilling diameter (mm)'],['port_diameter','Custom Straight Bore diameter (mm)'],['port_depth','Draft entry depth for thread-only / custom ports (mm)'],['max_attempts','Maximum layout attempts'],['max_exact_attempts','Exact candidates per layout (1–8)']])field(dimensions,label,options[key]??2,v=>options[key]=v,null,true);
-    dimensions.append(element('p','Projects support 120 total features including generated drillings and 40 hydraulic nets. Recognition retains up to 120 components / 600 terminals for review. Exact searches default to 2 candidates per layout (up to 8); generation can be cancelled without losing the analysis.'));
+    const dimensions=element('details');dimensions.append(element('summary','Draft geometry assumptions'));content.append(dimensions);
+    for(const [key,label]of [['drilling_diameter','Minimum proposed drilling diameter (mm)'],['port_diameter','Custom Straight Bore diameter (mm)'],['port_depth','Draft entry depth for thread-only / custom ports (mm)']])field(dimensions,label,options[key],v=>options[key]=v,null,true);
+    dimensions.append(element('p','Generate creates one editable project. Open it in Model to use shared automatic routing, then explicitly Optimize or Validate. Project limits remain 120 features and 40 hydraulic nets.'));
     dimensions.append(element('p','Entry depth and drill point are editable Draft proposals, not confirmed machining dimensions. Thread-only tap-drill diameter comes from engineering library; thread depth and the complete port form remain unresolved. Flow requirements may increase routing drilling size. Cavity geometry is never resized.'));
     const requirements=element('section');requirements.append(element('h3','How your requirements will be used'));content.append(requirements);
     for(const row of plan.dispositions){const card=element('div',null,'library-card');card.append(element('strong',`${row.property} · ${row.status.replaceAll('_',' ')}`),element('p',row.message));requirements.append(card);}
@@ -315,7 +315,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
     content.append(element('h3',packet.status==='draft'?'Your editable manifold draft':'Generation needs review'),element('p',packet.message||packet.status));
     if(packet.design){
       if(packet.validation)content.append(element('p',`Exact report: ${packet.validation.counts.PASS} PASS · ${packet.validation.counts.WARNING} WARNING · ${packet.validation.counts.FAIL} FAIL. Geometry failures: ${packet.geometry_failures}.`,'ai-summary'));
-      else content.append(element('p','Unvalidated authored draft retained. Open it to adjust placement, Retry Routing / Preview, or Save Draft.','ai-summary'));
+      else content.append(element('p','Initial project ready · not routed or validated. Open it in Model to start the shared route proposal. You can edit and Save Draft while routing runs.','ai-summary'));
       content.append(element('p','The draft preserves all failed checks and open engineering decisions. Opening it does not mark it approved. Move, replace, reroute, save, then Validate in the normal Studio.','ai-provider-note'));
       action(content,'Open draft in Manifold Studio',safe(async()=>{const handoff=await inspectGeneratedDraft(packet,post);if(newProject(handoff.design,handoff.definitions,handoff.threads)){$('workflow-dialog').close();ctx.notice('AI Draft opened. Review the linked analysis and engineering decisions, then Save Project or Validate.');}})).classList.add('primary');
       const a=element('a','Download draft project JSON');a.href=`/api/ai-design/tasks/${packet.task_id}/generations/${packet.id}/project`;a.className='download';content.append(a);

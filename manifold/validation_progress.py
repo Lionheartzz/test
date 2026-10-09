@@ -2,6 +2,8 @@
 STAGES={
     'preparing':'Preparing design',
     'routes':'Resolving automatic routes',
+    'layout':'Arranging engineering components',
+    'repair':'Resolving conflicts between hydraulic routes',
     'comparison':'Comparing automatic routes',
     'candidate':'Checking automatic route candidate',
     'alternate':'Trying alternate automatic route',

@@ -1,4 +1,5 @@
 // Spatial references are allowed only for results bound to the displayed design.
+import {displayFeatureName,displayNetName,displayRuleName} from './presentation.js';
 // Check values remain authoritative in their report even when spatial references are stale.
 export function reportSource({report,build,dirty,stale,externalChange,draftCheckedSignature,draftSignature,displayedDraftSignature,displayedSource,reportWasDraft=false}){
   if(!report)return {kind:'none',spatial:false,label:'Not validated'};
@@ -45,4 +46,29 @@ export function issueReferences(report,context){
     }
   }
   return [...byId.values()];
+}
+
+export function groupRepairIssues(checks,design){
+  const features=new Map((design?.features||[]).map(f=>[f.id,f])),groups=new Map();
+  const netFor=item=>{const [id,zone]=String(item).split(':'),f=features.get(id);return zone?f?.interface_nets?.[zone]:f?.route_net||f?.frozen_net||f?.circuit;};
+  for(const check of checks||[]){
+    if(check.status!=='FAIL')continue;
+    const ids=[...new Set((check.items||[]).map(item=>String(item).split(':')[0]).filter(id=>features.has(id)))].sort();
+    const nets=[...new Set((check.items||[]).map(netFor).filter(Boolean))].sort();
+    let family='engineering',title=displayRuleName(check.rule);
+    if(['cavity_protected_region','port_protected_region'].includes(check.rule)){family='protected';title='Protected machining region';}
+    else if(['circuit_intersection','declared_connection','unintended_cut_intersection','minimum_feature_wall'].includes(check.rule)){
+      family='intersection';title=nets.length>1?'Hydraulic routes intersect / lack separation':'Machining contact needs correction';
+    }else if(['connected_interface','circuit_connectivity','expected_connection','connection_opening_area'].includes(check.rule)){
+      family='connection';title='Hydraulic connection needs correction';
+    }else if(['plug_engagement','construction_closure','closure_entry_depth'].includes(check.rule)){family='plug';title='Construction closure conflict';}
+    else if(['installation_access','boundary_access','component_boundary_clearance'].includes(check.rule)){family='access';title='Installation / service clearance';}
+    const key=JSON.stringify([family==='engineering'?check.rule:family,family==='connection'&&nets.length===1?nets:ids.length?ids:check.items]);
+    const row=groups.get(key)||{title,items:[],checks:[],nets:[],features:[]};
+    row.items=[...new Set([...row.items,...(check.items||[])])];row.checks.push(check);
+    row.nets=[...new Set([...row.nets,...nets])];row.features=[...new Set([...row.features,...ids])];groups.set(key,row);
+  }
+  return [...groups.values()].map(row=>({...row,
+    label:row.title+(row.nets.length?' · '+row.nets.map(id=>displayNetName(design,id).replace(/^net_(?=[a-z])/i,'').replaceAll('_',' ')).join(' / '):''),
+    objects:row.features.map(id=>displayFeatureName(features.get(id),design).replaceAll('_',' ')).join(' ↔ ')}));
 }
