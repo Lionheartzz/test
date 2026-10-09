@@ -1,7 +1,7 @@
 """Compile reviewed hydraulic understanding into the existing editable Design.
 
-No provider writes cavity geometry. Bounded placement/routing trials keep every
-failed exact report; a generation never overwrites a saved user project.
+No provider writes cavity geometry. One analytic draft uses the shared source
+layout/defaults; a generation never overwrites a saved user project or runs CAD.
 """
 import copy
 import hashlib
@@ -12,7 +12,7 @@ import time
 import uuid
 from .. import store
 from ..schema import Design, Feature, CavityDefinition
-from ..kinematics import FACE_AXES, dimensions, clamp_placement, pose,definition_planar_radius
+from ..kinematics import FACE_AXES, dimensions, pose,definition_planar_radius
 from ..routing import terminal_points
 from ..engineering import CalculationError
 from . import service, library_resolution as library
@@ -73,7 +73,7 @@ def topology_signature(inputs,result):
 
 def prepare(inputs, result, options):
     result = topology(result, options)
-    settings = interpret(result, options)
+    settings = interpret(result, options,inputs.project_engineering)
     from ..engineering_db import materials
     def material_names(row):
         identity=(row.get('engineering_facts_summary') or {}).get('identity') or {}
@@ -287,10 +287,17 @@ def candidate(plan, generation_id, variant):
         groups.setdefault(settings['component_faces'].get(component['id'],options.preferred_component_face or 'top'),[]).append(component)
     maximum=list(settings['maximum']);minimum=list(settings['minimum'])
     if inputs.project_engineering:
-        if inputs.project_engineering.constraints.envelope_max:maximum=[min(a,b) for a,b in zip(maximum,inputs.project_engineering.constraints.envelope_max)]
-        if inputs.project_engineering.constraints.envelope_min:minimum=[max(a,b) for a,b in zip(minimum,inputs.project_engineering.constraints.envelope_min)]
-    layouts={face:packing(group,face,wall,6 if settings['priority']=='compact' else 16,maximum,rectangular=variant%2==1) for face,group in groups.items()}
-    base=[80,80,70];required=[1,1,1]
+        for i,name in enumerate(('length','width','height')):
+            if name not in settings['envelope_max_axes'] and inputs.project_engineering.constraints.envelope_max:maximum[i]=inputs.project_engineering.constraints.envelope_max[i]
+            if name not in settings['envelope_min_axes'] and inputs.project_engineering.constraints.envelope_min:minimum[i]=inputs.project_engineering.constraints.envelope_min[i]
+    if any(lo>hi for lo,hi in zip(minimum,maximum)):
+        raise ValueError('Explicit and linked-project envelope requirements conflict; resolve them before generating the draft.')
+    from ..schema import Rules
+    access_gap=(inputs.project_engineering.rules if inputs.project_engineering else Rules()).minimum_access_gap
+    # Temporary source-sized scaffold; the shared material/wall/layout proposal
+    # below chooses the final NEW-project dimensions after nets are compiled.
+    layouts={face:packing(group,face,wall,access_gap,maximum) for face,group in groups.items()}
+    base=[1,1,1];required=[1,1,1]
     for face,(_,_,width,height,_) in layouts.items():
         u,v,_,_=FACE_AXES[face];base[u]=max(base[u],width);base[v]=max(base[v],height)
         required[u]=max(required[u],width);required[v]=max(required[v],height)
@@ -299,27 +306,26 @@ def candidate(plan, generation_id, variant):
         face = settings['component_faces'].get(c['id'],options.preferred_component_face or 'top')
         axis = FACE_AXES[face][2]
         depth=max([s.end for s in c['definition'].stages]+[p.end for p in c['definition'].cutting_primitives])
-        base[axis]=max(base[axis],depth+wall*2+12);required[axis]=max(required[axis],depth+wall)
+        base[axis]=max(base[axis],depth+wall+2*options.drilling_diameter);required[axis]=max(required[axis],depth+wall)
     for i,p in enumerate(plan['external']):
         face=settings['port_faces'].get(p['id'],options.preferred_port_face or ('left','right','front','back')[(i+variant//2)%4])
         axis=FACE_AXES[face][2]
         depth=max([s.end for s in p['definition'].stages]+[cut.end for cut in p['definition'].cutting_primitives]) if p['definition'] else options.port_depth
         required[axis]=max(required[axis],depth+wall)
-        base[axis]=max(base[axis],depth+wall*2+12)
-    scale = (1, 1.18, 1.35, 1.5, 1.7, 1.9)[variant]
+        base[axis]=max(base[axis],depth+wall+2*options.drilling_diameter)
     if any(size>hi for size,hi in zip(required,maximum)):
         raise ValueError('Source cavity machining depth/footprints exceed the requested block envelope; enlarge the block or revise the mounting faces.')
-    sizes = [max(lo,min(hi,math.ceil(size*scale/5)*5)) for size,lo,hi in zip(base,minimum,maximum)]
+    sizes = [max(lo,min(hi,math.ceil(size/5)*5)) for size,lo,hi in zip(base,minimum,maximum)]
     block = dict(zip(('length','width','height'),sizes))
     block['material'] = settings['material']
     if settings.get('material_id'):block['material_id']=settings['material_id']
-    elif inputs.project_engineering and settings['material']=='Unspecified - review required':
+    elif inputs.project_engineering and settings['material_source'] is None:
         block['material']=inputs.project_engineering.block.material
         if inputs.project_engineering.block.material_id:block['material_id']=inputs.project_engineering.block.material_id
     assets=[d.asset.model_dump() for d in inputs.documents]
     raw = dict(schema_version=3,name=(inputs.title[:100] + ' - AI Draft'), project_context=inputs.project_context, block=block,
                features=[], nets=[],schematic_intent=dict(assets=assets,components=[]), rules=dict(minimum_wall=options.minimum_wall),
-               constraints=dict(envelope_max=settings['maximum'],envelope_min=settings['minimum'],
+               constraints=dict(envelope_max=maximum,envelope_min=minimum,
                    forbidden_drilling_faces=settings['forbidden'],priority=settings['priority'],
                    notes='AI-generated draft from the current normalized schematic intent.'))
     design = Design.model_validate(raw)
@@ -327,13 +333,16 @@ def candidate(plan, generation_id, variant):
         design.project_defaults=inputs.project_engineering.project_defaults.model_copy(deep=True)
         design.rules=inputs.project_engineering.rules.model_copy(deep=True)
         design.constraints.preferred_wall_margin=inputs.project_engineering.constraints.preferred_wall_margin
-        design.constraints.priority=inputs.project_engineering.constraints.priority
-        if inputs.project_engineering.constraints.envelope_max:design.constraints.envelope_max=tuple(min(a,b) for a,b in zip(settings['maximum'],inputs.project_engineering.constraints.envelope_max))
-        if inputs.project_engineering.constraints.envelope_min:design.constraints.envelope_min=tuple(max(a,b) for a,b in zip(settings['minimum'],inputs.project_engineering.constraints.envelope_min))
-    if settings['material']!='Unspecified - review required' and not settings.get('material_id'):
-        from ..schema import EngineeringReview
-        design.review_items.append(EngineeringReview(id='AI_MATERIAL_REVIEW',kind='component',subject='block',
-            description=f'Explicit material requirement “{settings["material"]}” has no unique source-backed SQLite material match. Material properties and stock suitability remain unresolved.'))
+        design.constraints.standard_drills=list(inputs.project_engineering.constraints.standard_drills)
+    design.constraints.priority=settings['priority']
+    from ..schema import Rules,ProjectEngineeringDefaults
+    design.rules=Rules.model_validate({**design.rules.model_dump(),**settings['rule_overrides']})
+    design.project_defaults=ProjectEngineeringDefaults.model_validate({**design.project_defaults.model_dump(),**settings['default_overrides']})
+    if inputs.project_engineering:
+        design.constraints.forbidden_drilling_faces=sorted(set(design.constraints.forbidden_drilling_faces)|set(inputs.project_engineering.constraints.forbidden_drilling_faces))
+    if options.minimum_wall is not None:design.rules.minimum_wall=options.minimum_wall
+    if not settings['envelope_max_axes'] and not (inputs.project_engineering and inputs.project_engineering.constraints.envelope_max):design.constraints.envelope_max=None
+    if not settings['envelope_min_axes'] and not (inputs.project_engineering and inputs.project_engineering.constraints.envelope_min):design.constraints.envelope_min=None
     feature_map, terminal_map, net_ids = {}, {}, {}
     used_nets = set()
     for i,net in enumerate(result['nets'],1):
@@ -345,16 +354,13 @@ def candidate(plan, generation_id, variant):
         used_nets.add(name)
     for face,group in groups.items():
         u_axis,v_axis,_,_=FACE_AXES[face]
-        local_cols,local_rows,_,_,pitch=layouts[face]
-        pitch_u=max(pitch,(sizes[u_axis]-2*wall)/local_cols)
-        pitch_v=max(pitch,(sizes[v_axis]-2*wall)/local_rows)
-        origin_u=(sizes[u_axis]-(local_cols-1)*pitch_u)/2
-        origin_v=(sizes[v_axis]-(local_rows-1)*pitch_v)/2
+        from ..layout import circle_layout,machining_radius
+        _,_,_,_,width,height,slots=circle_layout([(c['id'],machining_radius(c['definition'])+wall/2) for c in group],sizes[u_axis]-wall,sizes[v_axis]-wall,design.rules.minimum_access_gap)
         for i,c in enumerate(group):
             key=c['id'];definition=by_definition[aliases[key]]
             f=Feature(id=fid(generation_id,key,'CV'),kind='cavity',face=face,
-                      u=origin_u+(i%local_cols)*pitch_u,
-                      v=origin_v+(i//local_cols)*pitch_v,cavity_id=definition.id,
+                      u=slots[key][0]+(sizes[u_axis]-width)/2,
+                      v=slots[key][1]+(sizes[v_axis]-height)/2,cavity_id=definition.id,
                       interface_nets={zone:net_ids[plan['port_net'][port]] for zone,port in c['mapping'].items() if port in plan['port_net']},
                       cartridge_id=c.get('cartridge_id'),schematic_id=key)
             design.features.append(f);feature_map[key]=f.id
@@ -408,18 +414,8 @@ def candidate(plan, generation_id, variant):
                           clearance_diameter=max(20,options.port_diameter+6),clearance_height=20,
                           port_type='Provisional straight bore - no thread specified',size=f'Draft bore {options.port_diameter:g} mm')
         f=Feature(**kwargs)
-        radius=definition_planar_radius(p['definition']) if p['definition'] else f.clearance_diameter/2
-        margin=radius+wall
-        occupied=[(previous.u,previous.v,definition_planar_radius(by_definition[previous.definition]) if previous.definition else previous.clearance_diameter/2)
-                  for previous in design.features if previous.face==face]
-        preferred=(max(margin,min(sizes[u_axis]-margin,f.u)),max(margin,min(sizes[v_axis]-margin,f.v)))
-        pitch=2*radius+2*wall+2
-        probes=[preferred]+[(x,y) for x in [margin+j*pitch for j in range(max(0,math.floor((sizes[u_axis]-2*margin)/pitch)+1))]
-                           for y in [margin+j*pitch for j in range(max(0,math.floor((sizes[v_axis]-2*margin)/pitch)+1))]]
-        legal=[point for point in probes if margin<=point[0]<=sizes[u_axis]-margin and margin<=point[1]<=sizes[v_axis]-margin
-               and all(math.hypot(point[0]-x,point[1]-y)>=radius+r+wall for x,y,r in occupied)]
-        if not legal:raise ValueError(f'{p["label"]}: no non-overlapping source port/installed envelope fits the requested {face} face. Enlarge the block or change the port face.')
-        f.u,f.v=min(legal,key=lambda point:(math.dist(point,preferred),point))
+        # Shared initial_placement handles port separation on the FINAL block.
+        # A temporary scaffold must not reject a viable final placement.
         design.features.append(f);terminal_map[key]=f.id;feature_map[key]=f.id
         if f.thread_only:
             from ..schema import EngineeringReview
@@ -434,7 +430,6 @@ def candidate(plan, generation_id, variant):
         feature=Feature(id=fid(generation_id,f'MOUNTING_{index}','MNT'),kind='mounting',face=hole.face,u=hole.u,v=hole.v,
                         mounting_mode='threaded',thread_definition_id=hole.thread_definition_id,thread_depth=through_depth if hole.through else hole.thread_depth,
                         diameter=None,depth=through_depth,through=hole.through,tip_angle=180 if hole.through else 118)
-        feature.u,feature.v=clamp_placement(feature,design,feature.u,feature.v,snap=0,definitions=by_definition)
         design.features.append(feature)
     from ..schema import HydraulicNet
     for net in result['nets']:
@@ -457,7 +452,15 @@ def candidate(plan, generation_id, variant):
         design.nets.append(HydraulicNet(id=net_ids[net['id']],label=str(library.value(result,net['id'],'label') or net['id'])[:120],
             members=[terminal_map[p] for p in net['members']],routing='automatic',diameter=diameter,
             flow_lpm=prototype.flow_lpm,pressure_bar=prototype.pressure_bar,velocity_limit=prototype.velocity_limit,drilling_mode=prototype.drilling_mode))
+    from ..draft_defaults import apply_draft_defaults
     from ..layout import initial_placement
+    preferred=tuple(getattr(inputs.project_engineering.block,name) if inputs.project_engineering and name not in settings['envelope_axes'] else None for name in ('length','width','height'))
+    design,selection=apply_draft_defaults(design,by_definition,
+        explicit=settings['material'] if settings['material_source']=='explicit' else None,
+        inherited=inputs.project_engineering.block.material_id if inputs.project_engineering and settings['material_source'] is None else None,
+        inherited_label=inputs.project_engineering.block.material if inputs.project_engineering and settings['material_source'] is None else None,
+        restrictions=settings['material_restrictions'],preferred_dimensions=preferred)
+    settings['material_proposal']=selection
     design=initial_placement(design,by_definition)
     return Design.model_validate(design.model_dump()),feature_map,terminal_map
 
@@ -479,13 +482,15 @@ def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False
     design,feature_map,terminal_map=candidate(plan,generation_id,0)
     from ..schema import DesignOrigin
     design.origin=DesignOrigin(author='PMC AI Design',method='ai-assisted',provider=run['provider']['id'],model=run['provider']['model'],
-        notes='Resolved schematic compiled into an editable project. Shared Model routing and Validate remain explicit engineering operations.')
+        notes='Resolved schematic compiled into an editable project. Shared Model routing and Validate remain explicit engineering operations. '+plan['settings']['material_proposal']['reason'])
     store.atomic_json(folder/'authored-draft.json',design.model_dump())
     progress(dict(message='Preparing editable project',progress=dict(stage='finalizing',
         stage_text='Preparing editable project',percent=90,elapsed_s=round(time.monotonic()-started,3))))
     packet=dict(id=generation_id,task_id=key,run_id=run['id'],status='draft',design=design.model_dump(),
         validation=None,attempts=[],feature_mapping=feature_map,terminal_mapping=terminal_map,
-        dispositions=plan['settings']['dispositions'],route_status='NOT_ROUTED_NOT_VALIDATED',
+        dispositions=plan['settings']['dispositions'],engineering_defaults=dict(material=plan['settings']['material_proposal'],
+            actual_loads_source='explicit_requirements_or_linked_project',pressure_safety_factor=design.rules.pressure_safety_factor,
+            velocity_limit=design.project_defaults.velocity_limit,drilling_mode=design.project_defaults.drilling_mode,priority=design.constraints.priority),route_status='NOT_ROUTED_NOT_VALIDATED',
         message='Editable project created. Open in Model to start the shared routing proposal; edit, Save and Validate there. No layout optimization or CAD validation was performed during draft creation.')
     packet['elapsed_s']=round(time.monotonic()-started,2)
     packet['resource_limits']=dict(total_features=PROJECT_FEATURES,nets=PROJECT_NETS,placement_attempts=1,

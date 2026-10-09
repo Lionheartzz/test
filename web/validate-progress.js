@@ -104,12 +104,14 @@ export function calculationProgressUI(root,title){
   return progress=>{
     if(!progress){root.hidden=true;operationId=null;percent=0;return;}
     if(operationId!==progress.operation_id){operationId=progress.operation_id;percent=0;}
-    percent=Math.max(percent,Math.min(99,progress.percent||0));
-    root.setAttribute('aria-busy','true');
+    const complete=progress.state==='complete',failed=progress.state==='failed';
+    percent=complete?100:Math.max(percent,Math.min(99,progress.percent||0));
+    root.dataset.calculationState=complete?'complete':failed?'failed':'running';
+    root.setAttribute('aria-busy',String(!complete&&!failed));
     const activity=[progress.completed_operations!=null?progress.completed_operations+' calculation steps completed':'',
       progress.cpu_s!=null?'Worker CPU '+Math.floor(progress.cpu_s)+' s':''].filter(Boolean).join(' · ');
-    render({visible:true,operationId,percent,title,stage:progress.stage_text||'Preparing design',
+    render({visible:true,operationId,percent,title:complete?'Preview calculation complete':failed?'Calculation failed':title,stage:progress.stage_text||'Preparing design',
       detail:[progress.layout?'Layout '+progress.layout+' of up to '+progress.layout_limit:'',progress.detail].filter(Boolean).join(' · '),
-      substage:progress.substage,elapsed:progress.elapsed_s||0,estimating:false,recent:[activity,'Running · current proposal is not validated']});
+      substage:progress.substage,elapsed:progress.elapsed_s||0,estimating:false,recent:[activity,complete?'Complete · preview remains unvalidated':failed?'Last usable view retained · draft is not validated':'Running · current proposal is not validated']});
   };
 }

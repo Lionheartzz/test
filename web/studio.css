@@ -182,6 +182,9 @@ dialog input,dialog select,dialog textarea{background:#111823;color:#eef3f8;bord
 .hud-top .viewport-toolbar{position:relative;top:auto;left:auto;right:auto;z-index:auto;pointer-events:none;}
 .hud-top .collision-notice,.hud-top .viewport-loading,.hud-top .clip-notice{position:relative;top:auto;left:auto;right:auto;z-index:auto;align-self:flex-start;max-width:min(100%,680px);padding:7px 10px;border-radius:6px;background:#1b283be8;border:1px solid #52657d;color:#e8f2ff;font-size:11px;pointer-events:auto;line-height:1.4;}
 .hud-top .viewport-loading{background:#263343e8;}
+.hud-top :is(.viewport-loading,.collision-notice,.clip-notice){max-width:min(calc(100% - 76px),680px);min-width:0;}
+.hud-top .calculation-progress{align-self:stretch;pointer-events:none;}
+.hud-top .collision-notice{max-height:88px;overflow:auto;flex-shrink:0;}
 .hud-top .clip-notice{display:flex;align-items:center;gap:9px;background:#152d3be8;}
 .clip-notice button{min-height:22px;padding:0 6px;}
 .navigation-tools{display:flex;gap:4px;align-items:center;pointer-events:auto;}
@@ -213,6 +216,7 @@ dialog input,dialog select,dialog textarea{background:#111823;color:#eef3f8;bord
 #selection-label,.view-corner{line-height:1.4;white-space:normal;}
 @media(max-width:1200px){.viewcube{top:116px;right:8px;}.viewcube-trigger{width:42px;height:42px;}.viewcube-glyph{transform:scale(.78) rotate(-30deg) skew(8deg,8deg);}.navigation-tools button{padding:4px 6px;font-size:11px;}}
 @media(max-width:680px){.hud-top{top:6px;left:6px;right:6px;}.viewcube{top:130px;}.viewcube-menu{width:min(244px,calc(100vw - 25px));}.navigation-tools button{font-size:10px;}}
+@media(max-width:680px){.hud-top :is(.viewport-loading,.collision-notice,.clip-notice){max-width:calc(100% - 56px);}.hud-top .calculation-progress{grid-template-columns:minmax(0,1fr);}.hud-top .calculation-progress .validate-progress-time{grid-column:1;grid-row:auto;text-align:left;white-space:normal;}}
 .machining-summary{padding:10px 0;border-top:1px solid var(--line);font-size:12px;}
 .machining-summary:first-of-type{border-top:0;}
 .machining-text{margin-top:4px;overflow-wrap:anywhere;}

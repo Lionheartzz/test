@@ -68,6 +68,15 @@ function change(fn,edit={kind:'global'}){if(busy)return false;const before=clone
 const solidOverlay=element('div',null,'viewport-loading');solidOverlay.setAttribute('role','status');solidOverlay.hidden=true;$('viewport').append(solidOverlay);
 const previewProgressNode=element('div',null,'viewport-loading');previewProgressNode.hidden=true;$('viewport').append(previewProgressNode);
 const previewProgress=calculationProgressUI(previewProgressNode,'Computing current preview…');
+let previewProgressLatest=null,previewProgressHide=null;
+function finishPreviewProgress(state,message=''){
+  if(!previewProgressLatest||busy)return;
+  const operation=previewProgressLatest.operation_id;
+  solidOverlay.hidden=true;
+  previewProgress({...previewProgressLatest,state,stage_text:message||'Preview ready · Validate remains required'});
+  if(state==='complete')previewProgressHide=setTimeout(()=>{if(previewProgressLatest?.operation_id===operation)previewProgress(null);},1200);
+}
+
 function solidStatus(text=''){previewProgress(null);solidOverlay.hidden=!text;solidOverlay.textContent=text?userMessage(text,draft,160):'';}
 function previewState(kind,text){$('viewport').dataset.previewState=kind;$('model-info').textContent=userMessage(text,draft,180);}
 const recovery=element('div',null,'preview-recovery');recovery.hidden=true;
@@ -101,17 +110,18 @@ const previews=createPreviewQueue({post:(url,design,{preview,...options}={})=>po
   onFast(p,snapshot){snapshot=ownedPreviewSnapshot(snapshot);if(!snapshot)return;exactPreview=null;resolved=hydrateDesign(p.design,draft.library,draft.threads);viewer?.preview(resolved);markDisplayed(snapshot,'proposal');viewer?.setReferences(resolved.features);viewer?.setDesign(draft);lastUsablePreview={design:resolved,draftSignature:displayedDraftSignature};renderTree();select(selection);renderReport();previewState('approximate','APPROXIMATE LIVE VIEW · CURRENT PROPOSAL · NOT VALIDATED');if(p.routing_update?.fixed_nets_affected?.length)notice('Fixed routing retained: '+p.routing_update.fixed_nets_affected.join(', ')+'. Moved interfaces require Validate before use.',true);},
   onExact:showSolid,
   onTiming:previewTiming,
-  onProgress(progress,snapshot){if(!ownedPreviewSnapshot(snapshot)||busy)return;solidOverlay.hidden=true;previewProgress(progress);},
+  onProgress(progress,snapshot){if(!ownedPreviewSnapshot(snapshot)||busy)return;clearTimeout(previewProgressHide);previewProgressLatest=progress;solidOverlay.hidden=true;previewProgress(progress);},
   onStatus(status){
     previewStatus=status;retryPreview.disabled=busy||retryPending||['queued','routing','exact','settling'].includes(status);
-    if(['queued','ready','error','idle'].includes(status))previewProgress(null);
+    if(['queued','routing','idle'].includes(status)){clearTimeout(previewProgressHide);previewProgressLatest=null;previewProgress(null);}
     if(status==='ready')recovery.hidden=true;
     const retained=machiningPreview||draft?.nets.every(n=>n.routing!=='automatic'||n.route_state&&n.route_state!=='unresolved');
     const computing=status==='exact'||retained&&status==='routing';
     solidStatus(computing?retained?'Computing exact current geometry… Saved routing retained. Not validated.':'Computing exact current proposal… Not validated or optimized.':'');
     if(computing)previewState('computing',retained?'CURRENT DRAFT CHANGED · SAVED ROUTING RETAINED · CURRENT EXACT PREVIEW COMPUTING · NOT VALIDATED':'APPROXIMATE LIVE VIEW · EXACT BREP COMPUTING · NOT VALIDATED');
+    if(status==='ready')finishPreviewProgress('complete');
   },
-  onError(error){exactPreview=null;draftCheckedSignature=null;if(lastUsablePreview){const p=lastUsablePreview;if(p.model)viewer?.load(p.model,p.design);else viewer?.preview(p.design);displayedDraftSignature=p.draftSignature;displayedSource='retained';viewer?.setDesign(draft);renderTree();select(selection);renderReport();}solidStatus();const routed=previewRouting.current(draft,String(projectEpoch));recoveryText.textContent=routed?'Current routing proposal retained; exact preview failed. Visible model is unvalidated.':'Routing unavailable. Visible model is retained and is not current geometry.';recovery.hidden=false;retryPreview.disabled=false;previewState('unavailable','CURRENT EXACT PREVIEW UNAVAILABLE · LAST USABLE VIEW RETAINED');notice(apiError(error,draft),true);}
+  onError(error){exactPreview=null;draftCheckedSignature=null;if(lastUsablePreview){const p=lastUsablePreview;if(p.model)viewer?.load(p.model,p.design);else viewer?.preview(p.design);displayedDraftSignature=p.draftSignature;displayedSource='retained';viewer?.setDesign(draft);renderTree();select(selection);renderReport();}solidStatus();const routed=previewRouting.current(draft,String(projectEpoch));recoveryText.textContent=routed?'Current routing proposal retained; exact preview failed. Visible model is unvalidated.':'Routing unavailable. Visible model is retained and is not current geometry.';recovery.hidden=false;retryPreview.disabled=false;previewState('unavailable','CURRENT EXACT PREVIEW UNAVAILABLE · LAST USABLE VIEW RETAINED');notice(apiError(error,draft),true);finishPreviewProgress('failed',userMessage(error.message,draft,160));}
 });
 async function requestLayer(mode){
   const layer=mode==='void'?'void':mode==='features'?'features':null,token=exactPreview;
@@ -205,9 +215,8 @@ try{viewer=createViewer($('viewport'),select,(id,u,v,done)=>{
 const toolbar=document.querySelector('.viewport-toolbar');
 const hudTop=element('div',null,'hud-top');
 document.querySelector('.viewport-section').prepend(hudTop);
-hudTop.append(toolbar);
+hudTop.append(toolbar,previewProgressNode,solidOverlay);
 if($('viewport').querySelector('.collision-notice'))hudTop.append($('viewport').querySelector('.collision-notice'));
-hudTop.append(solidOverlay);
 const navigationTools=element('div',null,'navigation-tools');
 const projectionButton=action(navigationTools,'Perspective',()=>{
   const next=viewer?.projection()==='perspective'?'orthographic':'perspective';

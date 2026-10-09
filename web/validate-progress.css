@@ -2,6 +2,12 @@
 .validate-progress[hidden],.calculation-progress[hidden],.home .validate-progress{display:none!important}
 .validate-progress-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;grid-column:1/-1}
 .validate-progress-heading strong{font-weight:600;color:var(--text-primary)}
+.validate-progress-heading strong{min-width:0;overflow-wrap:anywhere;}
+.validate-progress-heading [data-validate-percent]{flex:none;min-width:3.5em;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.calculation-progress :is(.validate-progress-stage,.validate-progress-detail,.validate-progress-recent){min-width:0;overflow-wrap:anywhere;}
+.calculation-progress[data-calculation-state=failed]{border-color:var(--danger,#e76b6b);}
+.calculation-progress:is([data-calculation-state=complete],[data-calculation-state=failed]) .validate-progress-heading strong::before{animation:none;}
+.calculation-progress[data-calculation-state=failed] .validate-progress-heading strong::before{background:var(--danger,#e76b6b);}
 :is(.validate-progress,.calculation-progress) progress{width:100%;height:7px;grid-column:1/-1;appearance:none;border:0;border-radius:4px;background:var(--bg-surface);overflow:hidden}
 :is(.validate-progress,.calculation-progress) progress::-webkit-progress-bar{background:var(--bg-surface)}
 :is(.validate-progress,.calculation-progress) progress::-webkit-progress-value{background:var(--accent-primary)}

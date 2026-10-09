@@ -12,19 +12,31 @@ _stack=[]
 _last_write=0
 _write_errors=0
 _progress={}
+_diagnostics={}
 
 
 def configure(path):
-    global _path,_started,_counts,_stack,_last_write,_write_errors,_progress
+    global _path,_started,_counts,_stack,_last_write,_write_errors,_progress,_diagnostics
     _path=Path(path);_started=time.monotonic();_counts={};_stack=[];_last_write=0;_write_errors=0
     _progress={}
+    _diagnostics={}
     publish(force=True)
 
 
 def summary():
     return dict(elapsed_s=round(time.monotonic()-_started,4),phase=' / '.join(_stack) or 'completed',
                 diagnostic_write_errors=_write_errors,operations={k:dict(count=v[0],seconds=round(v[1],6)) for k,v in sorted(_counts.items())},
-                progress={**_progress,'events':list(_progress.get('events',[]))})
+                progress={**_progress,'events':list(_progress.get('events',[]))},diagnostics=dict(_diagnostics))
+
+
+def diagnostic(name,value):
+    """Small bounded engineering outcomes in the SAME request-owned trace.
+
+    Callers supply IDs/counts, never complete designs, source input or secrets.
+    This does not force writes or instrument additional Boolean operations.
+    """
+    _diagnostics[name]=(_diagnostics.get(name,[])+[value])[-8:]
+    publish()
 
 
 def progress(stage, percent, *, candidate=None, candidate_limit=None):

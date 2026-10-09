@@ -162,10 +162,14 @@ def effective_result(run, corrections=None):
     return result
 
 
-def interpret(result, options):
+def interpret(result, options, project=None):
+    from ..schema import DesignConstraints
     settings = dict(maximum=[2000.0]*3, minimum=[1.0]*3, port_faces={}, component_faces={},
                     hard_port_faces={}, hard_component_faces={}, forbidden=[], material='Unspecified - review required',
-                    priority='fewer_plugs', flows={}, pressures={}, mounting_requirements=[], dispositions=[], conflicts=[])
+                    priority=project.constraints.priority if project else DesignConstraints().priority,
+                    material_source=None,material_restrictions=[],envelope_axes=[],envelope_min_axes=[],envelope_max_axes=[],
+                    rule_overrides={},default_overrides={},
+                    flows={}, pressures={}, mounting_requirements=[], dispositions=[], conflicts=[])
     port_labels = {p['id']: str(value(result, p['id'], 'label') or p['id']) for p in result['ports'] if p['component_id'] is None}
     component_labels = {c['id']: str(value(result, c['id'], 'label') or c['id']) for c in result['components']}
     seen = {}
@@ -204,7 +208,7 @@ def interpret(result, options):
                 message='Explicit terminal operating value used for net metadata and flow screening.'))
 
     for intent in result['design_intent']:
-        val, unit = intent.get('value'), intent.get('unit', '')
+        val, unit = intent.get('value'), intent.get('unit', '').lower()
         category, prop, op = intent['category'], intent['property'], intent['operator']
         row = dict(intent_id=intent['id'], category=category, property=prop, value=val, unit=unit,
                    targets=intent['target_labels'], strength=intent['strength'], status='unsupported',
@@ -218,6 +222,25 @@ def interpret(result, options):
         if val is None:
             row.update(status='review_required', message='Requirement value is unknown or rejected; resolve it before relying on the draft.')
             continue
+        if category in ('pressure','flow') and prop in ('rated_pressure','maximum_working_pressure','pressure_rating','relief_setting','rated_flow','maximum_flow','nominal_flow','capacity'):
+            row.update(status='reference_only',message='A product rating/capacity/setting is not actual manifold operating pressure or flow.')
+            continue
+        if category=='pressure' and prop in ('pressure_safety_factor','safety_factor') and isinstance(val,(int,float)) and not isinstance(val,bool) and unit in ('','ratio'):
+            if not 1<=val<=10:
+                settings['conflicts'].append('Requested pressure safety factor is outside the supported 1–10 range.');continue
+            assign('rule_overrides',['pressure_safety_factor'],val,intent,row)
+            row.update(status='applied',message='Explicit safety factor uses the shared Project engineering rule.')
+            continue
+        if category=='flow' and prop=='velocity_limit' and isinstance(val,(int,float)) and not isinstance(val,bool) and unit in ('m/s','mps'):
+            if not 0<val<=100:
+                settings['conflicts'].append('Requested hydraulic velocity limit is outside the supported range.');continue
+            assign('default_overrides',['velocity_limit'],val,intent,row)
+            row.update(status='applied',message='Explicit velocity limit uses shared Project defaults.')
+            continue
+        if category=='routing' and prop=='drilling_mode' and val in ('orthogonal','allow-angled','simplest'):
+            assign('default_overrides',['drilling_mode'],val,intent,row)
+            row.update(status='applied',message='Explicit drilling mode uses shared Project defaults.')
+            continue
         if category == 'envelope' and prop in ('length', 'width', 'height') and op in ('equal', 'minimum', 'maximum'):
             if isinstance(val, bool) or not isinstance(val, (int, float)) or unit.lower() not in ('mm', 'in', 'inch'):
                 continue
@@ -226,11 +249,14 @@ def interpret(result, options):
                 row.update(status='conflict', message='Requested dimension is outside the supported 1–2000 mm range.')
                 settings['conflicts'].append(row['message'])
                 continue
+            settings['envelope_axes'].append(prop)
             i = ('length', 'width', 'height').index(prop)
             if op in ('equal', 'maximum'):
                 settings['maximum'][i] = min(settings['maximum'][i], number)
+                settings['envelope_max_axes'].append(prop)
             if op in ('equal', 'minimum'):
                 settings['minimum'][i] = max(settings['minimum'][i], number)
+                settings['envelope_min_axes'].append(prop)
             row.update(status='applied', message='Enforced in generated block size and the existing deterministic validator.')
         elif category == 'port_face' and prop == 'preferred_face' and val in FACES:
             keys = targets(port_labels, intent['target_labels'])
@@ -258,9 +284,15 @@ def interpret(result, options):
         elif category == 'priority' and prop == 'design_priority' and val in ('compact', 'simple_machining', 'fewer_plugs', 'short_drills'):
             settings['priority'] = val
             row.update(status='applied', message='Used in initial layout size and existing route cost ranking; finite search, not a global optimum.')
-        elif category == 'material' and isinstance(val, str):
-            settings['material'] = val[:120]
-            row.update(status='partially_applied', message='Material recorded on block; pressure/material suitability is not certified by this geometry engine.')
+        elif category == 'material':
+            if any(term in prop.casefold() for term in ('corrosion','temperature','environment','treatment','coating')):
+                settings['material_restrictions'].append(row)
+                row.update(status='review_required',message='Material environmental/treatment applicability requires matching source data; no property is inferred.')
+            elif isinstance(val,str):
+                if settings['material_source']=='explicit' and settings['material']!=val[:120]:
+                    settings['conflicts'].append('Conflicting explicit material requirements.');continue
+                settings['material'] = val[:120];settings['material_source']='explicit'
+                row.update(status='partially_applied', message='Existing material identities will be resolved before draft creation; this is not pressure certification.')
         elif category in ('pressure', 'flow') and isinstance(val, (int, float)) and not isinstance(val, bool):
             scale = {'bar': 1, 'psi': 0.0689475729} if category == 'pressure' else {'l/min': 1, 'lpm': 1, 'gpm': 3.785411784}
             if unit.lower() not in scale or val <= 0:

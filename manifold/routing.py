@@ -117,10 +117,17 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None, s
             if safe_planes is None:
                 safe_planes = obstacle_safe_planes(design, net, definitions)
             if isinstance(detour, str):
-                _,name,side = detour.split('_')
-                axis = 'xyz'.index(name)
-                planes = safe_planes[axis][side[0]]
-                bends = ((axis,planes[min(1 if side.endswith('2') else 0, len(planes)-1)]),)
+                if detour.startswith('planes_'):
+                    values=detour.split('_')[1:]
+                    if len(values) not in (2,4):raise ValueError('Invalid coordinated detour plane')
+                    bends=tuple((int(values[i]),float(values[i+1])) for i in range(0,len(values),2))
+                    if len({axis for axis,_ in bends})!=len(bends) or any(axis not in range(3) or not math.isfinite(coordinate) or not 0<=coordinate<=dimensions(design.block)[axis] for axis,coordinate in bends):
+                        raise ValueError('Coordinated detour plane is outside the block')
+                else:
+                    _,name,side = detour.split('_')
+                    axis = 'xyz'.index(name)
+                    planes = safe_planes[axis][side[0]]
+                    bends = ((axis,planes[min(1 if side.endswith('2') else 0, len(planes)-1)]),)
             else:
                 bends = detour
             aa,bb = list(start),list(end)
@@ -226,7 +233,7 @@ def add_construction_access(design, net, features):
     return features
 
 
-def obstacle_safe_planes(design, net, definitions, thread_definitions=None, modifier_definitions=None):
+def obstacle_safe_planes(design, net, definitions, thread_definitions=None, modifier_definitions=None,*,include_routes=False,routes_only=False):
     """Finite machining bounds give repeatable, drillable detour planes."""
     if thread_definitions is None:
         from .engineering_db import thread_definitions_for_design
@@ -244,8 +251,9 @@ def obstacle_safe_planes(design, net, definitions, thread_definitions=None, modi
     for other in design.features:
         # Automatic proposals are screened as obstacles below, but must not
         # change the coordinate meaning of a stored variant during rebuild.
-        if other.suppressed or other.route_net in automatic:
+        if other.suppressed or other.route_net==net.id or other.route_net in automatic and not include_routes:
             continue
+        if routes_only and not other.route_net:continue
         all_bounds = []
         for cut in _manufacturing_cuts(other, definitions, thread_definitions, modifier_definitions):
             all_bounds.append(cylinder_bounds(cut['feature'], design.block, cut['start'], cut['end'],
@@ -559,6 +567,7 @@ def route_dominates(design, better, worse, better_risk=0, worse_risk=0, definiti
 def _strategy_family(key):
     if key.startswith('axial_'):return 'axial-detour' if key.count(':')==3 else 'axial'
     if key.startswith('simple_'):return 'simple'
+    if ':planes_' in key:return 'coordinated-detour'
     return 'direct' if key.endswith(':direct') else 'detour'
 
 
@@ -569,7 +578,7 @@ def _strategy_shortlist(design, options, definitions=None, limit=16, eligible=No
     it may prune better or clear a different sibling route. Keep those as later
     Pareto layers rather than deleting them before exact connectivity pruning.
     """
-    buckets={family:[] for family in ('axial','axial-detour','simple','direct','detour')}
+    buckets={family:[] for family in ('axial','axial-detour','coordinated-detour','simple','direct','detour')}
     for option in options:
         option['metrics']=manufacturing_metrics(design,option['route'],option['risk'],definitions)
         buckets[_strategy_family(option['key'])].append(option)
@@ -584,7 +593,7 @@ def _strategy_shortlist(design, options, definitions=None, limit=16, eligible=No
         seen=set();distinct=[];remaining=[]
         for option in ranked:
             key=option['key'];faces=tuple(sorted({f.face for f in option['route']}))
-            strategy=(key.split(':')[0] if family=='axial' else key.split(':')[-1] if family in ('detour','axial-detour') else family,faces)
+            strategy=(key.split(':')[0] if family=='axial' else key.split(':')[-1] if family in ('detour','axial-detour','coordinated-detour') else family,faces)
             (remaining if strategy in seen else distinct).append(option);seen.add(strategy)
         queues[family]=distinct+remaining
     selected=[]
@@ -689,13 +698,24 @@ def _manufacturing_cuts(feature, definitions, thread_definitions, modifier_defin
                        radius_end=primitive.end_diameter/2 if getattr(primitive, 'kind', '') == 'cone' else primitive.diameter/2,
                        inner_radius=primitive.inner_diameter/2 if getattr(primitive, 'kind', '') == 'annulus' else 0)
     else:
-        diameter = feature_bore_diameter(feature, thread_definitions)
-        yield dict(feature=feature, start=0, end=feature.depth,
-                   radius_start=diameter/2, radius_end=diameter/2, inner_radius=0)
-        if feature.tip_angle != 180 and not feature.through:
-            tip = diameter/2/math.tan(math.radians(feature.tip_angle/2))
-            yield dict(feature=feature, start=feature.depth, end=feature.depth+tip,
-                       radius_start=diameter/2, radius_end=0, inner_radius=0)
+        from .closure_runtime import bound,compatible,cutting_primitives
+        closure=bound(feature) if feature.plugged else None
+        if closure and compatible(feature,closure):
+            # Use the SAME source contour as production and manufacturing,
+            # including the larger local entry, seat and transition. Screening
+            # only the hydraulic bore missed part of the actual cut volume.
+            for p in cutting_primitives(feature,closure):
+                yield dict(feature=feature,start=p['start'],end=p['end'],radius_start=p['diameter']/2,
+                    radius_end=p.get('end_diameter',p['diameter'])/2 if p['kind']=='cone' else p['diameter']/2,
+                    inner_radius=p.get('inner_diameter',0)/2 if p['kind']=='annulus' else 0)
+        else:
+            diameter = feature_bore_diameter(feature, thread_definitions)
+            yield dict(feature=feature, start=0, end=feature.depth,
+                       radius_start=diameter/2, radius_end=diameter/2, inner_radius=0)
+            if feature.tip_angle != 180 and not feature.through:
+                tip = diameter/2/math.tan(math.radians(feature.tip_angle/2))
+                yield dict(feature=feature, start=feature.depth, end=feature.depth+tip,
+                           radius_start=diameter/2, radius_end=0, inner_radius=0)
     for placement in feature.machining_modifiers:
         for primitive in modifier_definitions[placement.modifier_id]['primitives']:
             yield dict(feature=feature, start=placement.start+primitive['start'],
@@ -1158,12 +1178,46 @@ def route_candidate_catalog(design, net, definitions, thread_definitions, modifi
     return options
 
 
+def coordinated_detours(source,net,context,definitions,threads,modifiers,cache):
+    """Explicit-coordinate orthogonal approaches around OTHER active routes.
+
+    Stored variants must not depend on reroute order. Dynamic obstacle planes
+    are therefore encoded, not looked up again from a changing route catalog.
+    """
+    if net.drilling_mode!='orthogonal' or not any(f.route_net and f.route_net!=net.id for f in context.features):return []
+    key=(_routing_context_key(context,net),'coordinated_detours')
+    catalogs=cache.setdefault('coordinated_catalogs',{})
+    if key not in catalogs:
+        planes=obstacle_safe_planes(context,net,definitions,threads,modifiers,include_routes=True,routes_only=True)
+        orders=[o for o in itertools.permutations(range(3)) if net.preferred_axis=='auto' or o[0]=='xyz'.index(net.preferred_axis)]
+        entries=('nearest','negative','positive') if net.entry_preference=='nearest' else (net.entry_preference,)
+        options=[];seen=set()
+        for axis in range(3):
+            for side in 'mp':
+                # Both nearest source/route-safe planes are kept. The existing
+                # family/Pareto budget decides which get exact pruning work.
+                for coordinate in planes[axis][side]:
+                    detour=f'planes_{axis}_{coordinate:.6f}'
+                    for order,entry in itertools.product(orders,entries):
+                        route=propose(source,net,order,entry,detour,definitions,planes)
+                        signature=tuple((f.face,f.u,f.v,f.depth,f.diameter,f.plugged) for f in route)
+                        if signature in seen:continue
+                        seen.add(signature)
+                        options.append(dict(key=''.join('xyz'[i] for i in order)+':'+entry+':'+detour,
+                            route=route,risk=proximity_risk(source,net,route,definitions,threads,cache),cost=route_cost(source,route)))
+        catalogs[key]=options
+        if len(catalogs)>32:catalogs.pop(next(iter(catalogs)))
+    from copy import deepcopy
+    return deepcopy(catalogs[key])
+
+
 def route_options(design, net, *, expanded=False, definitions=None,thread_definitions=None,modifier_definitions=None,
-                  snapshot=None, seed=None):
+                  snapshot=None, seed=None,strategy_context=None):
     from copy import deepcopy
     net=effective_net(design,net)
     cache_key=(_routing_context_key(design,net),tuple(net.members),expanded,
-               (seed['key'],tuple(f.model_dump_json() for f in seed['route'])) if seed else None)
+               (seed['key'],tuple(f.model_dump_json() for f in seed['route'])) if seed else None,
+               _routing_context_key(strategy_context,net) if strategy_context is not None else None)
     if snapshot is not None and cache_key in snapshot.options:
         return deepcopy(snapshot.options[cache_key])
     if definitions is None:
@@ -1181,13 +1235,15 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
     if catalog_key not in snapshot.catalogs:
         snapshot.catalogs[catalog_key]=route_candidate_catalog(source,net,definitions,thread_definitions,modifier_definitions,expanded=expanded,cache=snapshot.obstructions)
     options=deepcopy(snapshot.catalogs[catalog_key])
+    options.extend(coordinated_detours(source,net,strategy_context or design,definitions,thread_definitions,modifier_definitions,snapshot.obstructions))
     # Connector detours see actual retained automatic routes during local/repair
     # evaluation. Plane coordinates are explicit in the key, so saved variants
     # regenerate independently of these temporary obstacle contexts.
-    if any(f.route_net and f.route_net!=net.id for f in design.features):
+    connector_context=strategy_context or design
+    if any(f.route_net and f.route_net!=net.id for f in connector_context.features):
         from .cavity_access import axial_connector_candidates
         known={option['key'] for option in options}
-        for key,route in axial_connector_candidates(source,net,definitions,thread_definitions,modifier_definitions,design,snapshot.obstructions):
+        for key,route in axial_connector_candidates(source,net,definitions,thread_definitions,modifier_definitions,connector_context,snapshot.obstructions):
             if key in known:continue
             options.append(dict(key=key,route=route,risk=proximity_risk(source,net,route,definitions,thread_definitions,snapshot.obstructions),cost=route_cost(source,route)))
     from .closure_runtime import bind_route
@@ -1245,7 +1301,7 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
     permitted = [o for o in options if all(f.face not in design.constraints.forbidden_drilling_faces for f in o['route'])]
     if not expanded and all(o['hard_failures'] for o in (permitted or options)):
         result=route_options(design,net,expanded=True,definitions=definitions,thread_definitions=thread_definitions,
-                             modifier_definitions=modifier_definitions,snapshot=snapshot)
+                             modifier_definitions=modifier_definitions,snapshot=snapshot,strategy_context=strategy_context)
     else:result=sorted(permitted or options,key=rank)
     if snapshot is not None:snapshot.options[cache_key]=deepcopy(result)
     return result
@@ -1279,15 +1335,15 @@ def resize_route(design, net, option, diameter, definitions, threads=None, modif
         for feature in option['route']:feature.diameter=diameter
 
 
-def _route_pool(source,net,snapshot,*,expanded=False):
+def _route_pool(source,net,snapshot,*,expanded=False,strategy_context=None):
     """Source-safe simplified strategies, with the normal flow/tool sizing loop."""
     from copy import deepcopy
     net=effective_net(source,net)
-    key=(_routing_context_key(source,net),expanded)
+    key=(_routing_context_key(source,net),expanded,_routing_context_key(strategy_context,net) if strategy_context is not None else None)
     if key not in snapshot.pools:
         from .sizing import route_sizing
         options=route_options(source,net,expanded=expanded,definitions=snapshot.definitions,
-            thread_definitions=snapshot.threads,modifier_definitions=snapshot.modifiers,snapshot=snapshot)
+            thread_definitions=snapshot.threads,modifier_definitions=snapshot.modifiers,snapshot=snapshot,strategy_context=strategy_context)
         usable=[]
         for option in options:
             if option['hard_failures']:continue
@@ -1379,16 +1435,16 @@ def _progressive_route_repair(target,selected,eligible,snapshot,*,expanded=True)
     initial=evaluate(baseline)
     if not initial[1]:return []
     for name,net in sorted(nets.items()):
-        pools[name]=_route_pool(source,net,snapshot,expanded=expanded)
+        pools[name]=_route_pool(source,net,snapshot,expanded=expanded,strategy_context=target)
         # Current geometry is retained as a state even when it has conflicts;
         # it does not become a newly admitted source-safe strategy.
     diverse={name:_strategy_shortlist(source,pool,snapshot.definitions,limit=len(pool)) for name,pool in pools.items()}
-    frontier=[(initial,baseline)];seen={signature(baseline)};improvements=[];states=1
+    frontier=[(initial,baseline,False)];seen={signature(baseline)};improvements=[];states=1;plateau_states=0
     history=[initial[0]]
     from .timing import progress
     while frontier and states<256:
         next_frontier=[]
-        for (objective,failures,_),state in frontier:
+        for (objective,failures,_),state,plateau_used in frontier:
             by_id={f.id:name for name,o in state.items() for f in o['route']}
             owners={by_id[item] for failure in failures for item in failure[1:] if item in by_id}
             owners.update(item for failure in failures for item in failure[1:] if item in eligible)
@@ -1396,6 +1452,7 @@ def _progressive_route_repair(target,selected,eligible,snapshot,*,expanded=True)
             # the first net cannot consume the entire repair budget.
             queues={name:list(diverse[name]) for name in sorted(owners)}
             start_states=states
+            local_strict=False
             batch_limit=64 if len(frontier)==1 else 16
             while any(queues.values()) and states<256 and states-start_states<batch_limit:
                 for name,queue in queues.items():
@@ -1406,10 +1463,15 @@ def _progressive_route_repair(target,selected,eligible,snapshot,*,expanded=True)
                     seen.add(sig);states+=1
                     score=evaluate(trial)
                     if any(f[0]=='search_budget' for f in score[1]):continue
-                    if score[0]>=objective:continue
-                    next_frontier.append((score,trial))
-                    if score[0]<initial[0]:improvements.append((score,trial))
-            if not next_frontier and states<256:
+                    if score[0]<objective:
+                        next_frontier.append((score,trial,False));local_strict=True
+                        if score[0]<initial[0]:improvements.append((score,trial))
+                    elif score[0]==objective and not plateau_used and failures-score[1]:
+                        # One equal-conflict lookahead may relocate an actual
+                        # obstruction so the next implicated net can clear it.
+                        # It is NEVER returned as an improvement on its own.
+                        next_frontier.append((score,trial,True));plateau_states+=1
+            if not local_strict and states<256:
                 # Escape a strict one-net local minimum with coordinated moves.
                 # Both options remain source-safe; complete-layout scoring is
                 # required before the pair can enter the beam.
@@ -1421,15 +1483,27 @@ def _progressive_route_repair(target,selected,eligible,snapshot,*,expanded=True)
                         seen.add(sig);states+=1;score=evaluate(trial)
                         if any(f[0]=='search_budget' for f in score[1]):continue
                         if score[0]>=objective:continue
-                        next_frontier.append((score,trial));improvements.append((score,trial))
+                        next_frontier.append((score,trial,False))
+                        if score[0]<initial[0]:improvements.append((score,trial))
                     if states>=256 or states-start_states>=batch_limit+24:break
         if not next_frontier:break
         next_frontier.sort(key=lambda row:(row[0][0],row[0][2],signature(row[1])))
-        frontier=next_frontier[:4]
+        strict=[row for row in next_frontier if not row[2]]
+        plateau=[row for row in next_frontier if row[2]]
+        frontier=(strict[:3]+plateau[:1]) if plateau and (not strict or strict[0][0][1]) else strict[:4]
         history.append(frontier[0][0][0]);progress('repair',12)
         if not frontier[0][0][1]:break
-    snapshot.repair_diagnostics.append(dict(states=states,state_limit=256,pair_screens=pair_budget['used'],
-        pair_limit=4000,conflict_history=history))
+    best_score,best_state=min(improvements,key=lambda row:(row[0][0],row[0][2],signature(row[1]))) if improvements else (initial,baseline)
+    exit_reason=('clear_combination' if not best_score[1] else 'pair_budget' if pair_budget['used']>=4000 else
+                 'state_budget' if states>=256 else 'bounded_neighbourhood_exhausted')
+    from collections import Counter
+    diagnostic=dict(states=states,state_limit=256,pair_screens=pair_budget['used'],pair_limit=4000,
+        conflict_history=history,plateau_states=plateau_states,exit_reason=exit_reason,
+        pools={name:dict(count=len(pool),families=dict(Counter(_strategy_family(o['key']) for o in pool))) for name,pool in pools.items()},
+        selected={name:o['key'] for name,o in best_state.items()},remaining_conflicts=[list(f) for f in sorted(best_score[1])][:64])
+    snapshot.repair_diagnostics.append(diagnostic)
+    from .timing import diagnostic as record_diagnostic
+    record_diagnostic('route_repair',diagnostic)
     improvements.sort(key=lambda row:(row[0][0],row[0][2],signature(row[1])))
     unique=[];variants=set()
     for score,state in improvements:
@@ -1715,8 +1789,12 @@ def _resolve_proposals(design, *, snapshots=None):
             # stale means unresolved engineering, with NO implicit reroute on
             # load/Save/Validate; proposal alone is eligible for explicit commit.
             n.route_state='stale' if failures else 'proposal'
+            by_feature={f.id:f for f in resolved.features}
+            peers=sorted({by_feature[item].circuit for failure in failures for item in failure[1:]
+                          if item in by_feature and by_feature[item].circuit and by_feature[item].circuit!=n.id})
             n.route_issue=(f'{n.label or n.id}: unresolved route conflicts ('+
-                ', '.join(sorted({failure[0].replace('_',' ') for failure in failures}))+'). Reroute / Optimize or edit placement.')[:500] if failures else ''
+                ', '.join(sorted({failure[0].replace('_',' ') for failure in failures}))+')'+
+                (' with '+', '.join(peers) if peers else '')+'. Reroute / Optimize or edit placement.')[:500] if failures else ''
             metadata=next(r for r in candidates if r['net']==n.id)
             actual_route=[f for f in resolved.features if f.route_net==n.id and not f.suppressed]
             risk=proximity_risk(resolved,effective_net(resolved,n),actual_route,definitions,thread_definitions,snapshot.obstructions)
@@ -1726,6 +1804,9 @@ def _resolve_proposals(design, *, snapshots=None):
                 conflicts=[list(f) for f in sorted(failures)],
                 status='UNRESOLVED_ROUTE_CONFLICTS' if failures else 'PROPOSAL_REQUIRES_EXACT_VALIDATION')
     candidates.extend(r for r in route_metadata(resolved) if r['net'] not in automatic)
+    from .timing import diagnostic
+    diagnostic('route_proposal',dict(selected={n.id:n.routing_variant for n in resolved.nets if n.id in automatic},
+        conflicts={name:[list(f) for f in sorted(failures)][:64] for name,failures in final_failures.items() if failures}))
     return resolved, candidates
 
 

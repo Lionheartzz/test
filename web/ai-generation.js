@@ -314,6 +314,8 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
     open('AI Design · Generated manifold draft');content.classList.add('ai-content');
     content.append(element('h3',packet.status==='draft'?'Your editable manifold draft':'Generation needs review'),element('p',packet.message||packet.status));
     if(packet.design){
+      const material=packet.engineering_defaults?.material;
+      if(material)content.append(element('p',(material.automatic?'Automatically proposed material: ':'Engineering material: ')+(material.material||'Unresolved')+'. '+material.reason,'property-note'));
       if(packet.validation)content.append(element('p',`Exact report: ${packet.validation.counts.PASS} PASS · ${packet.validation.counts.WARNING} WARNING · ${packet.validation.counts.FAIL} FAIL. Geometry failures: ${packet.geometry_failures}.`,'ai-summary'));
       else content.append(element('p','Initial project ready · not routed or validated. Open it in Model to start the shared route proposal. You can edit and Save Draft while routing runs.','ai-summary'));
       content.append(element('p','The draft preserves all failed checks and open engineering decisions. Opening it does not mark it approved. Move, replace, reroute, save, then Validate in the normal Studio.','ai-provider-note'));

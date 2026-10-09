@@ -283,6 +283,12 @@ class ConstructionAccess(Strict):
     fraction: float = Field(default=0.72, ge=0.1, le=0.9)
 
 
+# Shared by project persistence and transient preview context. Explicit detour
+# coordinates preserve meaning when neighbouring automatic routes change.
+ROUTING_VARIANT_PATTERN = (r'^([xyz]{3}:(nearest|positive|negative):(direct|offset_[xyz]_[pm]2?|planes_[0-2]_[0-9]+(?:\.[0-9]{1,6})?(?:_[0-2]_[0-9]+(?:\.[0-9]{1,6})?)?)'
+    r'|simple_[0-9]+|axial_[0-9]+_[01]:[xyz]{3}:(nearest|positive|negative)(?::(?:c[0-9]+_[xyz]_|j[0-9]+_)[0-9]+(?:\.[0-9]{1,6})?(?:\+(?:c[0-9]+_[xyz]_|j[0-9]+_)[0-9]+(?:\.[0-9]{1,6})?){0,2})?)$')
+
+
 class HydraulicNet(Strict):
     id: Circuit
     label: str = Field(default='', max_length=120)
@@ -309,7 +315,7 @@ class HydraulicNet(Strict):
     velocity_limit: float | None = Field(default=None, gt=0, le=100)
     route_state: Literal['unresolved','proposal','committed','stale'] = 'unresolved'
     route_issue: str = Field(default='',max_length=500)
-    routing_variant: str | None = Field(default=None, pattern=r'^([xyz]{3}:(nearest|positive|negative):(direct|offset_[xyz]_[pm]2?)|simple_[0-9]+|axial_[0-9]+_[01]:[xyz]{3}:(nearest|positive|negative)(?::(?:c[0-9]+_[xyz]_|j[0-9]+_)[0-9]+(?:\.[0-9]{1,6})?(?:\+(?:c[0-9]+_[xyz]_|j[0-9]+_)[0-9]+(?:\.[0-9]{1,6})?){0,2})?)$')
+    routing_variant: str | None = Field(default=None, pattern=ROUTING_VARIANT_PATTERN)
 
 
 class SchematicComponent(Strict):

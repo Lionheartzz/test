@@ -67,9 +67,50 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
         timing.progress('review',85)
         try:model=review_model(resolved,geometry,core_only=True)
         except Exception as exc:raise RuntimeError('Exact BRep construction completed; display review unavailable: '+(str(exc) or type(exc).__name__)) from exc
+        # Exact cross-net contact is authoritative even if a cheap route screen
+        # missed it. Keep cuts editable; never promote this proposal on Save.
+        # Existing committed/manual/frozen routes are not rewritten by preview.
+        mutable=set(update.get('recomputed',[]))|set(update.get('resized_nets',[]))
+        for net in resolved.nets:
+            if net.id not in mutable or net.routing!='automatic' or net.route_state=='committed' or any(f.frozen_net==net.id for f in resolved.features):continue
+            peers=sorted({other for collision in model['collisions'] if net.id in collision['nets'] for other in collision['nets'] if other!=net.id})
+            if peers:
+                net.route_state='stale'
+                net.route_issue=(f'{net.label or net.id}: exact cross-net contact with '+', '.join(peers)+'. Proposal retained unresolved; Reroute / Optimize or edit placement.')[:500]
+        # Diagnostic attribution is intentionally separate from repair. Bounds
+        # identify suspects without another CAD build or node-pair Boolean loop.
+        from .spatial import geometry_pairs
+        pairs=geometry_pairs(geometry);collision_diagnostics=[]
+        for collision in model['collisions'][:64]:
+            a,b=collision['nets'];suspects=[]
+            detail={**collision,'bounds_suspect_pairs':suspects}
+            try:
+                for first,shape in geometry.nodes.items():
+                    if geometry.circuits[first]!=a:continue
+                    for second,other in geometry.nodes.items():
+                        if geometry.circuits[second]==b and pairs.lower_bound(shape,other)==0:
+                            suspects.append([first,second])
+                            if len(suspects)==64:break
+                    if len(suspects)==64:break
+            except Exception as exc:detail['inspection_error']=type(exc).__name__
+            collision_diagnostics.append(detail)
+        topology=dict(production_valid=model['brep_valid'],cause='not_determined')
+        if not model['brep_valid']:
+            try:
+                topology.update(solid_count=len(geometry.production.Solids()),block_valid=geometry.block.isValid(),
+                    invalid_cut_ids=[key for key,shape in geometry.cuts.items() if not shape.isValid()],
+                    invalid_block_machining_ids=[key for key,shape in geometry.manufacturing_features.items() if not shape.isValid()])
+                by_id={f.id:f for f in resolved.features}
+                topology['invalid_generated_cuts']=[key for key in topology['invalid_cut_ids'] if by_id[key].route_net]
+                topology['cause']='invalid_input_cut' if topology['invalid_cut_ids'] or topology['invalid_block_machining_ids'] or not topology['block_valid'] else 'combined_production_topology_unresolved'
+            except Exception as exc:topology['inspection_error']=type(exc).__name__
+        timing.diagnostic('exact_preview',dict(topology=topology,collisions=collision_diagnostics,
+            selected={n.id:n.routing_variant for n in resolved.nets if n.routing=='automatic'},
+            unresolved_nets=[n.id for n in resolved.nets if n.route_issue]))
         design_revision=store.revision(design)
         _preview_state=dict(design_revision=design_revision,design=resolved,geometry=geometry)
         return dict(model=model,features=[f.model_dump() for f in resolved.features],routing_update=update,
+                    route_states=[dict(id=n.id,route_state=n.route_state,route_issue=n.route_issue) for n in resolved.nets if n.id in mutable],
                     design_revision=design_revision,status='UNVALIDATED_EXACT_GEOMETRY',route_selection='CURRENT_PROPOSAL_NOT_OPTIMIZED')
     if operation=='preview-layer':
         timing.progress('display_layer',10)

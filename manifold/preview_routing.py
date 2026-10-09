@@ -2,7 +2,7 @@ from .engineering_conditions import effective_net
 """Transient, source-checked incremental proposals. Never used by Validate/Build."""
 from typing import Literal, Annotated
 from pydantic import Field
-from .schema import Design, Strict, Identifier, Circuit
+from .schema import Design, Strict, Identifier, Circuit, ROUTING_VARIANT_PATTERN
 from .kinematics import resolve_parents
 from .timing import timed
 from .limits import PROJECT_FEATURES, PROJECT_NETS
@@ -21,7 +21,7 @@ class PreviewContext(Strict):
     source_revision:str=Field(pattern=r'^[0-9a-f]{64}$')
     proposal:Design
     edit:PreviewEdit
-    variants:dict[Circuit,Annotated[str,Field(max_length=80,pattern=r'^(simple_\d+|[xyz]{3}:(nearest|negative|positive):(direct|offset_[xyz]_[pm]2?)|axial_\d+_[01]:[xyz]{3}:(nearest|negative|positive)(?::(?:c\d+_[xyz]_|j\d+_)\d+(?:\.\d{1,6})?(?:\+(?:c\d+_[xyz]_|j\d+_)\d+(?:\.\d{1,6})?){0,2})?)$')]]=Field(default_factory=dict,max_length=PROJECT_NETS)
+    variants:dict[Circuit,Annotated[str,Field(max_length=80,pattern=ROUTING_VARIANT_PATTERN)]]=Field(default_factory=dict,max_length=PROJECT_NETS)
 
 
 class PreviewRequest(Strict):

@@ -28,7 +28,15 @@ export function createPreviewRoutingState(){
     reason:()=>reason,
     current(authored,scope){return seed&&seed.scope===scope&&pending.kind==='none'&&signature(authored)===lastSignature?clone(seed.proposal):null;},
     acceptExact(result,authored,scope){
-      if(seed&&seed.scope===scope&&pending.kind==='none'&&signature(authored)===lastSignature)seed.proposal.features=clone(result.features);
+      if(seed&&seed.scope===scope&&pending.kind==='none'&&signature(authored)===lastSignature){
+        seed.proposal.features=clone(result.features);
+        for(const state of result.route_states||[]){
+          const net=seed.proposal.nets.find(n=>n.id===state.id);
+          if(net?.routing==='automatic'&&net.route_state!=='committed'){
+            net.route_state=state.route_state;net.route_issue=state.route_issue;
+          }
+        }
+      }
     },
     seedCommitted(design,scope,sourceRevision){
       if((design.nets||[]).some(n=>n.routing==='automatic'&&(!n.route_state||n.route_state==='unresolved')))return clear('uncommitted project');
