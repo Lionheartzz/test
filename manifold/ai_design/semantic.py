@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import Field, ValidationError, field_validator, model_validator
 from ..schema import Strict
 from .models import Scalar, Text, Evidence, HydraulicRepresentation, TaskInput, MountingRequirement
-from .diagnostics import NormalizationFailure
+from .diagnostics import NormalizationDetail, NormalizationFailure
 from ..limits import ANALYSIS_COMPONENTS, ANALYSIS_PORTS, COMPONENT_INTERFACES
 
 
@@ -196,6 +196,10 @@ Bbox is optional normalized [left, top, width, height] on the rendered full page
 User requirements are as important as the drawing. Emit a requirement for EVERY instruction clause,
 including unsupported or ambiguous instructions as category other. Each quote must be an EXACT substring
 of the original user requirements; do not translate quotes. Interpret English or Chinese intent.
+The original requirements are supplied as a separate JSON string. If it is empty or whitespace-only,
+return requirements=[]. Drawing annotations, project unit context, engineering reference facts and
+examples in these instructions are NOT user requirements. Keep drawing observations in their schematic
+Observation fields. Never invent or paraphrase a requirement quote to fill the requirements list.
 Supported requirement vocabulary: port_face/preferred_face (face value), envelope/length|width|height
 (mm or in, maximum/equal/minimum), material/material, pressure/working_pressure (bar or psi), flow/flow
 (L/min or gpm), routing/cross_drilling_face (avoid face), separation/hydraulic_connectivity (separate targets),
@@ -232,7 +236,8 @@ def prompt_schema():
     return compact(CircuitReading.model_json_schema())
 
 
-def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, identity_omissions=()):
+def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, identity_omissions=(), *,
+              requirement_omissions=None):
     result = dict(components=[], ports=[], nets=[], claims=[], evidence=[], design_intent=[],
                   unresolved=[], warnings=list(reading.warnings))
     groups = {}
@@ -329,17 +334,31 @@ def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, iden
         result['nets'].append(dict(id=key, members=[p for p, _, _ in members], claim_ids=[connection_key, label_key]))
 
     covered = set()
+    intent_locations = []
     for i, requirement in enumerate(reading.requirements, 1):
+        location = f'requirements[{i - 1}]'
+        start = inputs.engineering_requirements.find(requirement.quote)
+        if not requirement.quote.strip() or start < 0:
+            # An extracted instruction without original text has no user authority.
+            # Discard the entire proposal, including mounting data; do not repair its
+            # quote, reattribute it to the drawing or erase the other observations.
+            unresolved(f'Requirement {i}: AI returned an instruction without an exact match in the original '
+                       'engineering requirements. It was not applied. Review the original inputs; '
+                       'add any intended instruction there before analyzing again.')
+            if requirement_omissions is not None:
+                requirement_omissions.append(NormalizationDetail(
+                    category='user_quote_not_exact', location=location).model_dump())
+            continue
         key = f'I{i}'
         source = Source(kind='user_requirement', quote=requirement.quote)
         k = claim(key, requirement.property, Observation(value=requirement.value,
                   status='uncertain' if requirement.value is not None else 'unknown', source=source), requirement.unit,
-                  location=f'requirements[{i - 1}]')
-        start = inputs.engineering_requirements.find(requirement.quote)
+                  location=location)
         covered.update(range(start, start + len(requirement.quote)))
         result['design_intent'].append(dict(id=key, category=requirement.category, property=requirement.property,
             target_labels=requirement.targets, operator=requirement.operator, strength=requirement.strength, claim_id=k,
             mounting=requirement.mounting.model_dump(exclude_none=True) if requirement.mounting else None))
+        intent_locations.append(location)
     # Model omissions cannot silently erase user clauses. Exact quotes/offsets are computed here.
     for match in re.finditer(r'[^\n.!?;。；！？]+', inputs.engineering_requirements):
         meaningful = [i for i in range(match.start(), match.end()) if inputs.engineering_requirements[i].isalnum()]
@@ -354,7 +373,8 @@ def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, iden
         errors = exc.errors(include_input=False, include_context=False, include_url=False)
         path = errors[0]['loc'] if errors else ()
         if path and path[0] == 'design_intent':
-            location = f'requirements[{path[1]}]' if len(path) > 1 and type(path[1]) is int else None
+            location = intent_locations[path[1]] if (len(path) > 1 and type(path[1]) is int
+                and 0 <= path[1] < len(intent_locations)) else None
             raise NormalizationFailure('requirement_normalization_invalid', location) from None
         if path and path[0] in ('components', 'ports', 'nets'):
             location = None

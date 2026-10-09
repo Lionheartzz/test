@@ -33,8 +33,11 @@ class MultimodalProvider:
             timeout_seconds=settings.timeout_seconds, configured_retries=settings.contract_retries,
             stream=settings.stream, document_count=len(request.documents)).model_dump()
         try:
-            content = [dict(type='text', text='Original engineering requirements (verbatim):\n' +
-                            request.inputs.engineering_requirements + '\nEngineering unit context: ' + request.inputs.project_context)]
+            content = [dict(type='text', text='Original engineering requirements (verbatim JSON string; '
+                            'the only source for requirements[].quote):\n' +
+                            json.dumps(request.inputs.engineering_requirements, ensure_ascii=False)),
+                       dict(type='text', text='Project metadata, not a user requirement: engineering unit context = ' +
+                            request.inputs.project_context)]
             pages_by_doc, manifest = {}, []
             if request.engineering_facts_context:
                 content.append(dict(type='text',text='PMC engineering reference facts (separate from schematic evidence):\n'+
@@ -119,7 +122,8 @@ class MultimodalProvider:
                     attempt['validation_errors'] = [*shape_details, *identity_details]
                 attempt['phase'] = 'normalization'
                 try:
-                    result = normalize(reading, request.inputs, pages_by_doc, identity_omissions)
+                    result = normalize(reading, request.inputs, pages_by_doc, identity_omissions,
+                                       requirement_omissions=attempt['normalization_omissions'])
                 except (ValueError, TypeError, KeyError) as exc:
                     detail = exc.detail if isinstance(exc, NormalizationFailure) else NormalizationDetail(category='other_normalization_error')
                     attempt['normalization_error'] = detail.model_dump()
