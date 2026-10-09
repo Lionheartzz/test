@@ -215,6 +215,9 @@ and confidence when not assessed; their schema defaults are applied by PMC. Keep
 connections, parameters and requirement clauses, even on complex or multi-page circuits. Do not repeat
 whole page transcriptions in source quotes; use the relevant exact text. Observation example:
 {"value":"P","status":"clear","source":{"kind":"schematic","document":1,"page":1,"quote":"P"}}
+Use the full Observation objects above whenever source evidence is available. Bare scalar shorthand
+has no independent certainty/provenance: PMC can retain it only as an unconfirmed AI reading requiring
+review, never as a confirmed model, cavity, standard, operating value or hydraulic connection.
 '''
 
 

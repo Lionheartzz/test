@@ -141,7 +141,8 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
       const choices=Object.fromEntries([['','Unassigned'],...plan.mounting_requirements.map(row=>[row.intent_id,row.mounting?.thread_designation||'Mounting requirement'])]);
       options.threaded_mounting_holes.forEach((hole,index)=>field(assignment,'Hole '+(index+1)+' requirement',hole.requirement_id||'',value=>{hole.requirement_id=value||null;},choices));
     }
-    const topology=element('details');topology.open=plan.ports.some(p=>!p.net&&!['blocked','terminated'].includes(p.disposition));topology.append(element('summary','Review / correct hydraulic net assignments'));content.append(topology);
+    const topology=element('details');const uncertainConnections=plan.nets.some(net=>net.status==='uncertain');topology.open=uncertainConnections||plan.ports.some(p=>!p.net&&!['blocked','terminated'].includes(p.disposition));topology.append(element('summary','Review / correct hydraulic net assignments'));content.append(topology);
+    if(uncertainConnections)topology.append(element('p','These AI connection proposals are unconfirmed. Review them against the schematic and record a topology decision before generating a draft.','review-warning'));
     topology.append(element('p','Hydraulic lines: '+plan.nets.map(n=>n.label).join(' · ')));
     for(const port of plan.ports){const owner=plan.components.find(c=>c.id===port.component_id)?.label,name=(owner?owner+' · ':'')+port.label;if(['blocked','terminated'].includes(port.disposition)){topology.append(element('p',name+' · '+port.disposition+' · no hydraulic net required'));continue;}field(topology,'Net · '+name,options.net_overrides[port.id]||plan.nets.find(n=>n.id===port.net)?.label||'',v=>{if(v.trim())options.net_overrides[port.id]=v.trim();else delete options.net_overrides[port.id];});}
     field(topology,'Topology correction decision',options.topology_decision,v=>options.topology_decision=v);

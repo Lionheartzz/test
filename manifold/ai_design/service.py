@@ -49,21 +49,29 @@ def compact_result(result:HydraulicRepresentation):
             # Display labels are metadata, not accepted engineering facts/topology.
             rows[claim.predicate]=claim.value if claim.predicate=='label' or claim.status=='confirmed' else None
         return rows
+    def unconfirmed(ids):
+        return {claims[key].predicate:dict(value=claims[key].value,unit=claims[key].unit)
+                for key in ids if claims[key].predicate!='label' and claims[key].value is not None
+                and claims[key].status!='confirmed'}
     components=[]
     for row in result.components:
         values=facts(row.claim_ids)
         components.append(dict(id=row.id,port_ids=row.port_ids,label=values.pop('label',row.id),facts=values,
+            unconfirmed_observations=unconfirmed(row.claim_ids),
             identity_valid={name:bool(next((c for c in result.claims if c.subject_id==row.id and c.predicate==name and c.status=='confirmed' and c.kind in ('schematic','user_requirement')),None)) for name in ('manufacturer','model','cavity','mounting_interface')}))
     ports=[]
     for row in result.ports:
         values=facts(row.claim_ids)
         ports.append(dict(id=row.id,component_id=row.component_id,label=values.pop('label',row.id),facts=values,disposition=row.disposition,
+            unconfirmed_observations=unconfirmed(row.claim_ids),
             fact_kinds={claims[key].predicate:claims[key].kind for key in row.claim_ids},
             fact_units={claims[key].predicate:claims[key].unit for key in row.claim_ids}))
     nets=[]
     for row in result.nets:
         values=facts(row.claim_ids)
-        nets.append(dict(id=row.id,members=row.members,label=values.get('label') or row.id))
+        connection=next(claims[key] for key in row.claim_ids if claims[key].predicate=='connection')
+        nets.append(dict(id=row.id,members=row.members,label=values.get('label') or row.id,
+                         status=connection.status,kind=connection.kind))
     intent=[]
     for row in result.design_intent:
         claim=claims[row.claim_id]

@@ -28,6 +28,10 @@ function validationFailure(attempt){
   let message=observationReasons[error.explanation];
   if(!message){
     if(error.type==='json_invalid')message='The provider returned invalid JSON. The response could not be interpreted.';
+    else if(error.type==='model_type'&&['manufacturer','model','cavity','mounting_interface','functional_type','net','specification','reading'].includes(path.at(-1))){
+      const shape={null:'null',string:'a string',number:'a number',boolean:'a boolean',array:'an array',object:'an incompatible object'}[error.input_shape]||'a non-object value';
+      message='The provider returned '+shape+' where an observation object was required. Unsupported shapes still need correction; missing provenance cannot establish engineering facts.';
+    }
     else if(error.type==='missing')message=path.includes('ports')||path.includes('net')?'The response omitted a required hydraulic field.':'The response omitted a required field.';
     else if(error.type==='literal_error'&&path.includes('source')&&path.at(-1)==='kind')message='The response uses an unsupported observation source.';
     else message=error.classification==='semantic'?'A schematic observation failed the consistency checks. Review the affected item before retrying.':'A response field does not match the required format. Review the affected item before retrying.';
@@ -37,6 +41,7 @@ function validationFailure(attempt){
 export function runDiagnostics(parent,run,{element}){
   const box=element('section',null,'ai-run-diagnostics');box.setAttribute('aria-label','Analysis result');parent.append(box);box.append(element('h3',attemptStatus(run)));
   if(run.provider?.model)box.append(element('p','Model: '+run.provider.model));if(run.latency_ms!=null)box.append(element('p','Elapsed: '+(run.latency_ms/1000).toFixed(1)+' s'));
+  if(run.status==='completed'&&run.diagnostics?.attempts?.at(-1)?.validation_errors?.some(error=>error.action==='normalized'&&error.type==='model_type'))box.append(element('p','Compact AI readings were retained conservatively. Unconfirmed identities, operating values and connection proposals still need review.','review-warning'));
   if(run.status!=='failed')return;
   const attempt=run.diagnostics?.attempts?.at(-1),issue=attempt?.normalization_error;
   const validation=run.error==='INVALID_STRUCTURED_OUTPUT'&&!issue?validationFailure(attempt):null;

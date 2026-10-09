@@ -79,6 +79,8 @@ def prepare(inputs, result, options):
     settings['engineering_facts']=material_matches[0].get('engineering_facts_summary') if len(material_matches)==1 else None
     if len(material_matches)==1:settings['material']=material_matches[0]['display_name']
     blocked = list(settings['conflicts'])
+    if any(net.get('status')=='uncertain' for net in result['nets']) and not options.topology_decision.strip():
+        blocked.append('AI connection proposals are unconfirmed. Review the schematic and record a topology decision before generating a draft.')
     authored_count=len(result['components'])+sum(p['component_id'] is None and p.get('disposition') not in ('blocked','terminated') for p in result['ports'])+len(options.threaded_mounting_holes)
     if authored_count>PROJECT_FEATURES:
         blocked.append(f'This circuit needs {authored_count} authored features; the editable project supports {PROJECT_FEATURES} total features including generated drillings. Split the circuit into projects.')
@@ -227,7 +229,7 @@ def preflight(key, request):
                 mounting_requirements=plan['settings']['mounting_requirements'],mounting_holes=[dict(hole=row['hole'].model_dump(),thread=row['thread']) for row in plan['mounting']],
                 ports=[dict(id=p['id'], component_id=p['component_id'], label=library.display_label(result,p),
                             net=plan['port_net'].get(p['id']),disposition=p.get('disposition','unknown')) for p in result['ports']],
-                nets=[dict(id=n['id'],label=library.display_label(result,n)) for n in result['nets']],
+                nets=[dict(id=n['id'],label=library.display_label(result,n),status=n.get('status')) for n in result['nets']],
                 material_engineering_facts=plan['settings']['engineering_facts'])
 
 

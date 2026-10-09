@@ -49,9 +49,10 @@ def schema_fields():
 
 
 def safe_validation_errors(exc):
+    from .observation_adapter import input_shape
     allowed=schema_fields()
     details=[]
-    for error in exc.errors(include_input=False,include_url=False):
+    for error in exc.errors(include_input=True,include_url=False):
         path=[];redacted=False
         for part in error.get('loc',()):
             if type(part) is int and part>=0:path.append(part)
@@ -68,5 +69,6 @@ def safe_validation_errors(exc):
             # Only exact messages authored in PMC may replace the fixed generic explanation.
             explanation=CUSTOM.get(str(context.get('error','')),explanation)
         details.append(dict(path=path,type=kind,explanation=explanation,path_redacted=redacted,
+                            input_shape=input_shape(error['input']) if 'input' in error else None,
                             classification='semantic' if kind=='value_error' else 'schema',action='rejected'))
     return details

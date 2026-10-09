@@ -14,6 +14,7 @@ from .diagnostics import Diagnostics, Attempt, NormalizationDetail, Normalizatio
 from .transport_controls import reasoning_parameters
 from .validation_details import safe_validation_errors
 from .identity_admission import recover_unknown_identity
+from .observation_adapter import adapt_observations
 
 
 class MultimodalProvider:
@@ -98,19 +99,24 @@ class MultimodalProvider:
                     raise ProviderFailure('PROVIDER_CONTENT_FILTER')
                 attempt['phase'] = 'structured_output_validation'
                 identity_omissions = []
+                if text.strip().startswith('```'):
+                    lines = text.strip().splitlines()
+                    if lines[-1].strip() == '```':
+                        text = '\n'.join(lines[1:-1])
+                raw, shape_details = adapt_observations(text)
+                if shape_details:
+                    attempt['validation_errors'] = shape_details
+                    attempt['validation_error_count'] = len(shape_details)
                 try:
-                    if text.strip().startswith('```'):
-                        lines = text.strip().splitlines()
-                        if lines[-1].strip() == '```':
-                            text = '\n'.join(lines[1:-1])
-                    reading = CircuitReading.model_validate_json(text)
+                    reading = CircuitReading.model_validate(raw) if shape_details else CircuitReading.model_validate_json(text)
                 except ValidationError as exc:
-                    attempt['validation_error_count'] = exc.error_count()
-                    attempt['validation_errors'] = safe_validation_errors(exc)
-                    recovered = recover_unknown_identity(text, exc)
+                    attempt['validation_error_count'] = len(shape_details) + exc.error_count()
+                    attempt['validation_errors'] = [*shape_details, *safe_validation_errors(exc)]
+                    recovered = recover_unknown_identity(json.dumps(raw) if shape_details else text, exc)
                     if recovered is None:
                         raise ProviderFailure('INVALID_STRUCTURED_OUTPUT') from None
-                    reading, attempt['validation_errors'], identity_omissions = recovered
+                    reading, identity_details, identity_omissions = recovered
+                    attempt['validation_errors'] = [*shape_details, *identity_details]
                 attempt['phase'] = 'normalization'
                 try:
                     result = normalize(reading, request.inputs, pages_by_doc, identity_omissions)
