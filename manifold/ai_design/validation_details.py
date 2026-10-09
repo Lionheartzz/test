@@ -3,6 +3,7 @@ import math
 from typing import get_args
 from pydantic_core import ErrorType
 from .semantic import CircuitReading
+from .models import HydraulicRepresentation
 
 ERROR_TYPES = set(get_args(ErrorType))
 CUSTOM = {
@@ -45,6 +46,7 @@ def schema_fields():
         elif isinstance(node,list):
             for v in node:visit(v)
     visit(CircuitReading.model_json_schema())
+    visit(HydraulicRepresentation.model_json_schema())
     return fields | {'str','int','float','bool'}  # Pydantic scalar-union branch labels.
 
 

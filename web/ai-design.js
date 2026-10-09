@@ -75,16 +75,18 @@ export function aiDesign(ctx,open){
 
   function resultView(parent){
     if(!run){parent.append(element('p','Save inputs and analyze the schematic to create hydraulic connections.'));return;}
-    runDiagnostics(parent,run,{element});if(run.status!=='completed')return;
+    runDiagnostics(parent,run,{element});
+    if(run.identity_reading?.captions?.length){
+      const captions=element('details');captions.append(element('summary','Original identity annotations · '+run.identity_reading.captions.length));
+      if(run.status!=='completed')captions.append(element('p','These source annotations were read before analysis stopped. Hydraulic interpretation is incomplete.'));
+      for(const [index,row] of run.identity_reading.captions.entries())captions.append(element('p',`${index+1} · Document ${row.document}, page ${row.page}: ${row.quote}`));
+      parent.append(captions);
+    }
+    if(run.status!=='completed')return;
     const result=run.result;parent.append(element('h3','Hydraulic connections'),element('p',`${result.components.length} components · ${result.ports.length} ports · ${result.nets.length} nets · ${result.design_intent.length} requirements · ${result.unresolved.length} unresolved`,'ai-summary'));
     for(const [title,rows]of [['Components',result.components],['Hydraulic ports',result.ports],['Hydraulic nets',result.nets]]){const section=element('details');section.open=title==='Components';section.append(element('summary',title+' · '+rows.length));for(const row of rows){const card=element('section',null,'library-card');card.append(element('h4',engineeringName(row.label,'Item')));if(row.members)card.append(element('p',row.members.map(id=>{const p=result.ports.find(port=>port.id===id),c=result.components.find(component=>component.id===p?.component_id);return [engineeringName(c?.label,''),engineeringName(p?.label,'Port')].filter(Boolean).join(' · ');}).join(' ↔ ')));if(row.facts&&Object.keys(row.facts).length)Object.entries(row.facts).filter(([,value])=>value!==null&&['string','number','boolean'].includes(typeof value)).forEach(([name,value])=>card.append(element('p',observationName(row,name)+': '+engineeringText(value))));unconfirmedReadings(card,row);section.append(card);}parent.append(section);}
     if(result.design_intent.length){const section=element('details');section.append(element('summary','Design intent · '+result.design_intent.length));for(const row of result.design_intent)section.append(element('p',`${row.target_labels.join(', ')||'Manifold'} · ${row.property} ${row.operator} ${row.value??'unresolved'} ${row.unit||''}`));parent.append(section);}
     for(const row of result.unresolved)parent.append(element('p',engineeringText(row.description),'ai-provider-note'));
-    if(run.identity_reading?.captions?.length){
-      const captions=element('details');captions.append(element('summary','Original identity annotations · '+run.identity_reading.captions.length));
-      for(const [index,row] of run.identity_reading.captions.entries())captions.append(element('p',`${index+1} · Document ${row.document}, page ${row.page}: ${row.quote}`));
-      parent.append(captions);
-    }
   }
 
   function observationName(row,name){

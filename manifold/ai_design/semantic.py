@@ -1,4 +1,5 @@
 """Small model-facing contract. PMC owns IDs, references, hashes and text offsets."""
+import math
 import re
 from typing import Literal
 from pydantic import Field, ValidationError, field_validator, model_validator
@@ -216,6 +217,11 @@ can be returned while product identity remains unknown for engineer review and l
 Never invent cartridge compatibility, machining dimensions, thread standards, ratings or library matches.
 Source.document is the 1-based uploaded document number, Source.page its original 1-based page.
 Bbox is optional normalized [left, top, width, height] on the rendered full page. Use real source quotes.
+Graphical lines and junctions may have no printed quote: provide their actual schematic document/page,
+and a bbox only when reliably localized. Never invent a textual quote for a drawn connection. If its
+connection or location is uncertain, keep status uncertain. Omit a bbox rather than returning pixel
+coordinates or guessing a box. Textual identities need their own literal quote or explicitly linked
+identity_captions containing that exact text on the same document/page; references do not prove identity.
 User requirements are as important as the drawing. Emit a requirement for EVERY instruction clause,
 including unsupported or ambiguous instructions as category other. Each quote must be an EXACT substring
 of the original user requirements; do not translate quotes. Interpret English or Chinese intent.
@@ -260,12 +266,17 @@ def prompt_schema(model=CircuitReading):
 
 
 def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, identity_omissions=(), *,
-              requirement_omissions=None, identity_reading=None):
+              requirement_omissions=None, identity_reading=None, normalization_counts=None):
     result = dict(components=[], ports=[], nets=[], claims=[], evidence=[], design_intent=[],
                   unresolved=[], warnings=list(reading.warnings))
     groups = {}
     port_locations = []
     used_captions=set()
+    reviewed_sources=set()
+    subject_labels={}
+    field_labels={'manufacturer':'Manufacturer','model':'Model','cavity':'Cavity',
+        'mounting_interface':'Mounting interface','functional_type':'Function','net':'Hydraulic connection',
+        'specification':'Port specification','parameter':'Parameter'}
 
     def unresolved(description, subject=None):
         result['unresolved'].append(dict(id=f'U{len(result["unresolved"])+1}', reason='review_required',
@@ -278,36 +289,98 @@ def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, iden
             return 'topology_normalization_invalid'
         return 'other_normalization_error'
 
-    def evidence(source, location=None):
-        key = f'E{len(result["evidence"])+1}'
-        entry = dict(id=key, kind=source.kind, quote=source.quote)
+    def note(category,location,field,reason):
+        if normalization_counts is not None:
+            normalization_counts[category]=normalization_counts.get(category,0)+1
+        if requirement_omissions is not None and len(requirement_omissions)<100:
+            requirement_omissions.append(NormalizationDetail(category=category,location=location,
+                object_field=field,reason=reason).model_dump())
+
+    def checked_source(source, location=None, field=None):
+        # Source binding is mandatory even when optional localization/text is bad.
         if source.document is not None:
             if source.document > len(inputs.documents):
-                raise NormalizationFailure('source_document_invalid', location)
+                raise NormalizationFailure('source_document_invalid', location,object_field=field)
             doc = inputs.documents[source.document - 1]
             if not source.page or page_counts is not None and (doc.id not in page_counts or source.page > page_counts[doc.id]):
-                raise NormalizationFailure('source_page_invalid', location)
-            entry.update(document_id=doc.id, page=source.page, bbox=source.bbox)
+                raise NormalizationFailure('source_page_invalid', location,object_field=field)
         if source.document is None and (source.kind == 'schematic' or source.page is not None):
-            raise NormalizationFailure('source_document_invalid', location)
-        if source.kind == 'schematic' and not source.quote.strip():
-            raise NormalizationFailure(normalization_category(location), location)
+            raise NormalizationFailure('source_document_invalid', location,object_field=field)
         if source.kind == 'user_requirement':
             start = inputs.engineering_requirements.find(source.quote)
             if not source.quote or start < 0:
-                raise NormalizationFailure('user_quote_not_exact', location)
-            entry['requirement_span'] = [start, start + len(source.quote)]
+                raise NormalizationFailure('user_quote_not_exact', location,object_field=field)
+        bad_box=False
+        if source.bbox is not None:
+            x,y,w,h=source.bbox
+            bad_box=(not all(math.isfinite(n) for n in source.bbox) or min(x,y)<0 or min(w,h)<=0
+                     or x+w>1.000001 or y+h>1.000001 or source.document is None or source.page is None)
+            if bad_box and source.kind in ('schematic','ai_inference','unknown'):
+                source=source.model_copy(update={'bbox':None})
+                note('source_bbox_omitted',location,field,'invalid_optional_bbox')
+        return source,bad_box
+
+    def evidence(source, location=None, field=None):
+        source,_=checked_source(source,location,field)
+        key = f'E{len(result["evidence"])+1}'
+        entry = dict(id=key, kind=source.kind, quote=source.quote)
+        if source.document is not None:
+            entry.update(document_id=inputs.documents[source.document-1].id,page=source.page,bbox=source.bbox)
+        if source.kind=='schematic' and not source.quote.strip():
+            entry['explanation']='Graphical/page observation without a verbatim text quote; not textual identity evidence.'
+        if source.kind == 'user_requirement':
+            start=inputs.engineering_requirements.find(source.quote)
+            entry['requirement_span']=[start,start+len(source.quote)]
         try:
             Evidence.model_validate(entry)
-        except ValidationError:
-            raise NormalizationFailure(normalization_category(location), location) from None
+        except ValidationError as exc:
+            raise NormalizationFailure(normalization_category(location), location,object_field=field,
+                reason='evidence_contract',validation_error=exc) from None
         result['evidence'].append(entry)
         return key
 
-    def claim(subject, predicate, observation, unit='', *, location=None):
+    def prepared_observation(observation,subject,location,field,captions=()):
+        source,bad_box=checked_source(observation.source,location,field)
+        missing_quote=source.kind=='schematic' and observation.value is not None and not source.quote.strip()
+        supported=False
+        # Only explicit same-page caption links may supply missing identity text.
+        # No label parsing, catalogue borrowing, unit conversion or fuzzy matching.
+        if (source.kind=='schematic' and field in ('manufacturer','model','cavity','mounting_interface',
+                'functional_type','specification') and isinstance(observation.value,str) and observation.value.strip()
+                and identity_reading is not None):
+            for number in dict.fromkeys(captions):
+                if not 1<=number<=len(identity_reading.captions):
+                    raise NormalizationFailure('source_document_invalid',location,object_field='annotation')
+                caption=identity_reading.captions[number-1]
+                if (caption.document==source.document and caption.page==source.page
+                        and observation.value in caption.quote):
+                    supported=True
+                    if missing_quote:
+                        source=source.model_copy(update={'quote':observation.value})
+                        note('source_quote_from_caption',location,field,'literal_caption_support')
+                    break
+        needs_review=((missing_quote or bad_box) and not supported and field!='label'
+                      and observation.value is not None)
+        if missing_quote and not supported:
+            note('source_visual_unquoted' if field=='net' else 'source_text_unverified',
+                 location,field,'missing_schematic_quote')
+        if needs_review:
+            key=(subject,field)
+            if key not in reviewed_sources:
+                reviewed_sources.add(key)
+                unresolved(f'{subject_labels.get(subject,"Schematic observation")} · {field_labels.get(field,"Observation")}: '
+                           'source text or optional location is incomplete. '
+                           'The AI reading was retained as unconfirmed; review the original schematic.',subject)
+        return observation.model_copy(update={'source':source,
+            'status':'uncertain' if needs_review else observation.status})
+
+    def claim(subject, predicate, observation, unit='', *, location=None, field=None, captions=(), prepared=False):
+        field=field or (predicate if predicate in ('manufacturer','model','cavity','mounting_interface','functional_type','label') else 'parameter')
+        if not prepared:
+            observation=prepared_observation(observation,subject,location,field,captions)
         key = f'K{len(result["claims"])+1}'
         origin = observation.source.kind if observation.value is not None else 'unknown'
-        ids = [evidence(observation.source, location)] if observation.source.kind != 'unknown' else []
+        ids = [evidence(observation.source, location,field)] if observation.source.kind != 'unknown' else []
         status = 'unresolved' if observation.value is None else 'confirmed' if observation.status == 'clear' and origin != 'ai_inference' else 'uncertain'
         result['claims'].append(dict(id=key, subject_id=subject, predicate=predicate, value=observation.value,
                                      unit=unit, kind=origin, status=status, confidence=observation.confidence,
@@ -325,32 +398,40 @@ def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, iden
             if identity_reading is None or not 1<=number<=len(identity_reading.captions):
                 raise NormalizationFailure('source_document_invalid',location)
             caption=identity_reading.captions[number-1];used_captions.add(number)
-            value=caption.quote if len(caption.quote)<=2000 else None
-            ids.append(claim(subject,'observed_identity_annotation',Observation(value=value,status='uncertain' if value else 'unknown',
-                source=Source(kind='schematic',document=caption.document,page=caption.page,
-                              quote=caption.quote,bbox=caption.bbox)),location=location))
-        return ids
+            ids.append(evidence(Source(kind='schematic',document=caption.document,page=caption.page,
+                                      quote=caption.quote,bbox=caption.bbox),location,'annotation'))
+        if not ids:return []
+        # Caption context is one claim with all source references, not up to 20
+        # extra port claims competing with the canonical 40-claim bound.
+        key=f'K{len(result["claims"])+1}'
+        result['claims'].append(dict(id=key,subject_id=subject,predicate='observed_identity_annotation',
+            value=None,kind='schematic',status='uncertain',evidence_ids=ids))
+        return [key]
 
     def port(p, key, owner=None, *, location):
-        ids = [label_claim(key, p.label, p.net.source, location), claim(key, 'net_assignment', p.net, location=location),
-               claim(key, 'port_specification', p.specification, location=location)]
+        subject_labels[key]=' · '.join(filter(None,(subject_labels.get(owner),p.label)))
+        net=prepared_observation(p.net,key,location,'net')
+        ids = [label_claim(key, p.label, Source(kind='ai_inference'), location),
+               claim(key, 'net_assignment', net, location=location,field='net',prepared=True),
+               claim(key, 'port_specification', p.specification, location=location,field='specification',captions=p.identity_captions)]
         ids += [claim(key, x.name, x.reading, x.unit, location=location) for x in p.parameters]
         ids += annotation_claims(key,p.identity_captions,location)
         result['ports'].append(dict(id=key, component_id=owner, claim_ids=ids,disposition=p.disposition))
         port_locations.append(location)
-        if p.disposition=='connected' and p.net.value is not None:
-            groups.setdefault(p.net.value, []).append((key, p.net, location))
+        if p.disposition=='connected' and net.value is not None:
+            groups.setdefault(net.value, []).append((key, net, location))
         elif p.disposition=='unknown':
             unresolved(f'{p.label}: hydraulic connection is unknown; confirm it before generation.', key)
 
     for i, component in enumerate(reading.components, 1):
         key = f'C{i}'
         location = f'components[{i - 1}]'
+        subject_labels[key]=component.label
         for index, field in identity_omissions:
             if index == i - 1:
                 unresolved(f'{component.label} · {field}: unsupported or unknown model value discarded. Confirm from source or correct through engineer review before product selection.', key)
         ids = [label_claim(key, component.label, component.source, location)]
-        ids += [claim(key, name, getattr(component, name), location=location) for name in ('functional_type', 'manufacturer', 'model', 'cavity', 'mounting_interface')]
+        ids += [claim(key, name, getattr(component, name), location=location,captions=component.identity_captions) for name in ('functional_type', 'manufacturer', 'model', 'cavity', 'mounting_interface')]
         ids += [claim(key, x.name, x.reading, x.unit, location=location) for x in component.parameters]
         ids += annotation_claims(key,component.identity_captions,location)
         ports = [f'C{i}P{j}' for j in range(1, len(component.ports) + 1)]
@@ -363,7 +444,7 @@ def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, iden
         key = f'N{i}'
         origins = {obs.source.kind for _, obs, _ in members}
         origin = next(iter(origins)) if len(origins) == 1 else 'ai_inference'
-        sources = [evidence(obs.source, location) for _, obs, location in members if obs.source.kind != 'unknown']
+        sources = [evidence(obs.source, location,'connection') for _, obs, location in members if obs.source.kind != 'unknown']
         connection_key = f'K{len(result["claims"])+1}'
         result['claims'].append(dict(id=connection_key, subject_id=key, predicate='connection', value='connected',
                                      kind=origin, status='confirmed' if origin in ('schematic', 'user_requirement') and all(obs.status == 'clear' for _, obs, _ in members) else 'uncertain',
@@ -383,9 +464,7 @@ def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, iden
             unresolved(f'Requirement {i}: AI returned an instruction without an exact match in the original '
                        'engineering requirements. It was not applied. Review the original inputs; '
                        'add any intended instruction there before analyzing again.')
-            if requirement_omissions is not None:
-                requirement_omissions.append(NormalizationDetail(
-                    category='user_quote_not_exact', location=location).model_dump())
+            note('user_quote_not_exact',location,'requirement',None)
             continue
         key = f'I{i}'
         source = Source(kind='user_requirement', quote=requirement.quote)
@@ -418,7 +497,8 @@ def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, iden
         if path and path[0] == 'design_intent':
             location = intent_locations[path[1]] if (len(path) > 1 and type(path[1]) is int
                 and 0 <= path[1] < len(intent_locations)) else None
-            raise NormalizationFailure('requirement_normalization_invalid', location) from None
+            raise NormalizationFailure('requirement_normalization_invalid', location,
+                reason='canonical_contract',validation_error=exc) from None
         if path and path[0] in ('components', 'ports', 'nets'):
             location = None
             if len(path) > 1 and type(path[1]) is int:
@@ -426,5 +506,6 @@ def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, iden
                     location = f'components[{path[1]}]'
                 elif path[0] == 'ports' and 0 <= path[1] < len(port_locations):
                     location = port_locations[path[1]]
-            raise NormalizationFailure('topology_normalization_invalid', location) from None
-        raise NormalizationFailure('other_normalization_error') from None
+            raise NormalizationFailure('topology_normalization_invalid', location,
+                reason='canonical_contract',validation_error=exc) from None
+        raise NormalizationFailure('other_normalization_error',reason='canonical_contract',validation_error=exc) from None

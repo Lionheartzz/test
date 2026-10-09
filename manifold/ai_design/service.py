@@ -211,6 +211,17 @@ def analyze(key,expected,provider_key):
         phase='completed'
     except ProviderFailure as exc:
         run['error']=exc.code
+        if getattr(exc,'normalization_input',None) is not None:
+            try:
+                from .normalization_input import NormalizationInput
+                rejected=NormalizationInput(task_id=key,run_id=run_id,input_revision=run['input_revision'],
+                    **exc.normalization_input).model_dump(mode='json')
+                # Never let diagnostic persistence mask the original failure.
+                json.dumps(rejected,allow_nan=False)
+                store.atomic_json(run_path(key,run_id).with_name('normalization-input.json'),rejected)
+                run['normalization_input']=dict(available=True,sha256=digest(rejected))
+            except (ValueError,TypeError,OSError):
+                run['normalization_input']=dict(available=False)
         if getattr(exc,'identity_reading',None) is not None:
             from .identity_reading import IdentityReading
             run['identity_reading']=IdentityReading.model_validate(exc.identity_reading).model_dump()
@@ -226,8 +237,8 @@ def analyze(key,expected,provider_key):
     run['phase']=phase
     if run['error']:run['error_message']=failure_help(run['error'])
     run['latency_ms']=round((time.perf_counter()-started)*1000,2)
-    # Persist only the current compact operational result; detailed observations
-    # and evidence exist only inside this analyze call.
+    # Successful analysis remains compact. A failed normalization may keep one
+    # separate private typed input, never a usable result or exported response.
     store.atomic_json(run_path(key,run_id),run)
     with store.project_lock():
         latest=read(key)

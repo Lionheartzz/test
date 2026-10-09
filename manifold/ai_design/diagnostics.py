@@ -30,15 +30,26 @@ class ValidationDetail(Strict):
 class NormalizationDetail(Strict):
     category: Literal['source_document_invalid', 'source_page_invalid', 'user_quote_not_exact',
                       'topology_normalization_invalid', 'requirement_normalization_invalid',
-                      'other_normalization_error']
+                      'other_normalization_error', 'source_quote_from_caption',
+                      'source_text_unverified', 'source_visual_unquoted', 'source_bbox_omitted']
     # Only contract-owned fields and bounded array indices; never provider labels/text.
     location: str | None = Field(default=None, max_length=80,
         pattern=r'^(?:identity_captions\[[0-9]{1,3}\]|requirements\[[0-9]{1,3}\]|components\[[0-9]{1,3}\](?:\.ports\[[0-9]{1,3}\])?|external_ports\[[0-9]{1,3}\])$')
+    object_field: Literal['manufacturer','model','cavity','mounting_interface','functional_type',
+                          'net','specification','parameter','label','annotation','requirement','connection'] | None = None
+    reason: Literal['missing_schematic_quote','invalid_optional_bbox','evidence_contract',
+                    'canonical_contract','literal_caption_support'] | None = None
+    validation_error_count: int | None = Field(default=None,ge=0)
+    validation_errors: list[ValidationDetail] = Field(default_factory=list,max_length=100)
 
 
 class NormalizationFailure(ValueError):
-    def __init__(self, category, location=None):
-        self.detail = NormalizationDetail(category=category, location=location)
+    def __init__(self, category, location=None, *, object_field=None, reason=None, validation_error=None):
+        # Import lazily: the diagnostic sanitizer also knows the semantic schema.
+        from .validation_details import safe_validation_errors
+        self.detail = NormalizationDetail(category=category, location=location, object_field=object_field,
+            reason=reason,validation_error_count=validation_error.error_count() if validation_error else None,
+            validation_errors=safe_validation_errors(validation_error)[:100] if validation_error else [])
         super().__init__(self.detail.category)
 
 
@@ -67,6 +78,7 @@ class Attempt(Strict):
     validation_errors: list[ValidationDetail] = Field(default_factory=list)
     normalization_error: NormalizationDetail | None = None
     normalization_omissions: list[NormalizationDetail] = Field(default_factory=list, max_length=100)
+    normalization_omission_counts: dict[str,int] = Field(default_factory=dict)
     stream_completed: bool | None = None
 
 
@@ -91,7 +103,7 @@ class Diagnostics(Strict):
     max_tokens_parameter: Literal['max_tokens', 'max_completion_tokens'] = 'max_tokens'
     stream: bool = False
     timeout_seconds: float = Field(default=120, gt=0)
-    prompt_revision: Literal['circuit-reading-1-compact-v2', 'circuit-reading-1-compact-v3', 'circuit-reading-1-compact-v4', 'circuit-reading-1-compact-v5', 'circuit-reading-1-compact-v6', 'circuit-reading-1-compact-v7', 'circuit-reading-1-compact-v8', 'circuit-reading-1-compact-v9', 'circuit-reading-1-compact-v10', 'circuit-reading-1-compact-v11', 'circuit-reading-1-compact-v12'] = 'circuit-reading-1-compact-v12'
+    prompt_revision: Literal['circuit-reading-1-compact-v2', 'circuit-reading-1-compact-v3', 'circuit-reading-1-compact-v4', 'circuit-reading-1-compact-v5', 'circuit-reading-1-compact-v6', 'circuit-reading-1-compact-v7', 'circuit-reading-1-compact-v8', 'circuit-reading-1-compact-v9', 'circuit-reading-1-compact-v10', 'circuit-reading-1-compact-v11', 'circuit-reading-1-compact-v12', 'circuit-reading-1-compact-v13'] = 'circuit-reading-1-compact-v13'
     prompt_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     schema_chars: int = Field(default=0, ge=0)
     text_chars: int = Field(default=0, ge=0)

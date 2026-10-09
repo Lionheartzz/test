@@ -177,11 +177,19 @@ class MultimodalProvider:
                 try:
                     result = (validate_reading(reading,request.inputs,pages_by_doc) if stage=='identity_reading' else
                         normalize(reading, request.inputs, pages_by_doc, identity_omissions,
-                                  requirement_omissions=attempt['normalization_omissions'],identity_reading=inventory))
+                                  requirement_omissions=attempt['normalization_omissions'],identity_reading=inventory,
+                                  normalization_counts=attempt['normalization_omission_counts']))
                 except (ValueError, TypeError, KeyError) as exc:
                     detail = exc.detail if isinstance(exc, NormalizationFailure) else NormalizationDetail(category='other_normalization_error')
                     attempt['normalization_error'] = detail.model_dump()
-                    raise ProviderFailure('NORMALIZATION_FAILED') from None
+                    failure=ProviderFailure('NORMALIZATION_FAILED')
+                    if stage=='hydraulic_analysis':
+                        # Schema-validated observations only, not HTTP text or reasoning.
+                        # The service writes one private, rejected input snapshot.
+                        failure.normalization_input=dict(reading=reading.model_dump(),page_counts=pages_by_doc,
+                            identity_omissions=identity_omissions,
+                            identity_reading=inventory.model_dump() if inventory else None)
+                    raise failure from None
                 if time.monotonic() > deadline:
                     raise ProviderFailure('PROVIDER_TIMEOUT')
                 attempt.update(status='completed', phase='completed')
