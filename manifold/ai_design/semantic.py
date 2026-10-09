@@ -167,13 +167,19 @@ termination. Unreadable or unconnected-looking terminals remain unknown; never t
 Represent each cartridge/component separately with all its hydraulic ports; do NOT connect different
 ports internally just because they belong to one valve. External ports are manifold boundary terminals,
 not every component terminal. Preserve labels such as P1/P2, port numbers, manufacturers and exact models.
+For an unambiguously source-matched cartridge/cavity/mounting interface, the library's
+hydraulic_interfaces define its FIXED physical ports, with their actual IDs/labels. Interpret which
+schematic line connects to each of those ports; do not independently invent, duplicate, sequentially
+renumber or resize the physical port set. Use the supplied product-to-interface reference links,
+including their logical groups and unit/physical variants. Never select an identity or variant merely
+because its port count fits the picture. Counts may differ by family; names may be numeric, alphabetic,
+or mixed. Do not assume a common port count, vendor naming pattern, or P/T/A/B-to-number equivalence.
 Count actual physical connection stubs on each symbol. Internal pilot paths, spring/actuator arrows,
-nearby line crossings and another component's terminals are not extra hydraulic ports. Compare a
-source-matched interface's retrieved hydraulic_interfaces count/labels with the observed terminals.
-Do not pad the port list to a generic valve family or invent a third port on a two-port symbol. If the
-schematic genuinely conflicts with the matched interface, retain the ambiguity for review; never drop
-an actually visible port or merge distinct nets just to fit the catalogue. Reference data is a cross-check,
-not permission to change the source topology.
+nearby crossings and another component's terminals are not additional ports. If a visible observation
+cannot correspond to the resolved interface, explain that specific source conflict in unresolved;
+never silently discard the observation, invent a physical port, merge nets, or substitute another model.
+Unknown or ambiguous identity must remain unresolved rather than imposing a convenient interface.
+Incomplete source interface data is unknown, not proof of a zero-port component.
 If a line, label or model is unclear, return null/unknown or uncertain, never complete it by guessing.
 Capture pressure, flow, settings, orifices, coils and electrical notes in parameters with explicit units.
 Distinguish observed component facts from user component-selection preferences. Manufacturer, model,

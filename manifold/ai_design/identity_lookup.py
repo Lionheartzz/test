@@ -9,8 +9,9 @@ from collections import defaultdict
 from contextlib import closing
 from difflib import SequenceMatcher
 from functools import lru_cache
-from ..engineering_db import _connect, database_path
-from .interface_catalog import standard_aliases
+from ..engineering_db import _connect, database_path,compatible_logical_cavities
+from .interface_catalog import standard_aliases,hydraulic_label
+from .cartridge_identity import resolve_cartridge_identity
 
 
 IDENTITY_FIELDS={'model','full_part_number','normalized_full_part_number','base_model','series',
@@ -85,7 +86,8 @@ def _index(stamp):
                 add(table,role,row['id'],fields);count+=1
                 if table=='cavities':
                     labels=interface_labels.get(row['id'],[])
-                    records[-1]['hydraulic_interfaces']=dict(count=len(labels),labels=labels,
+                    records[-1]['hydraulic_interfaces']=dict(count=len(labels),labels=labels,complete=bool(labels),
+                        ports=[dict(id=label,label=hydraulic_label(label)) for label in labels],
                         source_table='cavity_interfaces',scope='Physical machining windows, not an inferred schematic connection')
             coverage[table]=count
         rows=db.execute('''SELECT domain,id,manufacturer_original,full_part_number,base_model,
@@ -135,7 +137,7 @@ def _terms(quote):
     return {term for term in terms if 2<=len(term)<=120}
 
 
-def lookup(reading, per_role=4, *, deadline=None):
+def lookup(reading, per_role=4, *, deadline=None,project_context=None):
     path=database_path();records,keys,neighbors,coverage=_index((str(path),path.stat().st_mtime_ns))
     captions=[];total_matches=0
     for number,caption in enumerate(reading.captions,1):
@@ -175,6 +177,45 @@ def lookup(reading, per_role=4, *, deadline=None):
         total_matches+=len(found)
         captions.append(dict(caption=number,source=caption.model_dump(),matches=matches,
                              matched_records=len(found),returned_records=len(matches)))
+    # Product identity and machining interface are distinct. Supply actual
+    # whitelist links so interpretation does not rely on generic valve families.
+    interfaces={r['record_id']:r for r in records if r['source_table']=='cavities'}
+    linked={};resolved={}
+    for entry in captions:
+        for row in entry['matches']:
+            leaf=norm(re.sub(r'\[[0-9]+\]$','',row['matched_field'].rsplit('.',1)[-1]))
+            if not (row['role']=='cartridge' and row['match']=='exact_identity_field' and leaf in
+                    {'model','fullpartnumber','normalizedfullpartnumber','basemodel','partnumber','partno',
+                     'cartridgemodel','modelname','productcode','alias','aliases','sourcealiases'}):continue
+            literal=row['fields'][row['matched_field']]
+            if literal not in resolved:
+                if deadline is not None and time.monotonic()>=deadline:raise TimeoutError()
+                # Technical aliases must pass the existing source/conflict gates;
+                # a reference-only row itself never establishes a runtime product.
+                resolved[literal]=resolve_cartridge_identity(literal)
+            identity=resolved[literal];products=identity['candidates']
+            options_by_product=[]
+            for product in products[:per_role]:
+                key=product['id']
+                if key not in linked:
+                    if deadline is not None and time.monotonic()>=deadline:raise TimeoutError()
+                    pairs=compatible_logical_cavities(key)
+                    options=[]
+                    for pair in pairs:
+                        physical=interfaces.get(pair['cavity_id'])
+                        if physical is None:continue
+                        options.append(dict(logical_id=pair['logical_id'],definition_id=physical['record_id'],
+                            **{field:physical['fields'].get(field) for field in ('name','family','unit_system','usable','active')},
+                            hydraulic_interfaces=physical['hydraulic_interfaces'],execution_permission=False))
+                    options.sort(key=lambda item:(item['unit_system']!=project_context,item['logical_id'],item['definition_id']))
+                    linked[key]=dict(source='execution_whitelist_reference',runtime_product_id=key,
+                        logical_group_count=len({p['logical_id'] for p in pairs}),
+                        total_physical_definitions=len(pairs),returned_physical_definitions=min(16,len(options)),
+                        truncated=len(options)>16 or len(options)<len(pairs),physical_definitions=options[:16])
+                options_by_product.append(linked[key])
+            if identity['code']=='resolved':row['compatible_interfaces']=options_by_product[0]
+            elif products:row['ambiguous_product_interfaces']=dict(identity_status=identity['code'],
+                total_products=len(products),returned_products=len(options_by_product),products=options_by_product)
     product_ids=sorted({row['record_id'] for entry in captions for row in entry['matches']
                        if row['source_table']=='cartridges'})
     if product_ids:
@@ -195,4 +236,7 @@ def lookup(reading, per_role=4, *, deadline=None):
                 'Preserve the actual source codes and suffixes; do not replace them with nearest catalogue items. '
                 'Do not treat explicitly truncated reference fields as complete identities. The cavities table '
                 'contains cartridge cavities and surface/subplate mounting interfaces; compare their actual family. '
+                'For a source-matched product/interface, use its actual fixed hydraulic interfaces; do not '
+                'generate an independent port count or renumber the hardware. Different logical groups or '
+                'physical variants remain distinct; never choose an identity just because its port count fits. '
                 'Catalogue manufacturer/function not stated in the drawing must remain inference, not schematic evidence.')

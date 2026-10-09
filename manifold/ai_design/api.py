@@ -57,6 +57,7 @@ def run(key:str,run_id:str):
         reviewed=effective_result(saved,corrections)
         current=corrections and corrections['run_id']==saved['id'] and corrections['input_revision']==saved['input_revision']
         return {**saved,'identity_interpretations':library_resolution.identity_interpretations(reviewed),
+                'current_interface_checks':library_resolution.interface_checks(TaskInput.model_validate(saved['inputs']),reviewed),
                 **(dict(port_corrections=corrections,reviewed_result=reviewed) if current else {})}
     return call(view)
 

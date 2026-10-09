@@ -128,21 +128,24 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
       if(component.recognized_interface)card.append(element('p','Recognized machining interface: '+engineeringText(component.recognized_interface)));
       for(const text of component.observed_identity_annotations||[])card.append(element('p','Observed annotation: '+engineeringText(text),'property-note'));
       const conditions=Object.entries(component.recognized_facts||{}).filter(([key,value])=>value!=null&&/pressure|flow|passage|bore/i.test(key));if(conditions.length)card.append(element('p','Recognized schematic: '+conditions.map(([key,value])=>key.replaceAll('_',' ')+': '+value).join(' · ')));
-      const binding=options.bindings[component.id],definition=component.definition;
+      const binding=options.bindings[component.id],definition=component.definition,contract=component.port_contract;
       const mappingInputs=[],missingMappingInputs=[],candidateButtons=[];
-      const recognition=element('details');recognition.tabIndex=-1;recognition.append(element('summary','Recognized hydraulic ports'));card.append(recognition);
+      if(contract){
+        card.append(element('p','Library hydraulic ports (fixed): '+contract.physical_ports.map(port=>port.label).join(' · ')));
+        if(contract.unassigned_observations.length)card.append(element('p','Unassigned schematic observations: '+contract.unassigned_observations.map(port=>port.label).join(' · '),'review-warning'));
+        if(contract.missing_interfaces.length)card.append(element('p','Library ports without a matching schematic observation: '+contract.missing_interfaces.join(' · '),'review-warning'));
+      }
+      const recognition=element('details');recognition.tabIndex=-1;recognition.append(element('summary','Schematic terminal observations'));card.append(recognition);
       const recognizedPorts=plan.ports.filter(p=>p.component_id===component.id);
-      const nativeChoice=component.choices.filter(choice=>choice.usable&&choice.unit===task.inputs.project_context);
-      const expectedCounts=new Set((definition?[definition]:nativeChoice).map(choice=>choice.zones.length));
-      const countMismatch=expectedCounts.size===1&&![...expectedCounts].includes(recognizedPorts.length);
+      const countMismatch=contract?.status==='port_count_conflict';
       recognition.open=countMismatch;
-      if(countMismatch)recognition.append(element('p',`The analysis reports ${recognizedPorts.length} ports; the matching interface has ${[...expectedCounts][0]} hydraulic windows. Correct the recognized terminals here.`,'review-warning'));
+      if(countMismatch)recognition.append(element('p',`The analysis reports ${recognizedPorts.length} schematic observations; the library fixes ${contract.physical_port_count} physical ports. Review the unmatched observations without changing the library port set.`,'review-warning'));
       for(const port of recognizedPorts){const row=element('div',null,'ai-choice');row.append(element('span',`${port.label} → ${plan.nets.find(net=>net.id===port.net)?.label||'Unknown net'}`));recognition.append(row);
-        action(row,'Exclude incorrect port '+port.label,safe(()=>correctPort(task,run,plan,port.id,true,component.id))).disabled=recognizedPorts.length<=1;
+        action(row,'Exclude incorrect observation '+port.label,safe(()=>correctPort(task,run,plan,port.id,true,component.id))).disabled=recognizedPorts.length<=1;
       }
       for(const port of (plan.excluded_ports||[]).filter(p=>p.component_id===component.id)){
-        const row=element('div',null,'ai-choice');row.append(element('span','Excluded incorrect port '+port.label));recognition.append(row);
-        action(row,'Restore port '+port.label,safe(()=>correctPort(task,run,plan,port.id,false,component.id)));
+        const row=element('div',null,'ai-choice');row.append(element('span','Excluded schematic observation '+port.label));recognition.append(row);
+        action(row,'Restore observation '+port.label,safe(()=>correctPort(task,run,plan,port.id,false,component.id)));
       }
       const choice=component.choices.find(row=>row.cartridge_id===component.cartridge_id);
       if(choice?.engineering_facts)engineeringFactsUI(ctx,card,choice.engineering_facts,{title:'Cartridge engineering data'});
@@ -152,25 +155,30 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
         if(component.automatic)card.append(element('p','Engineering interface and hydraulic port labels matched. Review the editable draft before production.'));
         const ports=Object.fromEntries(plan.ports.filter(p=>p.component_id===component.id).map(p=>[p.id,`${p.label} → ${plan.nets.find(n=>n.id===p.net)?.label||'Unknown net'}`]));
         for(const zone of definition.zones){
-          const label=`${component.label} · interface ${zone.display_label||zone.id} → schematic port`;
-          if(binding){const selected=binding.zone_ports[zone.id]||'',input=field(card,label,selected,v=>{binding.zone_ports[zone.id]=v;},{'':'Choose a port',...ports});mappingInputs.push(input);
-            if(!ports[selected]||Object.values(binding.zone_ports).filter(value=>value===selected).length!==1)missingMappingInputs.push(input);}
+          const label=`${component.label} · fixed library port ${zone.display_label||zone.id} → schematic observation`;
+          if(binding||!component.automatic){const selected=(binding?.zone_ports||component.mapping)[zone.id]||'',input=field(card,label,selected,v=>{
+              const selectedBinding=options.bindings[component.id]??={definition_key:definition.key,definition_sha256:definition.sha256,zone_ports:{...component.mapping},decision:''};
+              if(v)selectedBinding.zone_ports[zone.id]=v;else delete selectedBinding.zone_ports[zone.id];
+            },{'':'Choose an observation',...ports});mappingInputs.push(input);
+            if(!ports[selected]||Object.values(binding?.zone_ports||component.mapping).filter(value=>value===selected).length!==1)missingMappingInputs.push(input);}
           else card.append(element('p',label+': '+(ports[component.mapping[zone.id]]||'Unmapped')));
         }
-        if(binding&&definition.zones.length!==Object.keys(ports).length){
-          card.append(element('p',`This interface has ${definition.zones.length} hydraulic windows; the analysis has ${Object.keys(ports).length} component ports. Review this mismatch before confirming the mapping.`,'review-warning'));
+        if(definition.zones.length!==Object.keys(ports).length){
+          card.append(element('p',`The library fixes ${definition.zones.length} hydraulic ports; ${Object.keys(ports).length} schematic observations were read. Resolve the observation conflict before generation.`,'review-warning'));
           missingMappingInputs.push(...mappingInputs);
         }
       }else card.append(element('p','Select the machining interface used by this component. Existing cartridge cavities, surface-mounted valve interfaces and other source-defined engineering families use the same catalogue; confirm the hydraulic port mapping and orientation.'));
+      const interfaceChoices=definition?element('details'):card;
+      if(definition){interfaceChoices.append(element('summary','Change engineering interface (optional)'));card.append(interfaceChoices);}
       for(const choice of component.choices){
-        const candidate=element('div',null,'library-candidate');card.append(candidate);
+        const candidate=element('div',null,'library-candidate');interfaceChoices.append(candidate);
         candidate.append(element('p',[choice.display_label||choice.label,choice.unit,choice.definition_origin,
           choice.machining_depth_mm!=null?'Machining depth '+Number(choice.machining_depth_mm.toFixed(3))+' mm':'',
           choice.usable?'Available':'Machining definition incomplete'].filter(Boolean).join(' · ')));
         if(choice.usable)candidateButtons.push(action(candidate,'Use candidate '+(choice.display_label||choice.label)+' · '+choice.unit,safe(()=>selectCavity(component,choice,plan))));
         else if(choice.unusable_reason)candidate.append(element('p',engineeringText(choice.unusable_reason),'property-note'));
       }
-      const search=librarySearch(card,task,'component-interface',component.label,choice=>selectCavity(component,choice,plan));
+      const search=librarySearch(interfaceChoices,task,'component-interface',component.label,choice=>selectCavity(component,choice,plan));
       navigation.register('component',component.id,'interface',card,()=>candidateButtons[0]||search.input,[search.input]);
       navigation.register('component',component.id,'mapping',card,()=>countMismatch?recognition:missingMappingInputs[0]||mappingInputs[0]||candidateButtons[0]||search.input,missingMappingInputs);
       field(card,'Mounting face · '+component.label,options.component_faces[component.id]||'',v=>{if(v)options.component_faces[component.id]=v;else delete options.component_faces[component.id];},faceOptions);

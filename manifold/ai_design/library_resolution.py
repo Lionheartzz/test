@@ -250,7 +250,7 @@ def identity_interpretations(result):
     return interpretations
 
 
-def candidates(inputs,result,component,identity=None):
+def candidates(inputs,result,component,identity=None,*,include_engineering_facts=True):
     identity=identity or component_identity(result,component)
     if identity['code']!='resolved':return []
     if identity.get('interface_only'):
@@ -260,22 +260,22 @@ def candidates(inputs,result,component,identity=None):
     matches=identity['candidates']
     found=[]
     from ..engineering_facts import facts_batch
-    facts=facts_batch('cartridge',[row['id'] for row in matches])
+    facts=facts_batch('cartridge',[row['id'] for row in matches]) if include_engineering_facts else {}
     for cartridge in matches:
         for candidate in compatible_logical_cavities(cartridge['id']):
             cavity_id = candidate['cavity_id']
             if identity.get('interface_ids') is not None and cavity_id not in identity['interface_ids']:continue
             definition=get_definition(cavity_id)
             found.append(dict(**summary('db:'+cavity_id,definition),cartridge_id=cartridge['id'],
-                              logical_id=candidate['logical_id'],engineering_facts=facts[cartridge['id']],reason='Explicit SQLite cartridge-cavity relationship'))
+                              logical_id=candidate['logical_id'],engineering_facts=facts.get(cartridge['id']),reason='Explicit SQLite cartridge-cavity relationship'))
     return found
 
 
-def automatic_choice(inputs, choices, identity=None):
+def automatic_choice(inputs, choices, identity=None,*,require_usable=True):
     """Choose within one source-backed logical cavity and the requested unit only."""
     if identity and identity.get('interface_only'):
         if not choices:return None,'interface_definition_missing'
-        usable=[row for row in choices if row['usable']]
+        usable=[row for row in choices if row['usable'] or not require_usable]
         if not usable:return None,'geometry_unusable'
         preferred={row['key']:row for row in usable if row['unit']==inputs.project_context}
         if not preferred:return None,'unit_context_unavailable'
@@ -284,7 +284,7 @@ def automatic_choice(inputs, choices, identity=None):
     groups={row.get('logical_id',row['key']) for row in choices}
     if not choices:return None,'relationship_missing'
     if len(groups)>1:return None,'ambiguous_cavities'
-    usable=[row for row in choices if row['usable']]
+    usable=[row for row in choices if row['usable'] or not require_usable]
     if not usable:return None,'geometry_unusable'
     preferred={row['key']: row for row in usable if row['unit']==inputs.project_context}
     if len(preferred)!=1:return None,'unit_context_unavailable'
@@ -312,16 +312,60 @@ def resolution_status(inputs,result,component,choices,identity=None):
     if blocked:
         message,action=messages[blocked]
         return dict(code=blocked,message=message,action=action,candidate_count=len(choices),usable_count=len(usable),identity=identity)
-    mapping=matching_zones(result,component,chosen['zones'])
-    return dict(code='resolved' if mapping else 'window_mapping_required',message='An engineering interface and matching physical unit were found.' if mapping else 'Engineering interface resolved; hydraulic port mapping needs an explicit engineering decision.',action='Ready for draft generation.' if mapping else 'Confirm the interface mapping.',candidate_count=len(choices),usable_count=len(usable),identity=identity)
+    contract=interface_port_contract(result,component,chosen['zones'])
+    matched=contract['status']=='matched'
+    message=('An engineering interface and matching physical unit were found.' if matched else
+        f"The library fixes {contract['physical_port_count']} hydraulic interfaces; the analysis contains {contract['observed_port_count']} schematic terminal observations.")
+    return dict(code='resolved' if matched else 'window_mapping_required',message=message,
+        action='Ready for draft generation.' if matched else 'Resolve missing or unassigned schematic observations against the fixed library ports.',
+        candidate_count=len(choices),usable_count=len(usable),identity=identity,port_contract=contract)
+
+
+def interface_port_contract(result,component,zones):
+    """Library windows define hardware; model ports are schematic observations."""
+    canonical=lambda label:re.sub(r'^port','',norm(interface_catalog.hydraulic_label(label)))
+    expected=[dict(id=z['id'],label=interface_catalog.hydraulic_label(z['id'])) for z in zones]
+    observed=[dict(id=p['id'],label=str(value(result,p['id'],'label') or p['id']))
+              for p in result['ports'] if p['component_id']==component['id']]
+    mapping={};missing=[];ambiguous=[]
+    for port in expected:
+        matches=[p for p in observed if canonical(p['label'])==canonical(port['label'])]
+        physical_matches=[p for p in expected if canonical(p['label'])==canonical(port['label'])]
+        if len(matches)==1 and len(physical_matches)==1:mapping[port['id']]=matches[0]['id']
+        elif not matches:missing.append(port['id'])
+        else:ambiguous.append(port['id'])
+    unassigned=[p for p in observed if p['id'] not in mapping.values()]
+    complete=(len(mapping)==len(expected) and set(mapping.values())==set(component['port_ids']))
+    return dict(source='engineering_library',physical_ports=expected,physical_port_count=len(expected),
+        observed_ports=observed,observed_port_count=len(observed),mapping=mapping,missing_interfaces=missing,
+        ambiguous_interfaces=ambiguous,unassigned_observations=unassigned,
+        status='matched' if complete else 'port_count_conflict' if len(expected)!=len(observed) else 'port_labels_need_mapping')
 
 
 def matching_zones(result,component,zones):
-    ports={p['id']:value(result,p['id'],'label') for p in result['ports'] if p['component_id']==component['id']}
-    mapping={}
-    for zone in zones:
-        label=re.sub(r'^port','',norm(interface_catalog.hydraulic_label(zone['id'])))
-        matches=[key for key,name in ports.items() if re.sub(r'^port','',norm(name))==label]
-        if len(matches)!=1:return None
-        mapping[zone['id']]=matches[0]
-    return mapping if len(set(mapping.values()))==len(mapping) and set(mapping.values())==set(component['port_ids']) else None
+    contract=interface_port_contract(result,component,zones)
+    return contract['mapping'] if contract['status']=='matched' else None
+
+
+def interface_checks(inputs,result):
+    """Read-only reconciliation for every admitted component identity/family.
+
+    Port count never selects a product, logical cavity, unit or physical variant.
+    Unusable geometry may expose its fixed ports but grants no execution access.
+    """
+    checks=[]
+    for component in result['components']:
+        identity=component_identity(result,component)
+        choices=candidates(inputs,result,component,identity,include_engineering_facts=False)
+        chosen,reason=automatic_choice(inputs,choices,identity)
+        if not chosen:chosen,reason=automatic_choice(inputs,choices,identity,require_usable=False)
+        reason=identity['code'] if identity['code']!='resolved' else reason
+        check=dict(component_id=component['id'],component_label=display_label(result,component),
+                   status='interface_unresolved',resolution_code=reason,execution_permission=False)
+        if chosen and not reason and chosen['zones']:
+            check.update(interface_port_contract(result,component,chosen['zones']),
+                definition_key=chosen['key'],definition_label=chosen['display_label'],unit=chosen['unit'],
+                geometry_usable=chosen['usable'])
+        elif chosen and not chosen['zones']:check['resolution_code']='interface_data_incomplete'
+        checks.append(check)
+    return checks

@@ -223,6 +223,8 @@ def analyze(key,expected,provider_key):
         result=resolve_knowledge(result,SQLiteKnowledgeResolver())
         validate_context(result,inputs,provider_output=False)
         run.update(status='completed',result=compact_result(result),usage=usage)
+        from .library_resolution import interface_checks
+        run['interface_checks']=interface_checks(inputs,run['result'])
         phase='completed'
     except ProviderFailure as exc:
         run['error']=exc.code

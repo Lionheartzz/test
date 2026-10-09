@@ -123,6 +123,7 @@ def prepare(inputs, result, options):
         resolution = library.resolution_status(inputs, result, component, choices,identity)
         selected = options.bindings.get(key)
         automatic = False
+        mapping_blocked = False
         if selected:
             definition = library.load(inputs, selected.definition_key, selected.definition_sha256)
             if identity.get('interface_requirements') and definition.id not in identity.get('interface_ids',[]):
@@ -134,12 +135,16 @@ def prepare(inputs, result, options):
                           'action': 'Complete the hydraulic interface mapping.'}
         else:
             chosen, _ = library.automatic_choice(inputs, choices,identity)
-            mapping = library.matching_zones(result, component, chosen['zones']) if chosen else None
-            if mapping:
+            if chosen:
                 row = chosen
                 definition = library.load(inputs, row['key'], row['sha256'])
-                automatic = True
-                decision = row['reason'] + '; exact hydraulic interface labels matched by PMC. Engineer review remains required.'
+                contract=library.interface_port_contract(result,component,chosen['zones'])
+                mapping=contract['mapping']
+                automatic=contract['status']=='matched'
+                decision=row['reason'] + '; exact hydraulic interface labels matched by PMC. Engineer review remains required.' if automatic else ''
+                if not automatic:
+                    block(f'{label}: {resolution["message"]} {resolution["action"]}', 'component', key, 'mapping')
+                    mapping_blocked=True
             else:
                 definition, mapping, decision = None, {}, ''
                 block(f'{label}: {resolution["message"]} {resolution["action"]}', 'component', key,
@@ -149,7 +154,7 @@ def prepare(inputs, result, options):
                 raise ValueError('An external-port definition cannot be used as a cartridge cavity')
             if not definition.active or not definition.usable:
                 block(f'{label}: selected cavity geometry is unavailable: {definition.unusable_reason}', 'component', key, 'interface')
-            if set(mapping) != {z.id for z in definition.zones} or set(mapping.values()) != set(component['port_ids']) or len(set(mapping.values())) != len(mapping):
+            if not mapping_blocked and (set(mapping) != {z.id for z in definition.zones} or set(mapping.values()) != set(component['port_ids']) or len(set(mapping.values())) != len(mapping)):
                 block(f'{label}: map every cavity window to exactly one distinct schematic component port.', 'component', key, 'mapping')
         cartridge_id=next((row.get('cartridge_id') for row in choices if definition and row['key']=='db:'+definition.id),None)
         components.append(dict(id=key, label=label,
@@ -160,6 +165,7 @@ def prepare(inputs, result, options):
                                cartridge_id=cartridge_id,
                                function=library.value(result,key,'functional_type') or '',
                                choices=choices, definition=definition, mapping=dict(mapping or {}),
+                               port_contract=library.interface_port_contract(result,component,[z.model_dump() for z in definition.zones]) if definition else None,
                                automatic=automatic, decision=decision, resolution=resolution))
     external = [];spec_resolutions={};port_groups={};port_blocks={}
     for port in result['ports']:
@@ -241,7 +247,7 @@ def preflight(key, request):
     plan = prepare(inputs, result, request.options)
     def entry(row):
         return {**{k:v for k,v in row.items() if k != 'definition'},
-                'definition': library.summary('',row['definition']) if row['definition'] else None}
+                'definition': library.summary('db:'+row['definition'].id,row['definition']) if row['definition'] else None}
     corrections=record.get('port_corrections') or {}
     if corrections.get('run_id')!=run['id'] or corrections.get('input_revision')!=run['input_revision']:corrections={}
     excluded=set(corrections.get('excluded_port_ids',[]))

@@ -94,7 +94,8 @@ class MultimodalProvider:
         if remaining<=0:raise ProviderFailure('PROVIDER_TIMEOUT')
         try:
             async with asyncio.timeout(remaining):
-                reference=await asyncio.to_thread(lookup_identities,inventory,deadline=deadline)
+                reference=await asyncio.to_thread(lookup_identities,inventory,deadline=deadline,
+                                                project_context=request.inputs.project_context)
         except TimeoutError:
             raise ProviderFailure('PROVIDER_TIMEOUT') from None
         context=json.dumps(reference,ensure_ascii=False,separators=(',',':'))

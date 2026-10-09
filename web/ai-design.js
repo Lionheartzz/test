@@ -83,9 +83,9 @@ export function aiDesign(ctx,open){
       parent.append(captions);
     }
     if(run.status!=='completed')return;
-    const result=run.reviewed_result||run.result;parent.append(element('h3','Hydraulic connections'),element('p',`${result.components.length} components · ${result.ports.length} ports · ${result.nets.length} nets · ${result.design_intent.length} requirements · ${result.unresolved.length} unresolved`,'ai-summary'));
+    const result=run.reviewed_result||run.result;parent.append(element('h3','Hydraulic connections'),element('p',`${result.components.length} components · ${result.ports.length} schematic terminals · ${result.nets.length} nets · ${result.design_intent.length} requirements · ${result.unresolved.length} unresolved`,'ai-summary'));
     if(run.port_corrections)parent.append(element('p','Engineer port corrections applied. The original AI analysis is retained; excluded recognition errors can be restored in the generation settings.','property-note'));
-    for(const [title,rows]of [['Components',result.components],['Hydraulic ports',result.ports],['Hydraulic nets',result.nets]]){const section=element('details');section.open=title==='Components';section.append(element('summary',title+' · '+rows.length));for(const row of rows){const card=element('section',null,'library-card');card.append(element('h4',engineeringName(row.label,'Item')));if(row.members)card.append(element('p',row.members.map(id=>{const p=result.ports.find(port=>port.id===id),c=result.components.find(component=>component.id===p?.component_id);return [engineeringName(c?.label,''),engineeringName(p?.label,'Port')].filter(Boolean).join(' · ');}).join(' ↔ ')));if(row.facts&&Object.keys(row.facts).length)Object.entries(row.facts).filter(([,value])=>value!==null&&['string','number','boolean'].includes(typeof value)).forEach(([name,value])=>card.append(element('p',observationName(row,name)+': '+engineeringText(value))));unconfirmedReadings(card,row);section.append(card);}parent.append(section);}
+    for(const [title,rows]of [['Components',result.components],['Schematic terminals',result.ports],['Hydraulic nets',result.nets]]){const section=element('details');section.open=title==='Components';section.append(element('summary',title+' · '+rows.length));for(const row of rows){const card=element('section',null,'library-card');card.append(element('h4',engineeringName(row.label,'Item')));if(row.members)card.append(element('p',row.members.map(id=>{const p=result.ports.find(port=>port.id===id),c=result.components.find(component=>component.id===p?.component_id);return [engineeringName(c?.label,''),engineeringName(p?.label,'Port')].filter(Boolean).join(' · ');}).join(' ↔ ')));if(row.facts&&Object.keys(row.facts).length)Object.entries(row.facts).filter(([,value])=>value!==null&&['string','number','boolean'].includes(typeof value)).forEach(([name,value])=>card.append(element('p',observationName(row,name)+': '+engineeringText(value))));unconfirmedReadings(card,row);if(row.port_ids)fixedInterfacePorts(card,row);section.append(card);}parent.append(section);}
     if(result.design_intent.length){const section=element('details');section.append(element('summary','Design intent · '+result.design_intent.length));for(const row of result.design_intent)section.append(element('p',`${row.target_labels.join(', ')||'Manifold'} · ${row.property} ${row.operator} ${row.value??'unresolved'} ${row.unit||''}`));parent.append(section);}
     for(const row of result.unresolved)parent.append(element('p',engineeringText(row.description),'ai-provider-note'));
   }
@@ -93,6 +93,14 @@ export function aiDesign(ctx,open){
   function observationName(row,name){
     return name==='model'&&run?.identity_interpretations?.[row.id]?.model_role==='engineering_interface'
       ?'machining interface':name.replaceAll('_',' ');
+  }
+
+  function fixedInterfacePorts(parent,row){
+    const check=(run.current_interface_checks||run.interface_checks||[]).find(value=>value.component_id===row.id);
+    if(!check?.physical_ports)return;
+    parent.append(element('p','Engineering Library ports (fixed): '+check.physical_ports.map(port=>port.label).join(' · '),'property-note'));
+    if(check.status!=='matched')parent.append(element('p',`${check.physical_port_count} fixed library ports · ${check.observed_port_count} schematic observations. Review the source-to-interface mapping.`,'review-warning'));
+    if(check.unassigned_observations?.length)parent.append(element('p','Unassigned observations: '+check.unassigned_observations.map(port=>port.label).join(' · '),'review-warning'));
   }
 
   function unconfirmedReadings(parent,row){
