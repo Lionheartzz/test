@@ -57,7 +57,9 @@ class Executor:
         from .engine import assert_engine_current,engine_revision
         from .engineering_db import database_path
         assert_engine_current()
-        limit=limit or (180 if transient and operation in ('preview','preview-solid','preview-layer') else 30 if transient else 300)
+        # Legacy callers may supply limit; local CAD has no wall-clock deadline.
+        # Ownership cancellation and process failure still terminate the worker.
+        limit=None
         with self.lock:
             if operation_id:
                 if operation!='build' or transient or not re.fullmatch(r'[0-9a-f]{32}',operation_id):
@@ -115,7 +117,6 @@ class Executor:
                      transient=transient,owner=owner,version=version,error=None,closed=False,warm=use_warm,
                      warm_reused=warm_reused,baseline_metrics=process.metrics())
             self.active=row
-            row['timer']=threading.Timer(limit,self.expire,args=(row,));row['timer'].daemon=True;row['timer'].start()
             return row
 
     def progress(self,operation_id,project_id=None):
@@ -135,25 +136,6 @@ class Executor:
             record=next((r for r in reversed(self.history) if r['id']==operation_id and r['operation']=='build'),None)
             if record:record['result_state']=state
 
-    def expire(self,row):
-        with self.lock:
-            if not row['closed']:
-                completed=self.completed_engineering(row)
-                if completed is not None:
-                    # Only a build checkpoint written AFTER every engineering
-                    # check and STEP/manufacturing artifact can survive review.
-                    row['process'].stop();row['fallback']=completed
-                    row['warning']='Display review exceeded its time budget; exact engineering evidence retained.'
-                    self.finish(row,'engineering-complete-review-timeout')
-                    return
-                self.stop(row,f'{"Exact preview" if row["transient"] else "Engineering calculation"} exceeded {row["limit"]:g} seconds; worker stopped. '
-                          'Last usable view and saved project retained. Inspect calculation diagnostics or retry after revising the draft.',504)
-
-    def completed_engineering(self,row):
-        if row['operation']!='build':return None
-        try:return json.loads((row['work']/'engineering-complete.json').read_text(encoding='utf-8'))
-        except (OSError,ValueError):return None
-
     def stop(self,row,message,status=409):
         with self.lock:
             if row['closed']:return
@@ -161,7 +143,7 @@ class Executor:
 
     def finish(self,row,state):
         if row['closed']:return
-        row['timer'].cancel();record={**self.describe(row),'state':state}
+        record={**self.describe(row),'state':state}
         if row['error']:record['reason']=str(row['error'])
         if row.get('warning'):record['reason']=row['warning']
         self.history.append(record);self.history=self.history[-12:]
@@ -186,13 +168,8 @@ class Executor:
     def poll(self,row,*,raw=False):
         with self.lock:
             if row['error']:raise row['error']
-            if 'fallback' in row:return row['fallback']
             ready=(row['work']/'done').is_file() if row.get('warm') else row['process'].process.poll() is not None
             if not ready and row['process'].process.poll() is None:
-                if not row.get('review_deadline') and self.completed_engineering(row) is not None:
-                    row['review_deadline']=True;row['timer'].cancel()
-                    remaining=max(.01,min(15,row['limit']-(time.monotonic()-row['start'])))
-                    row['timer']=threading.Timer(remaining,self.expire,args=(row,));row['timer'].daemon=True;row['timer'].start()
                 return None
             try:
                 if row['process'].process.returncode not in (None,0):
@@ -255,7 +232,8 @@ async def preview_stream(payload,request):
     except ValueError:raise CalculationError('Invalid preview version',422)
     row=await asyncio.to_thread(executor.start,'preview-solid',payload,transient=True,owner=owner,version=version)
     async def events():
-        sent=False
+        from .validation_progress import public_progress
+        sent=False;last_progress=0
         try:
             while True:
                 if not sent:
@@ -268,6 +246,10 @@ async def preview_stream(payload,request):
                     # every coordinate on the API event loop a second time.
                     yield b'{"type":"exact","result":'+result+b'}\n'
                     return
+                if time.monotonic()-last_progress>=.4:
+                    detail=await asyncio.to_thread(executor.describe,row)
+                    yield (json.dumps(dict(type='progress',result=public_progress(detail)))+'\n').encode()
+                    last_progress=time.monotonic()
                 await asyncio.sleep(.05)
         except CalculationError as exc:
             yield (json.dumps(dict(type='error',detail=str(exc),status=exc.status))+'\n').encode()
@@ -276,17 +258,23 @@ async def preview_stream(payload,request):
     return events()
 
 
-def calculate_sync(operation,payload,progress=None,*,limit=None,cancelled=lambda:False):
+def calculate_sync(operation,payload,progress=None,*,limit=None,cancelled=lambda:False,on_progress=None):
     if cancelled():raise CalculationError('Generation cancelled. Authored draft retained.',409)
     row=executor.start(operation,payload,limit=limit)
     try:
+        last_progress=0
         while True:
             if cancelled():
                 executor.stop(row,'Generation cancelled. Authored draft retained.',409)
                 raise CalculationError('Generation cancelled. Authored draft retained.',409)
             result=executor.poll(row)
             if result is not None:return result
-            if progress:progress('Exact CAD: '+executor.describe(row).get('phase','starting isolated worker'))
+            if time.monotonic()-last_progress>=.4:
+                from .validation_progress import public_progress
+                detail=public_progress(executor.describe(row))
+                if on_progress:on_progress(detail)
+                if progress:progress(detail['stage_text'])
+                last_progress=time.monotonic()
             time.sleep(.1)
     finally:
         if not row['closed']:executor.stop(row,'Calculation no longer relevant.',409)

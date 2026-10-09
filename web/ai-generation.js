@@ -13,7 +13,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
   const searchStates=new Map();
   const here=()=>$('workflow-dialog').open&&$('workflow-title').textContent.startsWith('AI Design');
   const safe=fn=>async()=>{try{await fn();}catch(e){$('workflow-error').textContent=e.message;}};
-  function reset(run){if(optionRun!==run.id){optionRun=run.id;searchStates.clear();options={preferred_component_face:null,preferred_port_face:null,bindings:{},port_definitions:{},provisional_ports:{},threaded_mounting_holes:[],mounting_decision:'',net_overrides:{},component_faces:{},port_faces:{},topology_decision:'',topology_confirmation:null,placement_decision:'',drilling_diameter:8,port_diameter:12,port_depth:12,minimum_wall:null,max_attempts:4};}}
+  function reset(run){if(optionRun!==run.id){optionRun=run.id;searchStates.clear();options={preferred_component_face:null,preferred_port_face:null,bindings:{},port_definitions:{},provisional_ports:{},threaded_mounting_holes:[],mounting_decision:'',net_overrides:{},component_faces:{},port_faces:{},placement_decision:'',drilling_diameter:8,port_diameter:12,port_depth:12,minimum_wall:null,max_attempts:4};}}
   function check(parent,label,value,onChange){const wrap=element('label',null,'ai-check'),input=element('input');input.type='checkbox';input.checked=value;input.setAttribute('aria-label',label);input.onchange=()=>onChange(input.checked);wrap.append(input,document.createTextNode(label));parent.append(wrap);return input;}
 
   function decisionNavigation(decisions){
@@ -228,24 +228,16 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
       options.threaded_mounting_holes.forEach((hole,index)=>field(assignment,'Hole '+(index+1)+' requirement',hole.requirement_id||'',value=>{hole.requirement_id=value||null;},choices));
     }
     const topology=element('details');const uncertainConnections=plan.nets.some(net=>net.status==='uncertain');topology.open=uncertainConnections||plan.ports.some(p=>!p.net&&!['blocked','terminated'].includes(p.disposition));topology.append(element('summary','Review / correct hydraulic net assignments'));content.append(topology);
-    if(uncertainConnections)topology.append(element('p','Review these proposed connections against the schematic, then use Confirm hydraulic connections. No written justification is required.','review-warning'));
+    if(uncertainConnections)topology.append(element('p','Review these proposed connections against the schematic. Generate editable 3D draft uses the current assignments.','review-warning'));
     topology.append(element('p','Hydraulic lines: '+plan.nets.map(n=>n.label).join(' · ')));
     for(const port of plan.ports){const owner=plan.components.find(c=>c.id===port.component_id)?.label,name=(owner?owner+' · ':'')+port.label;if(['blocked','terminated'].includes(port.disposition)){topology.append(element('p',name+' · '+port.disposition+' · no hydraulic net required'));continue;}
-      const input=field(topology,'Net · '+name,options.net_overrides[port.id]||plan.nets.find(n=>n.id===port.net)?.label||'',v=>{if(v.trim())options.net_overrides[port.id]=v.trim();else delete options.net_overrides[port.id];options.topology_confirmation=null;options.topology_decision='';topologyStatus.textContent='Connections changed; confirm the updated assignments.';});
+      const input=field(topology,'Net · '+name,options.net_overrides[port.id]||plan.nets.find(n=>n.id===port.net)?.label||'',v=>{if(v.trim())options.net_overrides[port.id]=v.trim();else delete options.net_overrides[port.id];});
       navigation.register('topology',port.id,'net',topology,input,[input]);
     }
-    const topologyStatus=element('p',plan.topology_review?.confirmed?'Hydraulic connections confirmed for the current assignments.':'Hydraulic connections have not been confirmed.','property-note');topology.append(topologyStatus);
-    const topologyConfirm=action(topology,'Confirm hydraulic connections',safe(async()=>{
-      topologyConfirm.disabled=true;const token=screen,signature=JSON.stringify(options);
-      try{const latest=await post(`/api/ai-design/tasks/${task.id}/generation/preflight`,{expected_revision:task.revision,run_id:run.id,options});
-        if(token!==screen||!here()||$('workflow-title').textContent!=='AI Design · Create manifold draft'||session().task?.id!==task.id||JSON.stringify(options)!==signature)return;
-        options.topology_confirmation=latest.topology_review.signature;options.topology_decision='';await prepare();
-      }finally{if(topologyConfirm.isConnected)topologyConfirm.disabled=false;}
-    }));
-    navigation.register('topology',null,'decision',topology,topologyConfirm);
+    navigation.register('topology',null,'decision',topology,()=>topology.querySelector('input'));
     field(content,'Placement override decision',options.placement_decision,v=>options.placement_decision=v).placeholder='Required only when overriding proposed component/port faces';
     const dimensions=element('details');dimensions.append(element('summary','Draft geometry assumptions and search budget'));content.append(dimensions);
-    for(const [key,label]of [['drilling_diameter','Minimum proposed drilling diameter (mm)'],['port_diameter','Custom Straight Bore diameter (mm)'],['port_depth','Draft entry depth for thread-only / custom ports (mm)'],['max_attempts','Maximum layout attempts'],['max_exact_attempts','Exact candidates per layout (1–8)'],['max_runtime_s','Total generation budget (seconds, 10–480)']])field(dimensions,label,options[key]??(key==='max_exact_attempts'?2:480),v=>options[key]=v,null,true);
+    for(const [key,label]of [['drilling_diameter','Minimum proposed drilling diameter (mm)'],['port_diameter','Custom Straight Bore diameter (mm)'],['port_depth','Draft entry depth for thread-only / custom ports (mm)'],['max_attempts','Maximum layout attempts'],['max_exact_attempts','Exact candidates per layout (1–8)']])field(dimensions,label,options[key]??2,v=>options[key]=v,null,true);
     dimensions.append(element('p','Projects support 120 total features including generated drillings and 40 hydraulic nets. Recognition retains up to 120 components / 600 terminals for review. Exact searches default to 2 candidates per layout (up to 8); generation can be cancelled without losing the analysis.'));
     dimensions.append(element('p','Entry depth and drill point are editable Draft proposals, not confirmed machining dimensions. Thread-only tap-drill diameter comes from engineering library; thread depth and the complete port form remain unresolved. Flow requirements may increase routing drilling size. Cavity geometry is never resized.'));
     const requirements=element('section');requirements.append(element('h3','How your requirements will be used'));content.append(requirements);
@@ -254,7 +246,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
     const controls=element('div',null,'action-row');content.append(controls);
     action(controls,'Recheck choices and requirements',safe(()=>prepare()));
     action(controls,'Generate editable 3D draft',safe(()=>generate(task,run)));
-    const progress=element('p','', 'ai-job-state');progress.setAttribute('role','status');content.append(progress);
+    const progress=element('div','', 'ai-job-state');progress.setAttribute('role','status');content.append(progress);
     return navigation;
   }
 
@@ -272,7 +264,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
     const response=await post(`/api/ai-design/tasks/${task.id}/port-corrections`,{expected_revision:task.revision,run_id:run.id,excluded_port_ids:[...excluded],net_overrides:overrides});
     await refreshTask(task.id);run.port_corrections=response.port_corrections;run.reviewed_result=response.reviewed_result;
     if(token!==screen||!here()||$('workflow-title').textContent!=='AI Design · Create manifold draft'||session().task?.id!==task.id)return;
-    delete options.net_overrides[portId];options.topology_confirmation=null;options.topology_decision='';
+    delete options.net_overrides[portId];
     for(const binding of Object.values(options.bindings))for(const [zone,port]of Object.entries(binding.zone_ports))if(excluded.has(port))delete binding.zone_ports[zone];
     const navigation=await prepare();navigation?.jump({section:'component',target_id:componentId,field:'mapping'});
   }
@@ -311,7 +303,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
       content.querySelectorAll('button,input,select,textarea').forEach(e=>e.disabled=true);
       const progress=content.querySelector('.ai-job-state')||content.appendChild(element('p','', 'ai-job-state'));
       const job=await post(`/api/ai-design/tasks/${task.id}/generation/jobs`,payload);
-      const cancel=action(content,'Cancel generation',safe(async()=>{await post(`/api/ai-design/jobs/${job.id}/cancel`,{});cancel.disabled=true;progress.textContent='Stopping local CAD work; retaining the latest authored draft…';}));
+      const cancel=action(content,'Cancel generation',safe(async()=>{await post(`/api/ai-design/jobs/${job.id}/cancel`,{});cancel.disabled=true;progress.dataset.cancelling='true';const stage=progress.querySelector('[data-validate-stage]');if(stage)stage.textContent='Stopping local CAD work; retaining the latest authored draft…';}));
       const result=await watchJob(job,progress);
       await refreshTask(task.id);
       if(token===screen&&session().task?.id===task.id&&here()&&$('workflow-title').textContent==='AI Design · Create manifold draft')showPacket(result);

@@ -79,7 +79,7 @@ def delete_task(task_id):
 def _execute(record):
     global _active
     def update(message):
-        record.update(status='running',message=message)
+        record.update(status='running',**(message if isinstance(message,dict) else dict(message=message)))
         store.atomic_json(path(record['id']),record)
     try:
         if record['operation']=='analyze':

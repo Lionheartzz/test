@@ -1249,7 +1249,7 @@ def resize_route(design, net, option, diameter, definitions, threads=None, modif
 
 
 def _complete_route_combination(design, definitions, thread_definitions, modifier_definitions, snapshot=None, net_ids=None, deadline=None, excluded=None):
-    """Bounded backtracking across individually clear automatic routes."""
+    """Count-bounded backtracking; legacy deadline arguments no longer stop work."""
     nets = sorted((effective_net(design,n) for n in design.nets if n.routing == 'automatic' and (n.route_state=='unresolved' if net_ids is None else n.id in net_ids)), key=lambda n:n.id)
     if len(nets)<2 or any(n.routing_variant or n.flow_lpm for n in nets):
         return None
@@ -1258,9 +1258,6 @@ def _complete_route_combination(design, definitions, thread_definitions, modifie
     snapshot=snapshot or _ProposalSnapshot(source,definitions,thread_definitions,modifier_definitions)
     pools = {}
     for net in nets:
-        if deadline is not None:
-            import time
-            if time.monotonic()>=deadline:return None
         options = route_options(source, net, definitions=definitions,
                                 thread_definitions=thread_definitions, modifier_definitions=modifier_definitions,snapshot=snapshot)
         pools[net.id] = [o for o in options if o['hard_failures']==0][:24]
@@ -1306,9 +1303,6 @@ def _complete_route_combination(design, definitions, thread_definitions, modifie
 
     def search(index, chosen):
         nonlocal best,best_key,states
-        if deadline is not None:
-            import time
-            if time.monotonic()>=deadline:return None
         states+=1
         if inspected > 4000 or states>1000:
             return None
@@ -1708,7 +1702,7 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
     inspected={tuple(sorted((r['net'],r['variant']) for r in routes))}
     eligible={n.id for n in pending}
     # Only untried, analytically clear candidates spend the exact budget. The
-    # eight-candidate/240 s ceilings leave the worker's CAD watchdog intact.
+    # candidate-count ceiling bounds search without killing slow exact geometry.
     while True:
         cad_bad=geometry is None or not topology_clear(geometry) or any(
             c['rule']=='step_round_trip' and c['status']=='FAIL' for c in report['checks'])
@@ -1727,7 +1721,7 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
         if cad_bad and eligible and not cad_fallback:
             skipped.append(dict(reason='Production topology already fails without automatic generated routes',production=fixed_topology))
             proposals=[]
-        elif (cad_fallback or not optimization_done) and len(attempts)<max_attempts and time.monotonic()-started<240:
+        elif (cad_fallback or not optimization_done) and len(attempts)<max_attempts:
             if pending:progress('alternate' if score[0] else 'comparison',15+60*len(attempts)/max_attempts)
             kwargs=dict(repair_only=bool(score[0]),snapshot=snapshot)
             if cad_fallback:kwargs['cad_fallback']=True
@@ -1755,7 +1749,7 @@ def resolve_design(design, *, exact=True, persist=False, prepared=False, snapsho
                     # another OCCT attempt. A worse objective can be CAD-safe.
                     selected=min(evaluations,key=lambda value:(value[0],value[3]))
                     score,target,routes,chosen,report,geometry,best=selected
-                    if chosen!=step_exported or len(attempts)<max_attempts and time.monotonic()-started<240:
+                    if chosen!=step_exported or len(attempts)<max_attempts:
                         continue
             break
         _,candidate,signature,reason=proposals[0]

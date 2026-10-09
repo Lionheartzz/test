@@ -228,7 +228,7 @@ class FreezeRequest(Strict):
 
 @app.post('/api/freeze-net')
 async def freeze_net(payload: FreezeRequest):
-    return await calculate('freeze',payload.model_dump(),limit=30)
+    return await calculate('freeze',payload.model_dump())
 
 
 class RefineRequest(Strict):
@@ -240,7 +240,7 @@ class RefineRequest(Strict):
 
 @app.post('/api/refine-route')
 async def refine_route(payload:RefineRequest):
-    return await calculate('refine',payload.model_dump(),limit=60)
+    return await calculate('refine',payload.model_dump())
 
 
 @app.get('/api/library')

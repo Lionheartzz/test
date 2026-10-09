@@ -3,6 +3,7 @@ import {aiGeneration} from './ai-generation.js';
 import {runDiagnostics} from './ai-diagnostics.js';
 import {uuidToken} from './crypto-utils.js';
 import {analysisStatus,documentSummary} from './ai-management.js';
+import {calculationProgressUI} from './validate-progress.js';
 
 export function aiDesign(ctx,open){
   const {$,element,field,action,api,post,get,state}=ctx,content=$('workflow-content');
@@ -19,7 +20,21 @@ export function aiDesign(ctx,open){
   const generator=aiGeneration(ctx,{open,back:()=>returnToEditor&&inputs?editor():library().catch(e=>$('workflow-error').textContent=e.message),session:()=>({task:active,run,dirty}),
     onPreflight:(task,plan)=>generationStates.set(task.id,{run:task.latest_run?.id,decisions:plan.blocked.length}),
     refreshTask:async id=>{const next=await api('/api/ai-design/tasks/'+id);if(active?.id===id)active=next;return next;},watchJob});
-  async function watchJob(job,progress){let status=job;while(['queued','running'].includes(status.status)){if(progress?.isConnected)progress.textContent=status.message;await new Promise(resolve=>setTimeout(resolve,1000));status=await api('/api/ai-design/jobs/'+job.id);}if(managing())await library();if(status.status!=='completed')throw Error(status.message);return status.result;}
+  async function watchJob(job,progress){
+    const render=job.operation==='generate'&&progress?calculationProgressUI(progress,'Generating manifold draft…'):null;
+    let status=job;
+    try{
+      while(['queued','running'].includes(status.status)){
+        if(progress?.isConnected){
+          if(render)render({...status.progress,operation_id:job.id,stage_text:progress.dataset.cancelling?'Stopping local CAD work…':status.progress?.stage_text||status.message});
+          else progress.textContent=status.message;
+        }
+        await new Promise(resolve=>setTimeout(resolve,render?400:1000));status=await api('/api/ai-design/jobs/'+job.id);
+        if(status.id!==job.id||status.task_id!==job.task_id)throw Error('Calculation status does not match this generation. Reopen the analysis.');
+      }
+      if(managing())await library();if(status.status!=='completed')throw Error(status.message);return status.result;
+    }finally{if(render)render(null);}
+  }
   function followAnalysisJob(job){activeJob=job;clearTimeout(jobTimer);const poll=async()=>{try{
     activeJob=await api('/api/ai-design/jobs/'+job.id);
     if(['queued','running'].includes(activeJob.status)){const status=editing()&&active?.id===job.task_id&&content.querySelector('.ai-job-state');if(status)status.textContent=activeJob.message+' You may close this dialog and return later.';jobTimer=setTimeout(poll,1000);return;}

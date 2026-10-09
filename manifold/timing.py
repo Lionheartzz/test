@@ -94,6 +94,6 @@ def trace_occt():
             if fn and not getattr(fn,'_pmc_timed',False):
                 # Keep bounded OCCT diagnostics without forcing a Windows file
                 # replacement before every primitive call. publish() still
-                # emits progress at most every 150 ms and the hard watchdog is
-                # independent of trace-file writes.
+                # emits progress at most every 150 ms. Cancellation remains
+                # owned by the executor, independently of trace-file writes.
                 wrapped=timed('boolean.'+method)(fn);wrapped._pmc_timed=True;setattr(cls,method,wrapped)

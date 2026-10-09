@@ -21,6 +21,7 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
         from .preview_routing import PreviewRequest,resolve_preview
         request=PreviewRequest.model_validate(payload) if 'design' in payload else PreviewRequest(design=Design.model_validate(payload))
         design=request.design
+        timing.progress('routes',8)
         resolved,routes,update=resolve_preview(request)
         proposal=dict(design=resolved.model_dump(),routes=routes,routing_update=update,
                       source_revision=store.revision(design),status='UNVALIDATED_PREVIEW')
@@ -30,15 +31,18 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
         if exact_not_before is not None:
             with timing.phase('preview.exact_idle'):
                 time.sleep(max(0,exact_not_before-time.monotonic()))
+        timing.progress('geometry',45)
         geometry=build_geometry(resolved)
         # Presentation may identify terminal route branches from exact contacts.
         # This mutates only the worker's resolved preview copy; it is never saved
         # into the authored project. Condition resizing uses the same BRep for
         # its acceptance check below; ordinary drag preview stays unvalidated.
+        timing.progress('topology',70)
         authorize_generated_contacts(resolved,geometry)
         if condition_resize:
             # One exact check of resized stored cuts, reusing this preview BRep.
             # A failed resize restores the old topology, never searches another.
+            timing.progress('rules',75)
             checked=validate(resolved,geometry)
             resized=set(update['resized_nets'])
             by_id={f.id:f for f in resolved.features}
@@ -60,6 +64,7 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
             from .route_state import route_metadata
             proposal.update(design=resolved.model_dump(),routes=route_metadata(resolved))
             if proposal_ready:proposal_ready(proposal)
+        timing.progress('review',85)
         try:model=review_model(resolved,geometry,core_only=True)
         except Exception as exc:raise RuntimeError('Exact BRep construction completed; display review unavailable: '+(str(exc) or type(exc).__name__)) from exc
         design_revision=store.revision(design)
@@ -67,6 +72,7 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
         return dict(model=model,features=[f.model_dump() for f in resolved.features],routing_update=update,
                     design_revision=design_revision,status='UNVALIDATED_EXACT_GEOMETRY',route_selection='CURRENT_PROPOSAL_NOT_OPTIMIZED')
     if operation=='preview-layer':
+        timing.progress('display_layer',10)
         if _preview_state is None or _preview_state['design_revision']!=payload['design_revision']:
             raise ValueError('Exact preview layer is stale. Wait for the current exact preview and retry.')
         parts=review_layer(_preview_state['design'],_preview_state['geometry'],payload['layer'])
@@ -96,6 +102,7 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
         report=validate(resolved,geometry);report['generated_at']=datetime.now(timezone.utc).isoformat()
         return dict(design=draft.model_dump(),report=report,adjusted_branches=adjusted,notes=notes,status='EXACT_DRAFT_CHECKS_NOT_SAVED')
     if operation=='drawing-geometry':
+        timing.progress('drawing',10)
         from .drawing.generate import snapshot,geometry_for
         from .drawing.schema import View
         source,solid=snapshot(payload['project_id'],payload['expected'])
@@ -108,7 +115,7 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
 def run(work,bootstrap_s=None):
     work=Path(work);request=json.loads((work/'request.json').read_text(encoding='utf-8'))
     timing.configure(request['trace'])
-    if request['operation']=='build':timing.progress('preparing',2)
+    timing.progress('preparing',2)
     if bootstrap_s is not None:timing.record('worker.startup',bootstrap_s)
     try:
         with timing.phase('worker.request_setup' if bootstrap_s is not None else 'worker.startup'):
@@ -125,7 +132,7 @@ def run(work,bootstrap_s=None):
         with timing.phase('operation.'+request['operation']):result=dispatch(request['operation'],request['payload'],completed,proposal,exact_not_before=request.get('exact_not_before'))
     except Exception as exc:
         result=dict(error=str(exc)[:2000] or type(exc).__name__,status=422)
-    if request['operation']=='build':timing.progress('finalizing',99)
+    timing.progress('finalizing',99)
     with timing.phase('result.serialization'):
         temp=work/'result.tmp';temp.write_text(json.dumps(result),encoding='utf-8');temp.replace(work/'result.json')
         # Small, separate protocol status lets the API return large preview JSON

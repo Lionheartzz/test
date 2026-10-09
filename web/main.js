@@ -1,6 +1,6 @@
 import {closureSelector} from './closure-selector.js';
 import {engineeringText,engineeringName} from './engineering-labels.js';
-import {createPreviewQueue,EXACT_PREVIEW_CLIENT_TIMEOUT_MS} from './preview-queue.js';
+import {createPreviewQueue} from './preview-queue.js';
 import {createPreviewRoutingState,previewEditForProperty} from './preview-routing.js';
 import {routingEdit,mergeVisibleRoutes,currentRouteDesign,preserveRoutingDraft,presentationOnly} from './committed-routing.js';
 import {createSaveFeedback} from './save-feedback.js';
@@ -24,7 +24,7 @@ import {engineeringFactsUI} from './engineering-facts-ui.js';
 import {createStudioShell} from './studio-shell.js';
 import {createViewCube} from './viewcube.js';
 import {reportSource,resolveCheckTargets,issueReferences} from './validation-view.js';
-import {createValidationProgress,validationProgressUI} from './validate-progress.js';
+import {createValidationProgress,validationProgressUI,calculationProgressUI} from './validate-progress.js';
 import './validate-progress.css';
 import './studio.css';
 import './home.css';
@@ -48,9 +48,9 @@ function previewTiming(value){const row=Object.fromEntries(Object.entries(value)
 function element(tag,text,cls){const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;}
 function notice(message,error=false){$('notice').textContent=userMessage(message,draft);$('notice').className=error?'error':'';}
 async function api(url,options={}){
-  const limit=['/api/build','/api/optimize-routes'].includes(url)?330000:url==='/api/refine-route'?65000:url==='/api/freeze-net'?35000:['/api/preview','/api/preview-solid','/api/preview-layer'].includes(url)?EXACT_PREVIEW_CLIENT_TIMEOUT_MS:30000;
+  const calculation=['/api/build','/api/optimize-routes','/api/refine-route','/api/freeze-net','/api/preview','/api/preview-solid','/api/preview-layer'].includes(url);
   try{
-    const r=await fetch(url,{signal:AbortSignal.timeout(limit),...options});
+    const r=await fetch(url,{...(calculation?{}:{signal:AbortSignal.timeout(30000)}),...options});
     if(!r.ok){const b=await r.json().catch(()=>null);let input=draft;try{const sent=JSON.parse(options.body);input=sent.design||sent;}catch{}throw Error(apiError(b,input));}
     return await r.json();
   }catch(error){if(error.name==='TimeoutError')throw Error('Request timed out. Draft and last usable view retained. Refresh project status before retrying a save or build.');if(error.name==='AbortError')throw error;throw Error(apiError(error,draft));}
@@ -66,7 +66,9 @@ api('/api/materials?include_legacy=true').then(result=>materialCatalog=result.it
 api('/api/machining-modifiers').then(result=>modifierCatalog=result.items||[]).catch(()=>{});
 function change(fn,edit={kind:'global'}){if(busy)return false;const before=cloneDesign(draft);try{fn();syncNets(draft);history.push(before);if(history.length>40)history.shift();future=[];markDirty(edit,before);return true;}catch(e){draft=before;notice(e.message,true);select(selection);return false;}}
 const solidOverlay=element('div',null,'viewport-loading');solidOverlay.setAttribute('role','status');solidOverlay.hidden=true;$('viewport').append(solidOverlay);
-function solidStatus(text=''){solidOverlay.hidden=!text;solidOverlay.textContent=text?userMessage(text,draft,160):'';}
+const previewProgressNode=element('div',null,'viewport-loading');previewProgressNode.hidden=true;$('viewport').append(previewProgressNode);
+const previewProgress=calculationProgressUI(previewProgressNode,'Computing current preview…');
+function solidStatus(text=''){previewProgress(null);solidOverlay.hidden=!text;solidOverlay.textContent=text?userMessage(text,draft,160):'';}
 function previewState(kind,text){$('viewport').dataset.previewState=kind;$('model-info').textContent=userMessage(text,draft,180);}
 const recovery=element('div',null,'preview-recovery');recovery.hidden=true;
 let retryPending=false,previewStatus='idle';
@@ -99,8 +101,10 @@ const previews=createPreviewQueue({post:(url,design,{preview,...options}={})=>po
   onFast(p,snapshot){snapshot=ownedPreviewSnapshot(snapshot);if(!snapshot)return;exactPreview=null;resolved=hydrateDesign(p.design,draft.library,draft.threads);viewer?.preview(resolved);markDisplayed(snapshot,'proposal');viewer?.setReferences(resolved.features);viewer?.setDesign(draft);lastUsablePreview={design:resolved,draftSignature:displayedDraftSignature};renderTree();select(selection);renderReport();previewState('approximate','APPROXIMATE LIVE VIEW · CURRENT PROPOSAL · NOT VALIDATED');if(p.routing_update?.fixed_nets_affected?.length)notice('Fixed routing retained: '+p.routing_update.fixed_nets_affected.join(', ')+'. Moved interfaces require Validate before use.',true);},
   onExact:showSolid,
   onTiming:previewTiming,
+  onProgress(progress,snapshot){if(!ownedPreviewSnapshot(snapshot)||busy)return;solidOverlay.hidden=true;previewProgress(progress);},
   onStatus(status){
     previewStatus=status;retryPreview.disabled=busy||retryPending||['queued','routing','exact','settling'].includes(status);
+    if(['queued','ready','error','idle'].includes(status))previewProgress(null);
     if(status==='ready')recovery.hidden=true;
     const retained=machiningPreview||draft?.nets.every(n=>n.routing!=='automatic'||n.route_state&&n.route_state!=='unresolved');
     const computing=status==='exact'||retained&&status==='routing';

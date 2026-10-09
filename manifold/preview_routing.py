@@ -88,8 +88,6 @@ def _seed_routes(request):
 
 @timed('route.interactive')
 def resolve_preview(request):
-    import time
-    local_deadline=time.monotonic()+8
     snapshot=None
     from .routing import (resolve_design,route_options,route_obstructions,route_objective,
                           proximity_risk,route_from_variant,resize_route,_ProposalSnapshot,_complete_route_combination,_proposal_source_key)
@@ -168,7 +166,6 @@ def resolve_preview(request):
         for net in sorted(target.nets,key=lambda n:n.id):
             if net.id not in active:continue
             effective=effective_net(target,net)
-            if time.monotonic()>=local_deadline:return None,selected,set()
             net.routing_variant=None
             if tools is None:tools=tool_definitions('drill')
             net.diameter=route_sizing(effective,tools=tools,required_depth=0,preferred_unit=target.project_context)['diameter_mm']
@@ -231,7 +228,7 @@ def resolve_preview(request):
                 if net.id in active:
                     net.routing_variant=None
                     net.diameter=route_sizing(effective_net(local,net),tools=tools,required_depth=0,preferred_unit=local.project_context)['diameter_mm']
-            pair=_complete_route_combination(local,definitions,threads,modifiers,snapshot,net_ids=active,deadline=local_deadline)
+            pair=_complete_route_combination(local,definitions,threads,modifiers,snapshot,net_ids=active)
             if pair:
                 local.features.extend(f for option in pair.values() for f in option['route'])
                 if all(not screen(local,n) if n.id in active else not(screen(local,n)-baseline_failures[n.id])

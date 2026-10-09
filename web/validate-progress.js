@@ -32,7 +32,7 @@ export function createValidationProgress({fetchStatus,render,getScope,storage,no
     render({visible:true,operationId:token.id,percent:complete?100:token.percent,
       stage:complete?'Validation complete':p.state==='complete'?'Finalizing validation':p.stage_text||'Preparing design',
       detail:p.detail||'',elapsed:elapsed(token),eta:complete?null:estimateRemaining(history,token.key,p),
-      estimating:!complete,recent:[...new Set(recent.map(e=>e.stage_text))]});
+      estimating:!complete,substage:p.substage,recent:[...new Set(recent.map(e=>e.stage_text))]});
   }
   function stopPoll(token){token.finished=true;if(token.timer!=null)cancel(token.timer);token.controller?.abort();}
   async function poll(token){
@@ -81,10 +81,35 @@ export function validationProgressUI(root){
   return state=>{
     root.hidden=!state.visible;if(!state.visible)return;
     root.dataset.operationId=state.operationId;
-    node('title').textContent=state.percent===100?'Validation complete':'Validating manifold…';
+    node('title').textContent=state.title||(state.percent===100?'Validation complete':'Validating manifold…');
     node('bar').value=state.percent;node('percent').textContent=Math.floor(state.percent)+'%';
-    node('stage').textContent=state.stage;node('candidate').textContent=state.detail;
+    node('stage').textContent=state.stage;node('candidate').textContent=[state.detail,state.substage].filter(Boolean).join(' · ');
     node('recent').textContent=(state.recent||[]).join(' · ');
     node('time').textContent='Elapsed '+Math.floor(state.elapsed)+' s'+(state.eta!=null?' · about '+state.eta+' s remaining':state.estimating?' · Estimating remaining time…':'');
+  };
+}
+
+// Preview and local generation share the Validate display and timing projection.
+// A stationary milestone plus running indicator is intentional during one long
+// native operation; elapsed seconds never manufacture a percentage.
+export function calculationProgressUI(root,title){
+  root.classList.add('calculation-progress');root.setAttribute('role','status');
+  const node=(tag,key,cls)=>{const e=document.createElement(tag);e.dataset['validate'+key]=true;if(cls)e.className=cls;return e;};
+  const heading=document.createElement('div');heading.className='validate-progress-heading';
+  heading.append(node('strong','Title'),node('span','Percent'));
+  const bar=node('progress','Bar');bar.max=100;bar.setAttribute('aria-label',title);
+  root.replaceChildren(heading,bar,node('div','Stage','validate-progress-stage'),node('div','Time','validate-progress-time'),
+    node('div','Candidate','validate-progress-detail'),node('div','Recent','validate-progress-recent'));
+  const render=validationProgressUI(root);let operationId=null,percent=0;
+  return progress=>{
+    if(!progress){root.hidden=true;operationId=null;percent=0;return;}
+    if(operationId!==progress.operation_id){operationId=progress.operation_id;percent=0;}
+    percent=Math.max(percent,Math.min(99,progress.percent||0));
+    root.setAttribute('aria-busy','true');
+    const activity=[progress.completed_operations!=null?progress.completed_operations+' calculation steps completed':'',
+      progress.cpu_s!=null?'Worker CPU '+Math.floor(progress.cpu_s)+' s':''].filter(Boolean).join(' · ');
+    render({visible:true,operationId,percent,title,stage:progress.stage_text||'Preparing design',
+      detail:[progress.layout?'Layout '+progress.layout+' of up to '+progress.layout_limit:'',progress.detail].filter(Boolean).join(' · '),
+      substage:progress.substage,elapsed:progress.elapsed_s||0,estimating:false,recent:[activity,'Running · current proposal is not validated']});
   };
 }

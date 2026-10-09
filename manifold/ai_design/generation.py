@@ -91,10 +91,8 @@ def prepare(inputs, result, options):
         decisions.append(dict(message=message,section=section,target_id=target_id,field=field))
     for message in settings['conflicts']:block(message)
     signature=topology_signature(inputs,result)
-    confirmed=bool(options.topology_decision.strip()) or options.topology_confirmation==signature
-    review_required=bool(options.net_overrides) or any(net.get('status')=='uncertain' for net in result['nets'])
-    if review_required and not confirmed:
-        block('Review the hydraulic connections, then click Confirm hydraulic connections before generating a draft.', 'topology', field='decision')
+    # Advancing to generation accepts the displayed assignments. Actual missing
+    # ports, conflicting nets and interface mappings remain admission blockers.
     authored_count=len(result['components'])+sum(p['component_id'] is None and p.get('disposition') not in ('blocked','terminated') for p in result['ports'])+len(options.threaded_mounting_holes)
     if authored_count>PROJECT_FEATURES:
         block(f'This circuit needs {authored_count} authored features; the editable project supports {PROJECT_FEATURES} total features including generated drillings. Split the circuit into projects.', 'analysis')
@@ -238,7 +236,7 @@ def prepare(inputs, result, options):
             else:
                 row.update(status='applied', message='Targets remain distinct nets; cross-net physical intersections fail deterministic validation.')
     return dict(inputs=inputs, result=result, settings=settings, blocked=blocked, decisions=decisions, components=components,
-                topology_review=dict(signature=signature,confirmed=confirmed,required=review_required),
+                topology_review=dict(signature=signature,required=False,acceptance='generate_action'),
                 external=external,port_groups=port_groups,mounting=mounting, port_net=port_net, options=options)
 
 
@@ -499,8 +497,6 @@ def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False
     attempts=[];best=None;checkpoint=None;interruption=None
     for index in range(request.options.max_attempts):
         if cancelled():interruption='Generation cancelled; the latest authored draft and analysis are retained.';break
-        remaining=request.options.max_runtime_s-(time.monotonic()-started)
-        if remaining<=0:interruption='Generation resource deadline reached; the latest draft is retained. Review placement/route diagnostics before retrying.';break
         progress(f'Exact candidate {index+1}/{request.options.max_attempts}: placement, routing, wall and connectivity checks')
         try:
             design,feature_map,terminal_map=candidate(plan,generation_id,index)
@@ -509,10 +505,13 @@ def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False
                 notes='AI-generated draft. Exact engineering validation remains authoritative.')
             checkpoint=(design,feature_map,terminal_map)
             store.atomic_json(folder/'authored-draft.json',design.model_dump())
-            remaining=request.options.max_runtime_s-(time.monotonic()-started)
-            if remaining<=0:raise CalculationError('Generation resource deadline reached. Authored draft retained.',504)
-            checked=calculate_sync('ai-generate',dict(design=design.model_dump(),max_attempts=request.options.max_exact_attempts),progress,
-                                   limit=min(300,remaining),cancelled=cancelled)
+            def calculation_progress(detail):
+                progress(dict(message=detail['stage_text'],progress={**detail,
+                    'layout':index+1,'layout_limit':request.options.max_attempts,
+                    'elapsed_s':round(time.monotonic()-started,3),
+                    'percent':(index*100+detail['percent'])/request.options.max_attempts}))
+            checked=calculate_sync('ai-generate',dict(design=design.model_dump(),max_attempts=request.options.max_exact_attempts),
+                                   cancelled=cancelled,on_progress=calculation_progress)
             resolved=Design.model_validate(checked['design']);routes=checked['routes'];report=checked['report']
             # Keep the actual owned proposal, not just a variant on unresolved nets.
             from ..route_state import merge_routes
@@ -528,7 +527,7 @@ def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False
             if ranking[0]==0:
                 break
         except CalculationError as exc:
-            # A deadline/busy/native-worker failure needs explicit recovery, not
+            # A busy/native-worker failure needs explicit recovery, not
             # another expensive placement attempt hiding the execution failure.
             interruption=str(exc)
             attempts.append(dict(index=index,error='cancelled' if cancelled() else 'calculation_failed',message=interruption))
@@ -537,9 +536,6 @@ def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False
         except (ValueError,RuntimeError) as exc:
             attempts.append(dict(index=index,error=type(exc).__name__,message=str(exc)[:2000] or 'Candidate could not be built; review mapping and block constraints.'))
             store.atomic_json(folder/f'attempt-{index:02}'/'failure.json',attempts[-1])
-        if time.monotonic()-started>request.options.max_runtime_s:
-            interruption='Generation resource deadline reached. Completed reports and the latest authored draft are retained.'
-            break
     if best is None:
         packet=dict(id=generation_id,task_id=key,run_id=run['id'],status='no_buildable_candidate',attempts=attempts,
                     message='No candidate could be built within the requested envelope. Review selected cavity mapping and block constraints.')
@@ -558,7 +554,8 @@ def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False
     if interruption:packet['message']=interruption;packet['interruption']=interruption
     packet['elapsed_s']=round(time.monotonic()-started,2)
     packet['resource_limits']=dict(total_features=PROJECT_FEATURES,nets=PROJECT_NETS,placement_attempts=request.options.max_attempts,
-                                  exact_route_attempts_per_placement=request.options.max_exact_attempts,total_seconds=request.options.max_runtime_s)
+                                  exact_route_attempts_per_placement=request.options.max_exact_attempts,total_seconds=None)
+    packet['topology_acceptance']=dict(action='generate',signature=plan['topology_review']['signature'])
     packet.update(created_at=service.now(),provider=run['provider'],input_revision=run['input_revision'],
                   source_task_revision=request.expected_revision,
                   options=request.options.model_dump(),

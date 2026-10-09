@@ -32,6 +32,7 @@ class GenerationOptions(Strict):
     threaded_mounting_holes: list[ThreadedMountingHole] = Field(default_factory=list,max_length=40)
     mounting_decision: str = Field(default='',max_length=2000)
     net_overrides: dict[Key, str] = Field(default_factory=dict, max_length=ANALYSIS_PORTS)
+    # Compatibility with historical option packets; not an admission gate.
     topology_decision: str = Field(default='', max_length=2000)
     topology_confirmation: Digest | None = None
     component_faces: dict[Key, Face] = Field(default_factory=dict, max_length=ANALYSIS_COMPONENTS)
@@ -43,8 +44,9 @@ class GenerationOptions(Strict):
     minimum_wall: float | None = Field(default=None, gt=0, le=30)
     max_attempts: int = Field(default=4, ge=1, le=6)
     max_exact_attempts: int = Field(default=2, ge=1, le=8)
-    # Existing total generation budget, now enforced even during native CAD.
-    max_runtime_s: int = Field(default=480, ge=10, le=480)
+    # Retained for saved/older clients; local generation is bounded by candidate
+    # counts and explicit cancellation, never by elapsed wall time.
+    max_runtime_s: int | None = Field(default=None, ge=0)
 
 
 class GenerationRequest(Strict):
