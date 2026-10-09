@@ -78,6 +78,8 @@ class ComponentReading(Strict):
                                description='Observed product model or full ordering code, separate from cavity, function and instance annotations.')
     cavity: Observation = Field(default_factory=Observation,
                                 description='Separately observed machining cavity designation; never infer it from the model or a library match.')
+    mounting_interface: Observation = Field(default_factory=Observation,
+                                           description='Separately observed surface/subplate mounting interface or standard, not a cartridge model or inferred size.')
     ports: list[PortReading] = Field(min_length=1, max_length=COMPONENT_INTERFACES)
     parameters: list[Parameter] = Field(default_factory=list, max_length=30)
 
@@ -121,7 +123,7 @@ class CircuitReading(Strict):
                                  if r.category == 'component_selection'
                                  and (r.strength == 'preference' or r.operator == 'prefer')}
         for component in self.components:
-            for name in ('manufacturer', 'model', 'cavity', 'functional_type'):
+            for name in ('manufacturer', 'model', 'cavity', 'mounting_interface', 'functional_type'):
                 observation = getattr(component, name)
                 if (observation.value is not None and observation.source.kind == 'user_requirement'
                         and observation.source.quote in selection_preferences):
@@ -150,7 +152,7 @@ not every component terminal. Preserve labels such as P1/P2, port numbers, manuf
 If a line, label or model is unclear, return null/unknown or uncertain, never complete it by guessing.
 Capture pressure, flow, settings, orifices, coils and electrical notes in parameters with explicit units.
 Distinguish observed component facts from user component-selection preferences. Manufacturer, model,
-cavity and functional_type are Observation objects, never scalar strings; keep their own provenance.
+cavity, mounting_interface and functional_type are Observation objects, never scalar strings; keep their own provenance.
 Component-level source may be omitted when unavailable (defaults to unknown); it never supplies missing
 provenance for these observations. Report observed manufacturer/model/cavity facts only with schematic
 support. A requested product or cavity belongs in requirements, not as an already-observed component fact.
@@ -170,6 +172,12 @@ its hydraulic ports separate, with a distinct display label based on diagram pos
 An instance qualifier belongs in label, not in the product model, cavity or hydraulic port identity.
 Port labels may repeat across different components; preserve the actual port labels within each instance.
 Read the source identities even when runtime availability is unknown; library matching is a later step.
+Hydraulic components are not all cartridges. Distinguish the product model and actuation/function
+from the block interface: use cavity for a cartridge cavity, and mounting_interface for an explicitly
+documented surface/subplate, sandwich or other mounting-interface designation. A solenoid or a
+4-way symbol does not by itself establish mounting size or machining geometry. A known mounting
+interface may be reported even if the exact product model/manufacturer is unavailable; preserve the
+independent source evidence. Do not concatenate the interface into model or force it to be a cavity.
 For "USE SUN CARTRIDGES WHEN POSSIBLE", emit a requirement with that exact quote, category
 component_selection, property manufacturer, operator prefer, strength preference, value SUN. Leave each
 component manufacturer unknown unless the schematic itself supports it; do not copy SUN from this preference.
@@ -179,7 +187,7 @@ Functional types inferred from hydraulic symbols without an explicit text label 
 source.kind = ai_inference and status = uncertain. Explicitly labelled/documented functional types
 may use schematic provenance with the actual document/page. Inference is not a confirmed schematic
 fact or engineer acceptance. This functional-type rule does not supply missing manufacturer/model/cavity provenance.
-Unknown or unsupported manufacturer/model/cavity values must be null with status unknown (or omitted).
+Unknown or unsupported manufacturer/model/cavity/mounting_interface values must be null with status unknown (or omitted).
 Do not guess product identity to complete the object. Valid hydraulic ports, nets and functional understanding
 can be returned while product identity remains unknown for engineer review and later library selection.
 Never invent cartridge compatibility, machining dimensions, thread standards, ratings or library matches.
@@ -297,7 +305,7 @@ def normalize(reading: CircuitReading, inputs: TaskInput, page_counts=None, iden
             if index == i - 1:
                 unresolved(f'{component.label} · {field}: unsupported or unknown model value discarded. Confirm from source or correct through engineer review before product selection.', key)
         ids = [label_claim(key, component.label, component.source, location)]
-        ids += [claim(key, name, getattr(component, name), location=location) for name in ('functional_type', 'manufacturer', 'model', 'cavity')]
+        ids += [claim(key, name, getattr(component, name), location=location) for name in ('functional_type', 'manufacturer', 'model', 'cavity', 'mounting_interface')]
         ids += [claim(key, x.name, x.reading, x.unit, location=location) for x in component.parameters]
         ports = [f'C{i}P{j}' for j in range(1, len(component.ports) + 1)]
         result['components'].append(dict(id=key, port_ids=ports, claim_ids=ids))

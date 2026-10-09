@@ -109,19 +109,21 @@ def prepare(inputs, result, options):
         automatic = False
         if selected:
             definition = library.load(inputs, selected.definition_key, selected.definition_sha256)
+            if identity.get('interface_requirements') and definition.id not in identity.get('interface_ids',[]):
+                blocked.append(f'{label}: selected interface conflicts with the declared source interface; correct or clarify the source requirement.')
             mapping = selected.zone_ports
             decision = selected.decision.strip()
             resolution = {**resolution, 'code': 'manual_selection',
-                          'message': 'An existing cavity has been selected explicitly.',
-                          'action': 'Complete the hydraulic window mapping.'}
+                          'message': 'An existing machining interface has been selected explicitly.',
+                          'action': 'Complete the hydraulic interface mapping.'}
         else:
-            chosen, _ = library.automatic_choice(inputs, choices)
+            chosen, _ = library.automatic_choice(inputs, choices,identity)
             mapping = library.matching_zones(result, component, chosen['zones']) if chosen else None
             if mapping:
                 row = chosen
                 definition = library.load(inputs, row['key'], row['sha256'])
                 automatic = True
-                decision = row['reason'] + '; exact port-number/window labels matched by PMC. Engineer review remains required.'
+                decision = row['reason'] + '; exact hydraulic interface labels matched by PMC. Engineer review remains required.'
             else:
                 definition, mapping, decision = None, {}, ''
                 blocked.append(f'{label}: {resolution["message"]} {resolution["action"]}')

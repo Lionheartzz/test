@@ -2,6 +2,7 @@
 import re
 from ..engineering_db import compatible_logical_cavities,get_definition,normalized_port_family,search_definitions,search_threads,thread_definition
 from .cartridge_identity import resolve_cartridge_identity
+from . import interface_catalog
 from .service import digest
 
 
@@ -10,15 +11,18 @@ def norm(value):return re.sub(r'[^a-z0-9]','',str(value).lower())
 
 def summary(key,definition):
     return dict(key=key,sha256=digest(definition.model_dump()),label=definition.label,
-                manufacturer=definition.manufacturer,role=definition.kind,zones=[z.model_dump() for z in definition.zones],
+                display_label=interface_catalog.display_label(definition.label,definition.family),family=definition.family,
+                manufacturer=definition.manufacturer,role=definition.kind,
+                zones=[dict(**z.model_dump(),display_label=interface_catalog.hydraulic_label(z.id)) for z in definition.zones],
                 usable=definition.usable,unit=definition.unit_system,unusable_reason=definition.unusable_reason,
                 geometry_status='usable' if definition.usable else 'unusable')
 
 
 def search(inputs,query='',role='cavity'):
     kind='port_definition' if role in ('external-port','port_definition') else 'cavity'
-    rows=search_definitions(query=query,kind=kind,limit=20)['items']
-    rows.sort(key=lambda row:(row['unit_system']!=inputs.project_context,row['name'],row['id']))
+    rows=(interface_catalog.search(query,inputs.project_context) if kind=='cavity' else
+          search_definitions(query=query,kind=kind,limit=20)['items'])
+    rows.sort(key=lambda row:(row['unit_system']!=inputs.project_context,not row['usable'],row['name'],row['id']))
     return [summary('db:'+row['id'],get_definition(row['id'])) for row in rows]
 
 
@@ -204,12 +208,28 @@ def display_label(result,row):
 
 def component_identity(result,component):
     model=identity_value(result,component['id'],'model');maker=identity_value(result,component['id'],'manufacturer')
-    return resolve_cartridge_identity(model,maker)
+    identity=resolve_cartridge_identity(model,maker)
+    declared=[(field,identity_value(result,component['id'],field)) for field in ('cavity','mounting_interface')]
+    declared=[(field,value) for field,value in declared if value]
+    requirements=[value for _,value in declared]
+    identity['interface_requirements']=requirements
+    if requirements:
+        matches=[interface_catalog.exact_ids(value,mounting=field=='mounting_interface') for field,value in declared]
+        if any(not ids for ids in matches):identity['code']='interface_definition_missing'
+        elif not set.intersection(*matches):identity['code']='interface_requirements_conflict'
+        else:
+            identity['interface_ids']=sorted(set.intersection(*matches))
+            if identity['code']=='cartridge_identity_missing':
+                identity.update(code='resolved',method='explicit_engineering_interface',interface_only=True)
+    return identity
 
 
 def candidates(inputs,result,component,identity=None):
     identity=identity or component_identity(result,component)
     if identity['code']!='resolved':return []
+    if identity.get('interface_only'):
+        return [dict(**summary('db:'+key,get_definition(key)),logical_id='definition:'+key,
+                     reason='Explicit source-backed engineering interface') for key in identity['interface_ids']]
     matches=identity['candidates']
     found=[]
     from ..engineering_facts import facts_batch
@@ -217,14 +237,23 @@ def candidates(inputs,result,component,identity=None):
     for cartridge in matches:
         for candidate in compatible_logical_cavities(cartridge['id']):
             cavity_id = candidate['cavity_id']
+            if identity.get('interface_ids') is not None and cavity_id not in identity['interface_ids']:continue
             definition=get_definition(cavity_id)
             found.append(dict(**summary('db:'+cavity_id,definition),cartridge_id=cartridge['id'],
                               logical_id=candidate['logical_id'],engineering_facts=facts[cartridge['id']],reason='Explicit SQLite cartridge-cavity relationship'))
     return found
 
 
-def automatic_choice(inputs, choices):
+def automatic_choice(inputs, choices, identity=None):
     """Choose within one source-backed logical cavity and the requested unit only."""
+    if identity and identity.get('interface_only'):
+        if not choices:return None,'interface_definition_missing'
+        usable=[row for row in choices if row['usable']]
+        if not usable:return None,'geometry_unusable'
+        preferred={row['key']:row for row in usable if row['unit']==inputs.project_context}
+        if not preferred:return None,'unit_context_unavailable'
+        if len(preferred)>1:return None,'ambiguous_interfaces'
+        return next(iter(preferred.values())),None
     groups={row.get('logical_id',row['key']) for row in choices}
     if not choices:return None,'relationship_missing'
     if len(groups)>1:return None,'ambiguous_cavities'
@@ -237,30 +266,35 @@ def automatic_choice(inputs, choices):
 
 def resolution_status(inputs,result,component,choices,identity=None):
     identity=identity or component_identity(result,component)
-    chosen,blocked=automatic_choice(inputs,choices)
+    chosen,blocked=automatic_choice(inputs,choices,identity)
     if identity['code']!='resolved':blocked=identity['code']
+    elif blocked=='relationship_missing' and identity.get('interface_requirements'):blocked='interface_compatibility_conflict'
     usable=[row for row in choices if row['usable']]
     messages={
-        'cartridge_identity_missing':(f'Cartridge “{identity["recognized_model"]}” was recognized, but no runtime cartridge matches the available source-backed identities.' if identity['recognized_model'] else 'No source-backed cartridge model was recognized.','Select a cavity explicitly or provide a sourced identity connection.'),
+        'cartridge_identity_missing':(f'Component “{identity["recognized_model"]}” was recognized; no automatic cartridge-cavity match is available.' if identity['recognized_model'] else 'No source-backed cartridge model was recognized.','Select an existing cavity or valve mounting interface. A surface-mounted valve does not require a cartridge identity.'),
         'cartridge_identity_ambiguous':('Multiple runtime cartridge identities match the recognized source identity.','Resolve the cartridge identity before automatic cavity selection.'),
+        'interface_definition_missing':('The declared engineering interface has no exact runtime definition or standard-family match.','Search the interface catalogue or clarify the source designation; no geometry is inferred.'),
+        'interface_requirements_conflict':('The declared cavity and mounting interface select different engineering definitions.','Resolve the source identity conflict before generation.'),
+        'interface_compatibility_conflict':('The declared interface does not match the resolved cartridge compatibility whitelist.','Review the source model and interface; compatibility is not inferred from names.'),
+        'ambiguous_interfaces':('The declared interface matches multiple physical definitions or port/orientation variants.','Select the required variant and confirm every hydraulic interface.'),
         'relationship_missing':('Cartridge resolved; no source-backed cavity relation is available.','Select a cavity explicitly or import confirmed cartridge compatibility.'),
-        'geometry_unusable':('Compatible cavities exist but lack executable geometry.','Choose a usable cavity definition.'),
+        'geometry_unusable':('Matched engineering definitions lack executable geometry.','Choose a usable source definition.'),
         'ambiguous_cavities':('Multiple distinct logical cavities are compatible.','Choose one cavity and map its interfaces.'),
-        'unit_context_unavailable':('No unique usable physical cavity matches the project unit context.','Select a physical cavity explicitly.'),
+        'unit_context_unavailable':('No unique usable physical interface matches the project unit context.','Select a physical definition explicitly.'),
     }
     if blocked:
         message,action=messages[blocked]
         return dict(code=blocked,message=message,action=action,candidate_count=len(choices),usable_count=len(usable),identity=identity)
     mapping=matching_zones(result,component,chosen['zones'])
-    return dict(code='resolved' if mapping else 'window_mapping_required',message='One logical cavity and matching physical unit were found.' if mapping else 'Cavity resolved; hydraulic window mapping needs an explicit engineering decision.',action='Ready for draft generation.' if mapping else 'Confirm the interface mapping.',candidate_count=len(choices),usable_count=len(usable),identity=identity)
+    return dict(code='resolved' if mapping else 'window_mapping_required',message='An engineering interface and matching physical unit were found.' if mapping else 'Engineering interface resolved; hydraulic port mapping needs an explicit engineering decision.',action='Ready for draft generation.' if mapping else 'Confirm the interface mapping.',candidate_count=len(choices),usable_count=len(usable),identity=identity)
 
 
 def matching_zones(result,component,zones):
     ports={p['id']:value(result,p['id'],'label') for p in result['ports'] if p['component_id']==component['id']}
     mapping={}
     for zone in zones:
-        label=re.sub(r'^port','',norm(zone['id']))
+        label=re.sub(r'^port','',norm(interface_catalog.hydraulic_label(zone['id'])))
         matches=[key for key,name in ports.items() if re.sub(r'^port','',norm(name))==label]
         if len(matches)!=1:return None
         mapping[zone['id']]=matches[0]
-    return mapping if set(mapping.values())==set(component['port_ids']) else None
+    return mapping if len(set(mapping.values()))==len(mapping) and set(mapping.values())==set(component['port_ids']) else None

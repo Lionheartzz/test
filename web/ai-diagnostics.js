@@ -13,7 +13,7 @@ const observationReasons={
   'A connected hydraulic port has no net assignment. Resolve the connection from the schematic; do not invent a net.':'The response describes a connected port without identifying its hydraulic connection.',
   'A blocked or terminated port also has a net assignment. Resolve the conflicting connection from the schematic.':'The response describes the same port as blocked or terminated and connected to a hydraulic net.'
 };
-const fieldLabels={manufacturer:'Manufacturer',model:'Model',cavity:'Cavity',functional_type:'Function',net:'Hydraulic connection',label:'Label',specification:'Port specification',source:'Observation source',document:'Schematic document',page:'Schematic page',quote:'Source quote'};
+const fieldLabels={manufacturer:'Manufacturer',model:'Model',cavity:'Cavity',mounting_interface:'Mounting interface',functional_type:'Function',net:'Hydraulic connection',label:'Label',specification:'Port specification',source:'Observation source',document:'Schematic document',page:'Schematic page',quote:'Source quote'};
 function validationFailure(attempt){
   const errors=(attempt?.validation_errors||[]).filter(error=>error.action!=='normalized');
   if(!errors.length)return null;

@@ -121,7 +121,7 @@ def generation_project(key:str,generation_id:str):
 
 
 @router.get('/tasks/{key}/library-choices')
-def library_choices(key:str,q:str=Query(default='',max_length=120),role:str=Query(default='cartridge-cavity',pattern='^(cartridge-cavity|external-port)$')):
+def library_choices(key:str,q:str=Query(default='',max_length=120),role:str=Query(default='component-interface',pattern='^(component-interface|cartridge-cavity|external-port)$')):
     return call(library_resolution.search,TaskInput.model_validate(call(service.read,key)['inputs']),q,role)
 
 

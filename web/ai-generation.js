@@ -78,9 +78,9 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
       if(attempted){summary.focus();summary.scrollIntoView({block:'start'});}
     }
     const placement=element('section',null,'library-card');content.append(placement);placement.append(element('h3','AI generation placement preferences'));const preferences={...faceOptions,'':'Auto'};field(placement,'Preferred valve / cartridge face',options.preferred_component_face||'',v=>options.preferred_component_face=v||null,preferences);field(placement,'Preferred external port face',options.preferred_port_face||'',v=>options.preferred_port_face=v||null,preferences);placement.append(element('p','Used before generation. Existing authored geometry is never moved by these preferences.'));
-    content.append(element('h3','Cartridges and hydraulic windows'));
+    content.append(element('h3','Components and engineering interfaces'));
     if(plan.material_engineering_facts)engineeringFactsUI(ctx,content,plan.material_engineering_facts,{title:'Proposed material engineering data'});
-    if(!plan.components.length)content.append(element('p','No cartridges in this circuit. A port/distribution block can be generated if the net topology is usable.'));
+    if(!plan.components.length)content.append(element('p','No mounted components in this circuit. A port/distribution block can be generated if the net topology is usable.'));
     for(const component of plan.components){
       const card=element('section',null,'library-card');content.append(card);card.append(element('h4',component.label+(component.model&&component.model!==component.label?' · '+component.model:'')));
       const conditions=Object.entries(component.recognized_facts||{}).filter(([key,value])=>value!=null&&/pressure|flow|passage|bore/i.test(key));if(conditions.length)card.append(element('p','Recognized schematic: '+conditions.map(([key,value])=>key.replaceAll('_',' ')+': '+value).join(' · ')));
@@ -89,17 +89,17 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
       if(choice?.engineering_facts)engineeringFactsUI(ctx,card,choice.engineering_facts,{title:'Cartridge engineering data'});
       if(component.resolution&&!binding){card.append(element('p',engineeringText(component.resolution.message)),element('p',engineeringText(component.resolution.action),'property-note'));}
       if(definition){
-        card.append(element('p',`${definition.label} · ${definition.unit} · ${definition.usable?'Available':'Machining definition incomplete'}`));
-        if(component.automatic)card.append(element('p','Cavity and numbered hydraulic interfaces matched. Review the editable draft before production.'));
+        card.append(element('p',`${definition.display_label||definition.label} · ${definition.unit} · ${definition.usable?'Available':'Machining definition incomplete'}`));
+        if(component.automatic)card.append(element('p','Engineering interface and hydraulic port labels matched. Review the editable draft before production.'));
         const ports=Object.fromEntries(plan.ports.filter(p=>p.component_id===component.id).map(p=>[p.id,`${p.label} → ${plan.nets.find(n=>n.id===p.net)?.label||'Unknown net'}`]));
         for(const zone of definition.zones){
-          const label=`${component.label} · window ${zone.id} → schematic port`;
+          const label=`${component.label} · interface ${zone.display_label||zone.id} → schematic port`;
           if(binding)field(card,label,binding.zone_ports[zone.id]||'',v=>{binding.zone_ports[zone.id]=v;},{'':'Choose a port',...ports});
           else card.append(element('p',label+': '+(ports[component.mapping[zone.id]]||'Unmapped')));
         }
-      }else card.append(element('p','No reliable automatic cavity mapping. Choose an existing source or PMC definition; the model cannot invent machining dimensions.'));
-      for(const choice of component.choices)action(card,'Use candidate '+choice.label,safe(()=>selectCavity(component,choice,plan)));
-      librarySearch(card,task,'cartridge-cavity',component.label,choice=>selectCavity(component,choice,plan));
+      }else card.append(element('p','Select the machining interface used by this component. Existing cartridge cavities, surface-mounted valve interfaces and other source-defined engineering families use the same catalogue; confirm the hydraulic port mapping and orientation.'));
+      for(const choice of component.choices)action(card,'Use candidate '+(choice.display_label||choice.label),safe(()=>selectCavity(component,choice,plan)));
+      librarySearch(card,task,'component-interface',component.label,choice=>selectCavity(component,choice,plan));
       field(card,'Mounting face · '+component.label,options.component_faces[component.id]||'',v=>{if(v)options.component_faces[component.id]=v;else delete options.component_faces[component.id];},faceOptions);
     }
     content.append(element('h3','External ports'));
@@ -160,18 +160,25 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
 
   async function selectCavity(component,choice,plan){
     const ports=plan.ports.filter(p=>p.component_id===component.id),mapping={};
-    for(const zone of choice.zones){const normalized=zone.id.toLowerCase().replace(/^port/,'');const match=ports.find(p=>p.label.toLowerCase().replace(/^port/,'')===normalized);if(match)mapping[zone.id]=match.id;}
+    for(const zone of choice.zones){const normalized=(zone.display_label||zone.id).toLowerCase().replace(/^port/,'');const matches=ports.filter(p=>p.label.toLowerCase().replace(/^port/,'')===normalized);if(matches.length===1)mapping[zone.id]=matches[0].id;}
     options.bindings[component.id]={definition_key:choice.key,definition_sha256:choice.sha256,zone_ports:mapping,decision:''};await prepare();
   }
 
   function librarySearch(parent,task,role,label,onSelect){
-    const details=element('details');details.append(element('summary',role==='external-port'?'Search complete port machining definitions':'Search existing cavities'));parent.append(details);
-    let query='';const input=field(details,'Library search · '+label,query,v=>query=v),results=element('div');details.append(results);
-    action(details,'Search library · '+label,safe(async()=>{query=input.value;results.replaceChildren(element('p','Searching all source-native standards; project context controls preference only…'));
-      const rows=await api(`/api/ai-design/tasks/${task.id}/library-choices?`+new URLSearchParams({q:query,role}));if(!details.isConnected)return;results.replaceChildren();
-      for(const row of rows){const card=element('div',null,'ai-choice');card.append(element('p',`${row.label} · ${row.manufacturer} · ${row.unit} · ${row.usable?'Available':'Machining definition incomplete'}`));action(card,'Choose '+row.label,safe(()=>onSelect(row)));results.append(card);}
-      if(!rows.length)results.append(element('p','No matches. Refine the native cavity designation or add an engineer-reviewed PMC definition through the existing Library.'));
-    }));
+    const details=element('details');details.append(element('summary',role==='external-port'?'Search complete port machining definitions':'Search cavities / valve mounting interfaces'));parent.append(details);
+    let query='',request=0;const input=field(details,'Library search · '+label,query,v=>query=v),results=element('div');input.type='search';input.placeholder=role==='external-port'?'Port name or standard':'Engineering interface name, family or mounting standard';results.setAttribute('role','status');details.append(results);
+    const search=async()=>{const token=++request;query=input.value;results.replaceChildren(element('p','Searching all source-native standards; project context controls preference only…'));
+      try{
+        const rows=await api(`/api/ai-design/tasks/${task.id}/library-choices?`+new URLSearchParams({q:query,role}));if(token!==request||!details.isConnected)return;results.replaceChildren();
+        for(const row of rows){const card=element('div',null,'ai-choice'),name=row.display_label||row.label;card.append(element('p',`${name} · ${row.family||row.manufacturer} · ${row.unit} · ${row.usable?'Available':'Machining definition incomplete'}`));
+          if(role!=='external-port'&&row.zones?.length)card.append(element('p','Hydraulic interfaces: '+row.zones.map(zone=>zone.display_label||zone.id).join(' · ')));
+          const choose=action(card,'Choose '+name,safe(()=>onSelect(row)));choose.disabled=!row.usable;if(!row.usable&&row.unusable_reason)card.append(element('p',row.unusable_reason,'property-note'));results.append(card);
+        }
+        if(!rows.length)results.append(element('p','No matches. Refine the cavity or mounting-interface designation, or add an engineer-reviewed PMC definition through the existing Library.'));
+      }catch(e){if(token===request&&details.isConnected)results.replaceChildren(element('p',e.message,'error'));}
+    };
+    action(details,'Search library · '+label,search);
+    input.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.isComposing&&!event.repeat){event.preventDefault();event.stopPropagation();search();}});
   }
 
   async function generate(task,run){

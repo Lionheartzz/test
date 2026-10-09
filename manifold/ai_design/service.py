@@ -53,7 +53,7 @@ def compact_result(result:HydraulicRepresentation):
     for row in result.components:
         values=facts(row.claim_ids)
         components.append(dict(id=row.id,port_ids=row.port_ids,label=values.pop('label',row.id),facts=values,
-            identity_valid={name:bool(next((c for c in result.claims if c.subject_id==row.id and c.predicate==name and c.status=='confirmed' and c.kind in ('schematic','user_requirement')),None)) for name in ('manufacturer','model','cavity')}))
+            identity_valid={name:bool(next((c for c in result.claims if c.subject_id==row.id and c.predicate==name and c.status=='confirmed' and c.kind in ('schematic','user_requirement')),None)) for name in ('manufacturer','model','cavity','mounting_interface')}))
     ports=[]
     for row in result.ports:
         values=facts(row.claim_ids)

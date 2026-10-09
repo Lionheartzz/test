@@ -4,7 +4,7 @@ from pydantic import ValidationError
 from .semantic import CircuitReading
 from .validation_details import safe_validation_errors
 
-IDENTITY_FIELDS = ('manufacturer', 'model', 'cavity')
+IDENTITY_FIELDS = ('manufacturer', 'model', 'cavity', 'mounting_interface')
 MISSING_PROVENANCE = 'A value needs a source or explicit inference provenance'
 UNKNOWN_WITH_VALUE = 'Unknown observation must have null value'
 
