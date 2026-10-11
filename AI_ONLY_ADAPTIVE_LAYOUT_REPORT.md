@@ -140,3 +140,35 @@ time, progress appearance, exact MA connectivity/contact, BRep/STEP and final
 validation counts. The saved collision is evidence of the previous result,
 not proof that this correction achieves zero FAIL. A subsequent real Preview
 is required; no current saved/manually edited project is silently redesigned.
+
+## Authorized real fixed-layout recheck — 2026-10-11
+
+At the user's subsequent request, the same source revision was rerun through
+the actual isolated Executor/`preview-solid` worker using commit `e53c38a`.
+No saved project was overwritten and no AI request was made.
+
+Trace: `output/cad-diagnostics/e2bd6b4805c14cb79aee1907b6bb1f44.json`.
+Summary: `output/runtime-checks/ma-preview-c0bcc849b74b4ca8842a0cd2e0f7d512/summary.json`.
+
+- Completed in 477.250 seconds versus the previous 538.891 seconds. This is one
+  observed run, not a controlled performance benchmark.
+- BRep valid; 23 generated drillings; no worker crash.
+- The same MA ↔ MA_CBCG1_to_DSCS contact remains: 116.10642475474 mm³,
+  `R-f0055891-3` ↔ `CV_dd5023b2cc1f5540d5ca:port2`.
+- Unresolved: MA, MB and MA_CBCG1_to_DSCS. The result remains
+  `UNVALIDATED_EXACT_GEOMETRY`; no engineering PASS is claimed.
+- Source project SHA-256 and all authored feature faces/U/V remained unchanged.
+  No automatic enlargement or rearrangement occurred in Model routing.
+- Opening calls remained 613; their measured time changed from 409.189 to
+  373.545 seconds. Boolean intersections changed from 2114 to 2010.
+
+The run exposed a progress denominator defect: single-terminal pilot Nets were
+excluded from the total but included in completed pools, yielding 15/8. The
+counter now includes all pending Nets and tracks actual conflict expansion.
+This follow-up changes progress accounting only, not geometry or routing
+acceptance. Its syntax/diff checks passed; no second CAD run was performed.
+
+This recheck exercises the existing fixed Model layout, not a newly generated
+AI-owned adaptive layout. The latter's exact engineering result remains
+unverified; the ownership boundary intentionally prevents this saved project
+from being resized merely because it still has a collision.

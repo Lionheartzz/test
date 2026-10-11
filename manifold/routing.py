@@ -1045,12 +1045,15 @@ class _ProposalSnapshot:
         self.pool_diagnostics={};self.combination_diagnostics=[];self.combination_budget={'used':0}
         self.last_connectivity={}
         self.candidate_errors={};self.cad_error_records=[]
-        self.progress_nets={n.id for n in self.source.nets if n.id in automatic and len(n.members)>=2}
+        # Single-terminal circuits also produce candidate pools (e.g. pilots).
+        # Count the same domain in both numerator and denominator.
+        self.progress_nets=set(automatic)
         self.completed_nets=set()
 
     def route_progress(self,stage,net=None,completed=0,total=0,*,finished=False):
         """Actual bounded pool work in the existing request-owned trace."""
         from .timing import progress
+        if net is not None:self.progress_nets.add(net.id)  # Actual local conflict expansion may add a pool.
         if finished and net is not None:self.completed_nets.add(net.id)
         count=len(self.progress_nets)
         fraction=min(1,completed/max(1,total)) if net is not None and net.id not in self.completed_nets else 0
