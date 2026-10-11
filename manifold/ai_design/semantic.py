@@ -178,6 +178,12 @@ Count actual physical connection stubs on each symbol. Internal pilot paths, spr
 nearby crossings and another component's terminals are not additional ports. If a visible observation
 cannot correspond to the resolved interface, explain that specific source conflict in unresolved;
 never silently discard the observation, invent a physical port, merge nets, or substitute another model.
+Trace each physical port's line to its other endpoints before assigning a net. A pilot port is an
+external hydraulic terminal unless source evidence establishes otherwise; do not give it a unique
+"pilot" net merely because it pilots a valve. Follow cross-pilot branches, distinguishing joined
+junctions from crossings. A one-terminal net is incomplete topology: retain its uncertainty and
+explain the missing endpoint. Do not merge it by similar names or by presumed valve function.
+Keep a source-supported unused cartridge interface distinct from an unreadable/disconnected port.
 Unknown or ambiguous identity must remain unresolved rather than imposing a convenient interface.
 Incomplete source interface data is unknown, not proof of a zero-port component.
 If a line, label or model is unclear, return null/unknown or uncertain, never complete it by guessing.

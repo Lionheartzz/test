@@ -158,7 +158,7 @@ def _catalogs(design,definitions,threads,modifiers,tools,progress=None):
     return source,catalogs,diagnostics,cache
 
 
-def assess(design,definitions,threads,modifiers,tools,progress=None):
+def assess(design,definitions,threads,modifiers,tools,progress=None,*,screen_interfaces=True):
     from .routing import route_obstructions,_conflict_objective,route_objective
     source,pools,diagnostics,cache=_catalogs(design,definitions,threads,modifiers,tools,progress)
     if progress:progress('conflicts',completed=len(pools),total=len(pools))
@@ -176,6 +176,14 @@ def assess(design,definitions,threads,modifiers,tools,progress=None):
     for name,o in selected.items():
         failures.update(o['failures']|route_obstructions(context,nets[name],o['route'],threads,definitions,modifiers,cache))
     fixed_conflicts=set()
+    from .layout import placement_conflicts
+    # Functional entry cuts are fixed to the supplied layout too. Omitting
+    # them hid cross-face port/cavity contacts from the AI placement score.
+    # This conservative separation policy does not declare same-net contact.
+    for port in source.features if screen_interfaces else ():
+        if port.kind=='port' and not port.suppressed:
+            fixed_conflicts.update(('source_wall',*sorted((port.id,other)))
+                for other in placement_conflicts(source,port,definitions,threads,modifiers))
     for name,net in nets.items():
         retained=[f for f in source.features if f.kind=='drilling' and f.circuit==name and not f.suppressed]
         if retained:fixed_conflicts.update(route_obstructions(source,net,retained,threads,definitions,modifiers,cache))
@@ -244,8 +252,19 @@ def alternatives(design,definitions,baseline,*,allow_growth=True,evidence=None,m
             yield 'Rearrange neighbouring hydraulic interfaces',target
     def ports():
         points=terminal_points(design,definitions)
-        for port in sorted((f for f in design.features if f.kind=='port' and f.id in movable),key=lambda f:(f.id not in exact_affected,f.circuit not in baseline['blocked_nets'],f.id)):
-            if exact_affected and port.id not in exact_affected:continue
+        from .engineering_db import thread_definitions_for_design,modifier_definitions_for_design
+        from .layout import source_safe_port_positions
+        threads=thread_definitions_for_design(design)
+        modifiers=modifier_definitions_for_design(design) if any(f.machining_modifiers for f in design.features) else {}
+        conflicted={key for row in baseline['fixed_conflicts'] for key in row[1:]}
+        for port in sorted((f for f in design.features if f.kind=='port' and f.id in movable),key=lambda f:(f.id not in conflicted,f.id not in exact_affected,f.circuit not in baseline['blocked_nets'],f.id)):
+            if exact_affected and port.id not in exact_affected and port.id not in conflicted:continue
+            if port.id in conflicted:
+                for point in itertools.islice(source_safe_port_positions(design,port,definitions,threads,modifiers),2):
+                    if point==(port.u,port.v):continue
+                    target=design.model_copy(deep=True);item=next(f for f in target.features if f.id==port.id)
+                    item.u,item.v=point
+                    yield 'Separate external entry machining from source cuts',target
             net=next((n for n in design.nets if port.id in n.members),None)
             if not net:continue
             u,v,_,_=FACE_AXES[port.face]
@@ -358,13 +377,15 @@ def plan(design,definitions=None,*,initial=False,evidence=None,movable_features=
         def update(stage,**detail):
             if progress:progress(stage,layout=index,layout_limit=limit,**detail)
         return update
-    baseline=assess(design,definitions,threads,modifiers,tools,report(1))
+    # Existing manual new-project packing keeps its prior behaviour. The AI
+    # generation call and explicit Model layout proposals use the 3D screen.
+    baseline=assess(design,definitions,threads,modifiers,tools,report(1),screen_interfaces=not initial)
     proposals=[];evaluated=1
     for reason,target in alternatives(design,definitions,baseline,allow_growth=not initial,evidence=evidence,
             movable_features=movable_features,growth_axes=growth_axes):
         if evaluated>=limit:break
         if progress:progress('layout_alternate',layout=evaluated+1,layout_limit=limit)
-        result=assess(target,definitions,threads,modifiers,tools,report(evaluated+1));evaluated+=1
+        result=assess(target,definitions,threads,modifiers,tools,report(evaluated+1),screen_interfaces=not initial);evaluated+=1
         if {tuple(f) for f in result['fixed_conflicts']}-{tuple(f) for f in baseline['fixed_conflicts']}:continue
         if result['score']>=baseline['score']:continue
         if dimensions(target.block)!=dimensions(design.block) and result['feasibility_score']>=baseline['feasibility_score']:continue

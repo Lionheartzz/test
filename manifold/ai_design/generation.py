@@ -71,6 +71,37 @@ def topology_signature(inputs,result):
         nets=[{key:n.get(key) for key in ('id','label','status','members')} for n in result['nets']]))
 
 
+def topology_issues(result, overrides=()):
+    """Compile connection intent, not connectivity from the existence of a name.
+
+    A one-terminal line is retained for review; neither a product's internal
+    function nor a similar net label authorizes merging physical interfaces.
+    Explicit blocked/terminated interfaces already have a separate disposition.
+    """
+    ports={p['id']:p for p in result['ports']}
+    owners={c['id']:library.display_label(result,c) for c in result['components']}
+    def label(port):
+        return ' · '.join(filter(None,(owners.get(port.get('component_id')),library.display_label(result,port))))
+    issues=[]
+    for net in result['nets']:
+        active=[p for p in net['members'] if p in ports and ports[p].get('disposition') not in ('blocked','terminated')]
+        if len(active)==1:
+            key=active[0]
+            issues.append(dict(code='single_terminal_net',net_id=net['id'],port_id=key,
+                message=f'{label(ports[key])}: net “{net.get("label") or net["id"]}” has only one hydraulic terminal. '
+                        'Trace its real connection in the schematic, or establish a source-supported interface disposition; a net name does not connect it.'))
+        for key in active:
+            # Confirmed printed assignments are independent evidence. An
+            # explicit engineer override can correct them without another AI call.
+            # effective_result records task-scoped engineer corrections here;
+            # preserve those alongside current Generate-request overrides.
+            stated=ports[key].get('reviewed_net_label') or ports[key].get('facts',{}).get('net_assignment')
+            if stated and key not in overrides and str(stated).strip().casefold()!=str(net.get('label') or net['id']).strip().casefold():
+                issues.append(dict(code='net_evidence_conflict',net_id=net['id'],port_id=key,
+                    message=f'{label(ports[key])}: assigned net conflicts with the recorded schematic net “{stated}”. Correct the assignment or its source reading.'))
+    return issues
+
+
 def prepare(inputs, result, options):
     result = topology(result, options)
     settings = interpret(result, options,inputs.project_engineering)
@@ -106,6 +137,8 @@ def prepare(inputs, result, options):
     for port in result['ports']:
         if port.get('disposition','unknown') in ('connected','unknown') and port['id'] not in port_net:
             block(library.display_label(result,port) + ': choose a hydraulic net for the unknown connection.', 'topology', port['id'], 'net')
+    issues=topology_issues(result,options.net_overrides)
+    for issue in issues:block(issue['message'],'topology',issue['port_id'],'net')
     components = []
     known_components = {c['id'] for c in result['components']}
     known_external = {p['id'] for p in result['ports'] if p['component_id'] is None}
@@ -236,7 +269,7 @@ def prepare(inputs, result, options):
             else:
                 row.update(status='applied', message='Targets remain distinct nets; cross-net physical intersections fail deterministic validation.')
     return dict(inputs=inputs, result=result, settings=settings, blocked=blocked, decisions=decisions, components=components,
-                topology_review=dict(signature=signature,required=False,acceptance='generate_action'),
+                topology_review=dict(signature=signature,required=False,acceptance='generate_action',issues=issues),
                 external=external,port_groups=port_groups,mounting=mounting, port_net=port_net, options=options)
 
 
@@ -297,7 +330,7 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,prog
         design.review_items.append(EngineeringReview(id='AI_LAYOUT_POSITION',kind='dimension',subject='project',severity='blocking',
             description='Explicit feature coordinates could not be compiled. Resolve the retained position requirements before relying on this scaffold; automatic layout adaptation was skipped.'))
         return design
-    design=initial_placement(design,definitions,plan_routes=False)
+    design=initial_placement(design,definitions,plan_routes=False,screen_source_geometry=True)
     def update(stage,**detail):
         if cancelled():raise CalculationError('Draft creation cancelled; analysis retained.',409)
         if not progress:return

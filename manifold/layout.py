@@ -5,7 +5,7 @@ It is not called by project load, Save, Validate, Build or Drawing.
 """
 import math
 from itertools import combinations
-from .kinematics import FACE_AXES,dimensions,definition_planar_radius,clamp_placement
+from .kinematics import FACE_AXES,dimensions,definition_planar_radius,clamp_placement,pose
 
 
 def machining_radius(definition):
@@ -13,6 +13,67 @@ def machining_radius(definition):
         math.hypot(getattr(p,'offset_u',0),getattr(p,'offset_v',0))+
         max(p.diameter,getattr(p,'end_diameter',0))/2
         for p in definition.cutting_primitives or definition.stages])
+
+
+def placement_conflicts(design, feature, definitions, threads, modifiers):
+    """Conservative 3D machining separation for a proposed NEW interface.
+
+    Reuse the router's source profiles (offsets, cones, threads and modifiers),
+    not a face footprint or an infinite nominal cylinder. This analytic screen
+    authorizes no hydraulic contact. Exact acceptance remains independent.
+    """
+    from .routing import _manufacturing_cuts,_cuts_too_close
+    from .engineering_conditions import required_wall
+    def envelope(f):
+        if not f.definition and f.kind!='port' and not f.plugged:return []
+        definition=definitions.get(f.definition)
+        height=max([definition.clearance_height,*[b.height for b in definition.boundaries]]) if definition else f.clearance_height
+        radius=machining_radius(definition) if definition else f.clearance_diameter/2
+        if height>0 and radius>0:
+            return [dict(feature=f,start=-height,end=0,radius_start=radius,radius_end=radius,inner_radius=0)]
+        return []  # Unknown installation height is not invented.
+    cuts=list(_manufacturing_cuts(feature,definitions,threads,modifiers))
+    installed=envelope(feature)
+    conflicts=[]
+    for other in design.features:
+        if other.id==feature.id or other.suppressed or other.route_net:continue
+        clearance=required_wall(design,feature,other,definitions=definitions)
+        other_cuts=list(_manufacturing_cuts(other,definitions,threads,modifiers))
+        other_installed=envelope(other)
+        if (any(_cuts_too_close(cuts,cut,design.block,clearance) for cut in other_cuts) or
+            any(_cuts_too_close(installed,cut,design.block,design.rules.minimum_access_gap) for cut in other_cuts+other_installed) or
+            any(_cuts_too_close(cuts,cut,design.block,design.rules.minimum_access_gap) for cut in other_installed)):
+            conflicts.append(other.id)
+    return conflicts
+
+
+def source_safe_port_positions(design,port,definitions,threads,modifiers):
+    """Reviewable positions on the SAME face/envelope; no project mutation."""
+    from .engineering_conditions import required_wall
+    u,v,_,_=FACE_AXES[port.face];dims=dimensions(design.block)
+    def radius_for(f):
+        from .routing import feature_bore_diameter
+        return machining_radius(definitions[f.definition]) if f.definition else max(feature_bore_diameter(f,threads),f.clearance_diameter)/2
+    radius=radius_for(port);margin=radius+required_wall(design,port,definitions=definitions)
+    pitch=max(2*margin,2*radius+design.rules.minimum_access_gap)
+    preferred=(port.u,port.v);probes={preferred}
+    others=[f for f in design.features if f.id!=port.id and not f.suppressed and not f.route_net]
+    # Source positions produce local escape planes as well as a finite face
+    # grid. Offset machining and installed footprints contribute to the radius.
+    for other in others:
+        origin,_=pose(other,design.block)
+        gap=radius+radius_for(other)+max(design.rules.minimum_access_gap,required_wall(design,port,other,definitions=definitions))
+        for sign in (-1,1):
+            probes.add((origin[u]+sign*gap,port.v));probes.add((port.u,origin[v]+sign*gap))
+    probes.update((margin+i*pitch,margin+j*pitch)
+        for i in range(max(0,int((dims[u]-2*margin)/pitch)+1))
+        for j in range(max(0,int((dims[v]-2*margin)/pitch)+1)))
+    for point in sorted(probes,key=lambda p:(math.dist(p,preferred),p)):
+        if not all(margin<=value<=dims[axis]-margin for value,axis in zip(point,(u,v))):continue
+        if any(other.face==port.face and math.dist(point,(other.u,other.v))<radius+radius_for(other)+
+               max(design.rules.minimum_access_gap,required_wall(design,port,other,definitions=definitions)) for other in others):continue
+        probe=port.model_copy(update=dict(u=point[0],v=point[1]))
+        if not placement_conflicts(design,probe,definitions,threads,modifiers):yield point
 
 
 def circle_layout(items,max_u,max_v,gap=0):
@@ -92,7 +153,7 @@ def propose_dimensions(design,definitions,preferred=None):
     return tuple(sizes)
 
 
-def initial_placement(design,definitions=None,*,plan_routes=True):
+def initial_placement(design,definitions=None,*,plan_routes=True,screen_source_geometry=False):
     """Place a NEW project using fixed faces, source windows and shared nets."""
     from .engineering_db import definitions_for_design
     from .engineering_conditions import required_wall
@@ -102,6 +163,12 @@ def initial_placement(design,definitions=None,*,plan_routes=True):
         raise ValueError('Initial placement is only available before routing and authored parent placement. Existing geometry is retained.')
     result=design.model_copy(deep=True)
     definitions=definitions if definitions is not None else definitions_for_design(result)
+    # Only the AI-owned compilation call opts into new cross-face placement.
+    # Existing manual creation and every Model operation retain their behaviour.
+    if screen_source_geometry:
+        from .engineering_db import thread_definitions_for_design,modifier_definitions_for_design
+        threads=thread_definitions_for_design(result)
+        modifiers=modifier_definitions_for_design(result) if any(f.machining_modifiers for f in result.features) else {}
     dims=dimensions(result.block);cavities=[f for f in result.features if f.kind=='cavity' and not f.suppressed]
     def unresolved(feature_id,message):
         from .schema import EngineeringReview
@@ -186,10 +253,25 @@ def initial_placement(design,definitions=None,*,plan_routes=True):
                 r=radius_for(other)
                 gap=max(result.rules.minimum_access_gap,required_wall(result,port,other,definitions=definitions))
                 if math.dist(point,(other.u,other.v))<radius+r+gap:return False
+            if screen_source_geometry:
+                probe=port.model_copy(update=dict(u=point[0],v=point[1]))
+                # Future movable ports are placed in turn. All cavities, fixed
+                # ports and already placed ports are actual 3D obstacles.
+                context=result.model_copy()
+                context.features=[f for f in result.features if f.kind!='port' or
+                                  f.id==port.id or f.id in placed_ports or f.id not in movable_ports]
+                if placement_conflicts(context,probe,definitions,threads,modifiers):return False
             return True
-        available=[p for p in probes if legal(p)]
+        if screen_source_geometry:
+            context=result.model_copy()
+            context.features=[f for f in result.features if f.kind!='port' or
+                              f.id==port.id or f.id in placed_ports or f.id not in movable_ports]
+            preferred_port=port.model_copy(update=dict(u=preferred[0],v=preferred[1]))
+            available=next(([p] for p in source_safe_port_positions(context,preferred_port,definitions,threads,modifiers) if legal(p)),[])
+        else:
+            available=[p for p in probes if legal(p)]
         if not available:
-            unresolved(port.id,'No separated source port footprint fits the selected face. Edit placement or block dimensions; the draft remains unvalidated.')
+            unresolved(port.id,'No source-separated port placement was found on the selected face. Review the face/position constraints or block dimensions; the draft remains unvalidated.')
             placed_ports.add(port.id)
             continue
         port.u,port.v=min(available,key=lambda p:(math.dist(p,preferred),p))
