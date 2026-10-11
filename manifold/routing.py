@@ -116,7 +116,7 @@ def port_turn_depth(design,net,feature,definitions,mode,threads=None,modifiers=N
     raise ValueError('Unknown port terminal approach')
 
 
-def propose(design, net, order, entry=None, detour='direct', definitions=None, safe_planes=None, *, terminal_overrides=None, connector_bends=None, port_approaches=None):
+def propose(design, net, order, entry=None, detour='direct', definitions=None, safe_planes=None, *, terminal_overrides=None, connector_bends=None, port_approaches=None, connection_topology=None):
     net=effective_net(design,net)
     if definitions is None:
         from .engineering_db import definitions_for_design
@@ -124,6 +124,18 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None, s
     points = terminal_points(design,definitions)
     points.update(terminal_overrides or {})
     pairs = spanning_pairs(sorted(set(points[m] for m in net.members if m in points)))
+    if connection_topology is not None:
+        members=sorted(net.members)
+        if len(members)!=3 or any(m not in points for m in members):return None
+        if connection_topology in range(3):
+            root=points[members[connection_topology]]
+            pairs=[(root,points[m]) for m in members if m!=members[connection_topology]]
+        elif connection_topology==3:
+            # A real drilling junction between the terminals, not a hydraulic
+            # node declaration. All branches become external-face machining.
+            junction=tuple((min(points[m][i] for m in members)+max(points[m][i] for m in members))/2 for i in range(3))
+            pairs=[(points[m],junction) for m in members]
+        else:return None
     ports_at = {points[f.id]:f for f in design.features if f.kind=='port' and not f.suppressed
                 and f.id in net.members and f.id in points and f.circuit==net.id}
     def port_stem(feature, point):
@@ -616,6 +628,7 @@ def route_dominates(design, better, worse, better_risk=0, worse_risk=0, definiti
 
 
 def _strategy_family(key):
+    if key.startswith('tree_'):return 'branch-topology' if key.startswith('tree_3:') else 'terminal-tree'
     if key.startswith('port_'):return 'port-approach'
     if key.startswith('axial_'):return 'axial-detour' if key.count(':')==3 else 'axial'
     if key.startswith('simple_'):return 'simple'
@@ -630,7 +643,7 @@ def _strategy_shortlist(design, options, definitions=None, limit=16, eligible=No
     it may prune better or clear a different sibling route. Keep those as later
     Pareto layers rather than deleting them before exact connectivity pruning.
     """
-    buckets={family:[] for family in ('axial','axial-detour','port-approach','coordinated-detour','simple','direct','detour')}
+    buckets={family:[] for family in ('axial','axial-detour','terminal-tree','branch-topology','port-approach','coordinated-detour','simple','direct','detour')}
     for option in options:
         option['metrics']=manufacturing_metrics(design,option['route'],option['risk'],definitions)
         buckets[_strategy_family(option['key'])].append(option)
@@ -645,7 +658,7 @@ def _strategy_shortlist(design, options, definitions=None, limit=16, eligible=No
         seen=set();distinct=[];remaining=[]
         for option in ranked:
             key=option['key'];faces=tuple(sorted({f.face for f in option['route']}))
-            strategy=(key.split(':')[0] if family in ('axial','port-approach') else key.split(':')[-1] if family in ('detour','axial-detour','coordinated-detour') else family,faces)
+            strategy=(key.split(':')[0] if family in ('axial','port-approach','terminal-tree','branch-topology') else key.split(':')[-1] if family in ('detour','axial-detour','coordinated-detour') else family,faces)
             (remaining if strategy in seen else distinct).append(option);seen.add(strategy)
         queues[family]=distinct+remaining
     selected=[]
@@ -1062,7 +1075,7 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
         source=design.model_copy(update=dict(features=[f for f in design.features if f.route_net!=net.id]))
         source_geometry=build_geometry(source,definitions,thread_definitions,modifier_definitions)
     cache=cache if cache is not None else {}
-    cuts=cache.setdefault('cuts',{});contacts=cache.setdefault('contacts',{});bounds=cache.setdefault('bounds',{})
+    cuts=cache.setdefault('cuts',{});bounds=cache.setdefault('bounds',{})
     nodes={key:shape for key,shape in source_geometry.nodes.items() if source_geometry.circuits[key]==net.id}
     required=set(net.members)
     protected=required|{access.id for access in net.construction_access}
@@ -1072,6 +1085,8 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
     definitions=definitions if definitions is not None else definitions_for_design(design)
     diagnostics=diagnostics if diagnostics is not None else {}
     diagnostics.update(required=sorted(required),stage='exact_fluid_contacts',
+        fluid_connectivity_verified=False,all_fluid_nodes_connected=False,flow_opening_verified=False if net.flow_lpm else None,
+        full_engineering_validation_passed=None,
         drillings=[{key:getattr(f,key) for key in ('id','face','u','v','diameter','depth','tip_angle','plug_length','closure_definition_id')} for f in route])
     if not required.issubset(nodes):
         diagnostics.update(missing_required=sorted(required-set(nodes)),connected=False)
@@ -1091,11 +1106,12 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
         signatures[feature.id]=signature
     if not required.issubset(nodes):
         return route,False
-    graph={key:set() for key in nodes}
+    graph={key:set() for key in nodes};fluid_graph={key:set() for key in nodes}
     area=required_area(net.flow_lpm,net.velocity_limit) if net.flow_lpm else None
+    fluid_contacts=cache.setdefault('fluid_contacts',{})
     for a,b in itertools.combinations(nodes,2):
         key=(tuple(sorted((signatures[a],signatures[b]))),design.rules.minimum_overlap_volume,area)
-        if key not in contacts:
+        if key not in fluid_contacts:
             for node in (a,b):
                 signature=signatures[node]
                 if signature not in bounds:
@@ -1104,29 +1120,57 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
             separated=any(min(x[1],y[1])<=max(x[0],y[0])
                           for x,y in zip(bounds[signatures[a]],bounds[signatures[b]]))
             contact=not separated and nodes[a].intersect(nodes[b]).Volume()+1e-6>=design.rules.minimum_overlap_volume
-            if contact and area:
-                contact=opening_area(nodes[a],nodes[b],
-                    [directions[node.split(':')[0]]['direction'] for node in (a,b)])+1e-6>=area
-            contacts[key]=contact
-        if not contacts[key]:continue
-        graph[a].add(b);graph[b].add(a)
+            opening=opening_area(nodes[a],nodes[b],
+                [directions[node.split(':')[0]]['direction'] for node in (a,b)]) if contact else 0
+            # Finite tip overlap still requires a real positive opening. With
+            # unknown flow there is no invented flow/velocity area requirement.
+            physical=contact and opening>1e-6
+            fluid_contacts[key]=(physical,physical and (area is None or opening+1e-6>=area))
+        physical,adequate=fluid_contacts[key]
+        if physical:fluid_graph[a].add(b);fluid_graph[b].add(a)
+        if adequate:graph[a].add(b);graph[b].add(a)
 
-    def reachable(active):
+    def reachable(active,edges=None):
+        edges=graph if edges is None else edges
         visited=set();pending=[min(required)] if required else []
         while pending:
             key=pending.pop()
             if key in visited:continue
-            visited.add(key);pending.extend((graph[key]&active)-visited)
+            visited.add(key);pending.extend((edges[key]&active)-visited)
         return visited
 
     def connected(active):
         return bool(required) and required.issubset(active) and reachable(active)==active
 
-    active=set(nodes);visited=reachable(active)
-    diagnostics.update(exact_edges=[list(edge) for edge in sorted((a,b) for a in graph for b in graph[a] if a<b)],
-                       unreachable_required=sorted(required-visited))
+    active=set(nodes);visited=reachable(active);physical_reachable=reachable(active,fluid_graph)
+    components=[];unseen=set(nodes)
+    while unseen:
+        pending=[min(unseen)];component=set()
+        while pending:
+            node=pending.pop()
+            if node in component:continue
+            component.add(node);pending.extend(fluid_graph[node]-component)
+        unseen-=component;components.append(sorted(component))
+    diagnostics.update(exact_edges=[list(edge) for edge in sorted((a,b) for a in fluid_graph for b in fluid_graph[a] if a<b)],
+                       flow_edges=[list(edge) for edge in sorted((a,b) for a in graph for b in graph[a] if a<b)] if area is not None else None,
+                       fluid_components=components,unreachable_required=sorted(required-physical_reachable),
+                       fluid_connectivity_verified=bool(required) and required.issubset(physical_reachable),
+                       all_fluid_nodes_connected=bool(required) and required.issubset(physical_reachable) and physical_reachable==active,
+                       flow_opening_verified=(bool(required) and required.issubset(visited)) if area is not None else None,
+                       full_engineering_validation_passed=None)
+    terminal_groups=[sorted(required&set(component)) for component in components if required&set(component)]
+    diagnostics['disconnected_terminal_groups']=terminal_groups if len(terminal_groups)>1 else []
+    missing=[]
+    terminal_components=[component for component in components if required&set(component)]
+    for first,second in itertools.combinations(terminal_components,2):
+        def gap(a,b):
+            return sum(max(0,x[0]-y[1],y[0]-x[1])**2 for x,y in zip(bounds[signatures[a]],bounds[signatures[b]]))
+        distance,a,b=min((gap(a,b),a,b) for a in first for b in second)
+        missing.append(dict(terminals=[sorted(required&set(first)),sorted(required&set(second))],
+            nearest_nodes=[a,b],bounds_gap_mm=math.sqrt(distance),reason='no_verified_fluid_contact_between_components'))
+    diagnostics['missing_component_links']=missing[:16]
     if not required.issubset(visited):
-        diagnostics['connected']=False
+        diagnostics.update(connected=False,unreachable_flow_required=sorted(required-visited) if area is not None else [])
         return route,False
     # A disconnected redundant GENERATED island must not invalidate a connected
     # terminal tree. Keep every authored/frozen/explicitly referenced node.
@@ -1164,8 +1208,57 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
     if removed:
         remaining=[f.model_copy(update=dict(connects_to=[key for key in f.connects_to if key not in removed]))
                    for f in remaining]
-    diagnostics.update(connected=True,retained_drillings=[f.id for f in remaining])
+    diagnostics.update(connected=True,all_fluid_nodes_connected=True,retained_drillings=[f.id for f in remaining])
     return remaining,True
+
+
+def _verify_route_candidate(design,net,option,snapshot,*,known_failures=None):
+    """Independent source, fluid, optional flow, and full-validation facts.
+
+    This gate uses cached individual BReps, never a full production build. It is
+    mandatory after final sizing/binding even when actual flow is unknown.
+    """
+    from .closure_runtime import bind_route
+    from copy import deepcopy
+    net=effective_net(design,net)
+    option['connection_verified']=False
+    option.pop('_connectivity_geometry',None)
+    option.pop('_connectivity_conditions',None)
+    option.pop('admission',None)
+    option.pop('connectivity_detail',None)
+    original=option['route'];bound=bind_route(design,original)
+    route,connected=snapshot.simplify(design,net,bound,known_failures=known_failures)
+    detail=deepcopy(snapshot.last_connectivity.get(net.id,{}))
+    failures=route_obstructions(design,net,route,snapshot.threads,snapshot.definitions,snapshot.modifiers,snapshot.obstructions)
+    failures.update(('forbidden_face',f.id) for f in route if f.face in design.constraints.forbidden_drilling_faces)
+    source_safe=not failures
+    physical=detail.get('fluid_connectivity_verified',False)
+    flow=detail.get('flow_opening_verified') if net.flow_lpm else None
+    if not physical or not detail.get('all_fluid_nodes_connected',False):failures.add(('connectivity',net.id))
+    if flow is False:failures.add(('flow_opening',net.id))
+    admission=dict(source_obstruction_safe=source_safe,fluid_connectivity_verified=physical,
+        all_fluid_nodes_connected=detail.get('all_fluid_nodes_connected',False),flow_opening_adequate=flow,full_engineering_validation_passed=None)
+    option.update(route=route,connection_verified=physical,connectivity_detail=detail,admission=admission,
+        conflicts=[list(f) for f in sorted(failures)],hard_failures=len(failures),
+        pruned_ids=sorted(set(option.get('pruned_ids',[]))|({f.id for f in original}-{f.id for f in route})),
+        risk=proximity_risk(design,net,route,snapshot.definitions,snapshot.threads,snapshot.obstructions),
+        cost=route_cost(design,route),
+        _connectivity_geometry=tuple(_feature_key(f) for f in route),
+        _connectivity_conditions=(net.flow_lpm,net.velocity_limit))
+    return connected and source_safe and physical and flow is not False
+
+
+def _candidate_admitted(option,net=None):
+    """Fail closed on absent, failed, or stale proof. Not full validation PASS."""
+    facts=option.get('admission',{})
+    conditions=option.get('_connectivity_conditions')
+    if not isinstance(conditions,tuple) or len(conditions)!=2:return False
+    flow=net.flow_lpm if net is not None else conditions[0]
+    return (option.get('connection_verified') is True and facts.get('source_obstruction_safe') is True and
+        facts.get('fluid_connectivity_verified') is True and facts.get('all_fluid_nodes_connected') is True and
+        (facts.get('flow_opening_adequate') is True if flow is not None else facts.get('flow_opening_adequate') is None) and
+        option.get('_connectivity_geometry')==tuple(_feature_key(f) for f in option['route']) and
+        (net is None or option.get('_connectivity_conditions')==(net.flow_lpm,net.velocity_limit)))
 
 
 def route_candidate_catalog(design, net, definitions, thread_definitions, modifier_definitions, *, expanded=False, cache=None):
@@ -1268,6 +1361,50 @@ def port_approach_candidates(design,net,options,definitions,threads=None,modifie
         queues=active
 
 
+def connection_topology_candidates(design,net,options,definitions,threads=None,modifiers=None):
+    """Three terminal trees plus one common junction; same pruning budget.
+
+    A nearest-terminal MST fixes a cavity as a transit junction. A narrow source
+    window may accept a terminating branch while correctly forbidding that
+    through drilling. Try alternate trees without changing its stop/protection.
+    """
+    if len(net.members)!=3:return
+    groups={}
+    for option in options:
+        if option['key'].startswith(('simple_','tree_')):continue
+        groups.setdefault(_strategy_family(option['key']),[]).append(option)
+    bases=[]
+    # Retain both entry directions: a terminating narrow-window cut may need
+    # the farther entry face to reach its branch without passing the cavity.
+    families=[f for f in ('axial','direct','detour','port-approach','axial-detour','coordinated-detour') if f in groups][:4]
+    for family in families:
+        ranked=sorted(groups[family],key=lambda o:(route_objective(design,o['route'],definitions=definitions),o['key']))
+        entries=set();chosen=[]
+        for option in ranked:
+            entry=next(p for p in option['key'].split(':') if p in ('nearest','negative','positive'))
+            if entry in entries:continue
+            entries.add(entry);chosen.append(option)
+        bases.extend((chosen+[o for o in ranked if o not in chosen])[:3])
+    queues=[iter([f'tree_{index}:'+base['key'] for index in range(4)]) for base in bases]
+    # Do not spend the topology family's slots on the existing MST under a new
+    # name. Other terminal roots and the common junction must get those slots.
+    seen={tuple(_feature_key(f) for f in option['route']) for option in options};attempted=0
+    while queues and attempted<48:
+        active=[]
+        for queue in queues:
+            if attempted>=48:break
+            try:key=next(queue)
+            except StopIteration:continue
+            active.append(queue);attempted+=1
+            if len(key)>80:continue
+            route=route_from_variant(design,net,key,definitions,threads,modifiers)
+            if route is None:continue
+            signature=tuple(_feature_key(f) for f in route)
+            if signature in seen:continue
+            seen.add(signature);yield key,route
+        queues=active
+
+
 def route_options(design, net, *, expanded=False, definitions=None,thread_definitions=None,modifier_definitions=None,
                   snapshot=None, seed=None,strategy_context=None):
     from copy import deepcopy
@@ -1304,6 +1441,8 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
             if key in known:continue
             options.append(dict(key=key,route=route,risk=proximity_risk(source,net,route,definitions,thread_definitions,snapshot.obstructions),cost=route_cost(source,route)))
     for key,route in port_approach_candidates(source,net,options,definitions,thread_definitions,modifier_definitions):
+        options.append(dict(key=key,route=route,risk=proximity_risk(source,net,route,definitions,thread_definitions,snapshot.obstructions),cost=route_cost(source,route)))
+    for key,route in connection_topology_candidates(source,net,options,definitions,thread_definitions,modifier_definitions):
         options.append(dict(key=key,route=route,risk=proximity_risk(source,net,route,definitions,thread_definitions,snapshot.obstructions),cost=route_cost(source,route)))
     from .closure_runtime import bind_route
     for option in options:option['route']=bind_route(design,option['route'])
@@ -1354,20 +1493,9 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
     shortlist=clear or (_strategy_shortlist(source,options,definitions,limit=16) if recover else [])
     def simplify_options(candidates,recovery):
         for option in candidates:
-            original=option['route']
-            route,connected=snapshot.simplify(design,net,original,known_failures=None if recovery else set())
-            option['connectivity_detail']=snapshot.last_connectivity.get(net.id,{})
+            _verify_route_candidate(design,net,option,snapshot,known_failures=None if recovery else set())
             option['connectivity_recovery']=recovery
-            option['connection_verified']=connected
-            option['route']=route
-            option['pruned_ids']=sorted({f.id for f in original}-{f.id for f in route})
-            failures=route_obstructions(design,net,route,thread_definitions,definitions,modifier_definitions,snapshot.obstructions)
-            if not connected:failures.add(('connectivity',net.id))
-            option['conflicts']=[list(f) for f in sorted(failures)]
-            option['hard_failures']=len(failures)
-            option['risk']=proximity_risk(design,net,route,definitions,thread_definitions,snapshot.obstructions)
-            option['cost']=route_cost(design,route)
-            option['metrics']=manufacturing_metrics(design,route,option['risk'],definitions)
+            option['metrics']=manufacturing_metrics(design,option['route'],option['risk'],definitions)
     if shortlist:
         options=shortlist+[option for option in options if option['hard_failures'] and option not in shortlist]
         simplify_options(shortlist,recover)
@@ -1379,8 +1507,7 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
             simplify_options(recovery,True)
     if seed:
         preserved=deepcopy(seed)
-        preserved['risk']=proximity_risk(design,net,preserved['route'],definitions,thread_definitions)
-        preserved['cost']=route_cost(design,preserved['route'])
+        _verify_route_candidate(design,net,preserved,snapshot)
         preserved['metrics']=manufacturing_metrics(design,preserved['route'],preserved['risk'],definitions)
         options.append(preserved)
     permitted = [o for o in options if all(f.face not in design.constraints.forbidden_drilling_faces for f in o['route'])]
@@ -1395,6 +1522,10 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
 def route_from_variant(design, net, variant, definitions, threads=None, modifiers=None):
     net=effective_net(design,net)
     """Shared regeneration for global selection and incremental current templates."""
+    connection_topology=None
+    if variant.startswith('tree_'):
+        topology,variant=variant.split(':',1)
+        connection_topology=int(topology.split('_')[1])
     port_approaches=None
     if variant.startswith('port_'):
         approach,variant=variant.split(':',1)
@@ -1407,22 +1538,27 @@ def route_from_variant(design, net, variant, definitions, threads=None, modifier
         port_approaches={port.id:depth}
     if variant.startswith('axial_'):
         from .cavity_access import axial_route
-        return axial_route(design,net,definitions,variant,threads=threads,modifiers=modifiers,port_approaches=port_approaches)
+        return axial_route(design,net,definitions,variant,threads=threads,modifiers=modifiers,port_approaches=port_approaches,connection_topology=connection_topology)
     if variant.startswith('simple_'):
-        if port_approaches is not None:return None
+        if port_approaches is not None or connection_topology is not None:return None
         templates = simple_routes(design,net,definitions)
         index = int(variant.split('_')[1])
         return templates[index] if index < len(templates) else None
     order,entry,detour = variant.split(':')
     if sorted(order) != ['x','y','z']:
         raise ValueError('Routing variant must use each axis once')
-    return propose(design,net,tuple('xyz'.index(i) for i in order),entry,detour,definitions,port_approaches=port_approaches)
+    return propose(design,net,tuple('xyz'.index(i) for i in order),entry,detour,definitions,port_approaches=port_approaches,connection_topology=connection_topology)
 
 
 def resize_route(design, net, option, diameter, definitions, threads=None, modifiers=None):
     # Axial stop depth includes the real radius/tip/contact requirement. A larger
     # selected tool must regenerate it; changing only diameter could cut a seat.
-    if option['key'].startswith(('axial_','port_')):
+    option['connection_verified']=False
+    option.pop('_connectivity_geometry',None)
+    option.pop('_connectivity_conditions',None)
+    option.pop('admission',None)
+    option.pop('connectivity_detail',None)
+    if option['key'].startswith(('axial_','port_','tree_')):
         sized = net.model_copy(update=dict(diameter=diameter))
         route = route_from_variant(design,sized,option['key'],definitions,threads,modifiers)
         if route is None:raise ValueError(f'{net.id}: selected drill has no safe terminal approach')
@@ -1441,9 +1577,10 @@ def _route_pool(source,net,snapshot,*,expanded=False,strategy_context=None):
         options=route_options(source,net,expanded=expanded,definitions=snapshot.definitions,
             thread_definitions=snapshot.threads,modifier_definitions=snapshot.modifiers,snapshot=snapshot,strategy_context=strategy_context)
         usable=[]
-        for option in options:
+        for index,option in enumerate(options):
             if option['hard_failures']:continue
             option=deepcopy(option)
+            options[index]=option
             try:
                 if net.flow_lpm:
                     if snapshot.tools is None:
@@ -1460,22 +1597,21 @@ def _route_pool(source,net,snapshot,*,expanded=False,strategy_context=None):
                         resize_route(source,net,option,size['diameter_mm'],snapshot.definitions,snapshot.threads,snapshot.modifiers)
                     else:continue
                     option['tool_sizing']=size
-                    option['route'],connected=snapshot.simplify(source,net,option['route'])
-                    if not connected:continue
-                failures=route_obstructions(source,net,option['route'],snapshot.threads,snapshot.definitions,snapshot.modifiers,snapshot.obstructions)
-                if failures:continue
-                option['risk']=proximity_risk(source,net,option['route'],snapshot.definitions,snapshot.threads,snapshot.obstructions)
-                option['connection_verified']=True
+                # Flow determines sizing, never whether connectivity is checked.
+                # Every admitted final contour has its own exact fluid proof.
+                if not _verify_route_candidate(source,net,option,snapshot):continue
                 usable.append(option)
             except ValueError:
+                option.update(connection_verified=False,hard_failures=max(1,option.get('hard_failures',0)),
+                              conflicts=[['candidate_geometry_error',net.id]])
                 continue
         snapshot.pools[key]=sorted(usable,key=lambda o:(route_objective(source,o['route'],o['risk'],snapshot.definitions),o['key']))
         from collections import Counter
         snapshot.pool_diagnostics[net.id]=dict(retained_clear=len(usable),considered=len(options),
-            connectivity_candidates=[dict(variant=o['key'],detail=o['connectivity_detail']) for o in options if 'connectivity_detail' in o],
+            connectivity_candidates=[dict(variant=o['key'],admission=o.get('admission',{}),detail=o['connectivity_detail']) for o in options if 'connectivity_detail' in o],
             rejected_candidates=[dict(variant=o['key'],failures=o.get('conflicts',o.get('source_conflicts',[]))) for o in options if o['hard_failures']][:16],
             rejected_rules=dict(Counter(f[0] for o in options if o['hard_failures'] for f in o.get('conflicts',o.get('source_conflicts',[])))))
-    return deepcopy(snapshot.pools[key])
+    return deepcopy([o for o in snapshot.pools[key] if _candidate_admitted(o,net)])
 
 
 def _route_pair_failures(source,a,ao,b,bo,snapshot,budget):
@@ -1519,17 +1655,23 @@ def _progressive_route_repair(target,selected,eligible,snapshot,*,expanded=True,
     source.features=[f for f in source.features if f.route_net not in eligible]
     nets={n.id:effective_net(target,n) for n in target.nets if n.id in eligible}
     pools={}
-    baseline={name:dict(key=selected[name],route=[f for f in target.features if f.route_net==name and not f.suppressed],
-                        connection_verified=name not in unconnected) for name in sorted(eligible)}
+    baseline={name:dict(key=selected[name],route=[f for f in target.features if f.route_net==name and not f.suppressed]) for name in sorted(eligible)}
+    changed=False
+    for name,option in baseline.items():
+        before=tuple(_feature_key(f) for f in option['route'])
+        _verify_route_candidate(source,nets[name],option,snapshot)
+        changed|=before!=tuple(_feature_key(f) for f in option['route'])
     source_key=_routing_context_key(source);pair_budget={'used':0}
-    def signature(state):return tuple((name,o.get('connection_verified',True),tuple(_feature_key(f) for f in o['route'])) for name,o in sorted(state.items()))
+    def signature(state):return tuple((name,o.get('connection_verified',False),o.get('admission',{}).get('flow_opening_adequate'),tuple(_feature_key(f) for f in o['route'])) for name,o in sorted(state.items()))
     def evaluate(state):
         key=(source_key,signature(state))
         if key not in snapshot.repair_states:
             failures=set()
             for name,option in state.items():
                 failures.update(route_obstructions(source,nets[name],option['route'],snapshot.threads,snapshot.definitions,snapshot.modifiers,snapshot.obstructions))
-                if not option.get('connection_verified',True):failures.add(('connectivity',name))
+                facts=option.get('admission',{})
+                if not option.get('connection_verified',False) or not facts.get('all_fluid_nodes_connected',False):failures.add(('connectivity',name))
+                if option.get('admission',{}).get('flow_opening_adequate') is False:failures.add(('flow_opening',name))
             for a,b in itertools.combinations(sorted(state),2):
                 failures.update(_route_pair_failures(source,nets[a],state[a],nets[b],state[b],snapshot,pair_budget))
             route=[f for o in state.values() for f in o['route']]
@@ -1539,9 +1681,9 @@ def _progressive_route_repair(target,selected,eligible,snapshot,*,expanded=True,
             snapshot.repair_states[key]=value
         return snapshot.repair_states[key]
     initial=evaluate(baseline)
-    if not initial[1]:return []
+    if not initial[1]:return [(initial,baseline)] if changed else []
     for name,net in sorted(nets.items()):
-        pools[name]=_route_pool(source,net,snapshot,expanded=expanded,strategy_context=target)
+        pools[name]=[o for o in _route_pool(source,net,snapshot,expanded=expanded,strategy_context=target) if _candidate_admitted(o,net)]
         # Current geometry is retained as a state even when it has conflicts;
         # it does not become a newly admitted source-safe strategy.
     diverse={name:_strategy_shortlist(source,pool,snapshot.definitions,limit=len(pool)) for name,pool in pools.items()}
@@ -1627,7 +1769,7 @@ def _complete_route_combination(design, definitions, thread_definitions, modifie
     if len(nets)<2 or any(n.routing_variant for n in nets.values()):return None
     source=design.model_copy(update=dict(features=[f for f in design.features if f.route_net not in nets]))
     snapshot=snapshot or _ProposalSnapshot(source,definitions,thread_definitions,modifier_definitions)
-    pools={name:_route_pool(source,net,snapshot)[:24] for name,net in sorted(nets.items())}
+    pools={name:[o for o in _route_pool(source,net,snapshot) if _candidate_admitted(o,net)][:24] for name,net in sorted(nets.items())}
     pair_budget=snapshot.combination_budget
     states=0;best=None;best_key=None;dead_ends=0;budget_blocked=False
     def combination_key(chosen):
@@ -1711,7 +1853,7 @@ def _coordinated_fallback(source,automatic,snapshot):
     candidate are considered last and keep their actual unresolved failures.
     """
     nets={n.id:effective_net(source,n) for n in source.nets if n.id in automatic}
-    pools={name:_route_pool(source,net,snapshot) for name,net in sorted(nets.items())}
+    pools={name:[o for o in _route_pool(source,net,snapshot) if _candidate_admitted(o,net)] for name,net in sorted(nets.items())}
     order=sorted(nets,key=lambda n:(not bool(pools[n]),len(pools[n]),-len(nets[n].members),n))
     chosen={};pair_budget=snapshot.combination_budget
     for name in order:
@@ -1797,9 +1939,7 @@ def _resolve_proposals(design, *, snapshots=None):
             else:
                 raise ValueError(f'{net.id}: route sizing did not settle on a source-backed drill')
             option['tool_sizing']=actual
-            option['hard_failures']=len(route_obstructions(context,net,option['route'],thread_definitions,definitions,modifier_definitions))
-            option['risk']=proximity_risk(context,net,option['route'],definitions,thread_definitions)
-            option['cost']=route_cost(context,option['route'])
+            _verify_route_candidate(context,net,option,snapshot)
             return actual
         # Pinned candidates are materialized directly; enumerating their entire
         # neighbourhood again would multiply the cost of each exact attempt.
@@ -1807,7 +1947,7 @@ def _resolve_proposals(design, *, snapshots=None):
                    route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions,
                                  modifier_definitions=modifier_definitions,snapshot=snapshot))
         if net.routing_variant:
-            if net.routing_variant.startswith(('axial_','port_')):
+            if net.routing_variant.startswith(('axial_','port_','tree_')):
                 route=route_from_variant(resolved,net,net.routing_variant,definitions,thread_definitions,modifier_definitions)
                 if route is None:
                     choices=route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions,
@@ -1849,15 +1989,11 @@ def _resolve_proposals(design, *, snapshots=None):
             net.diameter=actual['diameter_mm']
             sizing[net.id]=actual
             route=selected['route']
-        if net.routing_variant:
-            original=route
-            route,connected=snapshot.simplify(resolved,net,route)
-            selected['connection_verified']=connected
-            selected['pruned_ids']=sorted({f.id for f in original}-{f.id for f in route})
-            selected['cost']=route_cost(resolved,route)
-            selected['risk']=proximity_risk(resolved,net,route,definitions,thread_definitions)
-        from .closure_runtime import bind_route
-        route=bind_route(resolved,route)
+        # Pinned, fallback, sized and unknown-flow paths all share this final
+        # gate. Binding/sizing cannot carry a proof from a different contour.
+        selected['route']=route
+        _verify_route_candidate(resolved,net,selected,snapshot)
+        route=selected['route']
         resolved.features.extend(route)
         if len(resolved.features) > 120:
             raise ValueError('Generated design exceeds 120 physical features; reduce routing complexity')
@@ -1866,6 +2002,7 @@ def _resolve_proposals(design, *, snapshots=None):
                                pruned_drillings=selected.get('pruned_ids',[]),
                                sizing=sizing[net.id],
                                connection_verified=selected.get('connection_verified',False),
+                               admission=selected.get('admission',{}),connectivity_detail=selected.get('connectivity_detail',{}),
                                **route_margin(design,route),
                                candidates=max(1,len(choices)), drillings=len(route), plugs=sum(f.plugged for f in route),
                                length_mm=round(sum(f.depth for f in route),2), status='PROPOSAL_REQUIRES_EXACT_VALIDATION'))
@@ -1878,11 +2015,11 @@ def _resolve_proposals(design, *, snapshots=None):
             for net in sorted((n for n in resolved.nets if n.id in automatic),key=lambda n:n.id):
                 option = combination[net.id]
                 route = option['route']
-                route=bind_route(resolved,route)
                 resolved.features.extend(route)
                 metadata = next(r for r in candidates if r['net']==net.id)
                 metadata.update(variant=option['key'],axis_order=option['key'].split(':')[0],
-                                connection_verified=True,
+                                connection_verified=option.get('connection_verified',False),
+                                admission=option.get('admission',{}),connectivity_detail=option.get('connectivity_detail',{}),
                                 proximity_risk=option['risk'],drillings=len(route),
                                 plugs=sum(f.plugged for f in route),
                                 length_mm=round(sum(f.depth for f in route),2),
@@ -1893,7 +2030,7 @@ def _resolve_proposals(design, *, snapshots=None):
     mutable={n.id for n in resolved.nets if n.id in automatic and not n.routing_variant}
     selected={r['net']:r['variant'] for r in candidates}
     repairs=_progressive_route_repair(resolved,selected,mutable,snapshot,expanded=True,
-        unconnected={r['net'] for r in candidates if not r.get('connection_verified',True)})
+        unconnected={r['net'] for r in candidates if not r.get('connection_verified',False)})
     if repairs:
         _,chosen=repairs[0]
         resolved.features=[f for f in resolved.features if f.route_net not in chosen]
@@ -1904,7 +2041,8 @@ def _resolve_proposals(design, *, snapshots=None):
             if option.get('tool_sizing'):net.diameter=option['tool_sizing']['diameter_mm']
             metadata=next(r for r in candidates if r['net']==net.id)
             metadata.update(variant=option['key'],axis_order=option['key'].split(':')[0],
-                connection_verified=option.get('connection_verified',metadata.get('connection_verified',True)),
+                connection_verified=option.get('connection_verified',False),
+                admission=option.get('admission',{}),connectivity_detail=option.get('connectivity_detail',{}),
                 proximity_risk=option.get('risk',0),drillings=len(route),plugs=sum(f.plugged for f in route),
                 sizing=option.get('tool_sizing',metadata['sizing']),pruned_drillings=option.get('pruned_ids',[]),
                 length_mm=round(sum(f.depth for f in route),2),**route_margin(design,route))
@@ -1916,7 +2054,9 @@ def _resolve_proposals(design, *, snapshots=None):
         thread_definitions,definitions,modifier_definitions,snapshot.obstructions)
         for n in resolved.nets if n.id in automatic}
     for row in candidates:
-        if not row.get('connection_verified',True):final_failures[row['net']].add(('connectivity',row['net']))
+        facts=row.get('admission',{})
+        if not row.get('connection_verified',False) or not facts.get('all_fluid_nodes_connected',False):final_failures[row['net']].add(('connectivity',row['net']))
+        if facts.get('flow_opening_adequate') is False:final_failures[row['net']].add(('flow_opening',row['net']))
     for n in resolved.nets:
         for k,v in inherited[n.id].items():setattr(n,k,v)
         if n.id in automatic:
@@ -1947,10 +2087,13 @@ def _resolve_proposals(design, *, snapshots=None):
                 failure_cause=cause if failures else None,layout_repair_suggested=bool(failures),
                 proximity_risk=risk,objective=route_objective(resolved,actual_route,risk,definitions),
                 conflicts=[list(f) for f in sorted(failures)],
-                status='UNRESOLVED_ROUTE_CONFLICTS' if failures else 'PROPOSAL_REQUIRES_EXACT_VALIDATION')
+                status='UNRESOLVED_EDITABLE_GEOMETRY' if failures else 'CONNECTED_PROPOSAL_REQUIRES_FULL_VALIDATION')
     candidates.extend(r for r in route_metadata(resolved) if r['net'] not in automatic)
     from .timing import diagnostic
     diagnostic('route_proposal',dict(selected={n.id:n.routing_variant for n in resolved.nets if n.id in automatic},
+        admission={r['net']:{**r.get('admission',{}),'global_obstruction_clear':not final_failures[r['net']],
+            'status':r['status']} for r in candidates if r['net'] in automatic},
+        connectivity={r['net']:r.get('connectivity_detail',{}) for r in candidates if r['net'] in automatic and not r.get('connection_verified',False)},
         conflicts={name:[list(f) for f in sorted(failures)][:64] for name,failures in final_failures.items() if failures}))
     return resolved, candidates
 
@@ -2009,10 +2152,11 @@ def alternative_proposals(best, target, routes, report, eligible, inspected, *, 
             options=[o for o in route_options(context,net,expanded=bool(report['counts']['FAIL']),definitions=definitions,
                                               thread_definitions=threads,modifier_definitions=modifiers,snapshot=snapshot) if o['key']!=selected[net_id]]
         screened=sorted(options,key=lambda o:(route_objective(context,o['route'],o['risk'],definitions),o['key']))
-        feasible=[o for o in screened if o['hard_failures']==0]
+        feasible=[o for o in screened if o['hard_failures']==0 and _candidate_admitted(o,effective_net(context,net))]
         shortlist=_strategy_shortlist(context,feasible,definitions,limit=6)
         pool={o['key']:o for o in shortlist}
-        pools[net_id]=sorted(options,key=lambda o:(o['hard_failures'],
+        verified=[o for o in options if _candidate_admitted(o,effective_net(context,net))]
+        pools[net_id]=sorted(verified,key=lambda o:(o['hard_failures'],
                                                   route_objective(context,o['route'],o['risk'],definitions),o['key']))[:3]
         moves.extend({net_id:o} for o in pool.values())
     for a,b in sorted(conflicts):
@@ -2028,6 +2172,7 @@ def alternative_proposals(best, target, routes, report, eligible, inspected, *, 
         if combination:moves.append(combination)
     proposals=[]
     for move in moves:
+        if any(not _candidate_admitted(o,effective_net(target,next(n for n in target.nets if n.id==name))) for name,o in move.items()):continue
         variants=tuple(sorted({**selected,**{n:o['key'] for n,o in move.items()}}.items()))
         if variants in inspected:continue
         proposal=target.model_copy(deep=True)

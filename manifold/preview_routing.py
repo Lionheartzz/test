@@ -90,7 +90,8 @@ def _seed_routes(request):
 def resolve_preview(request):
     snapshot=None
     from .routing import (resolve_design,route_options,route_obstructions,route_objective,
-                          proximity_risk,route_from_variant,resize_route,_ProposalSnapshot,_complete_route_combination,_proposal_source_key)
+                          proximity_risk,route_from_variant,resize_route,_ProposalSnapshot,_complete_route_combination,_proposal_source_key,
+                          _verify_route_candidate,_candidate_admitted)
     from .route_state import pending_nets,route_metadata,refresh_conditions
     context=request.context
     if context and context.edit.kind=='conditions' and request.scope==context.scope:
@@ -178,10 +179,8 @@ def resolve_preview(request):
                 route=route_from_variant(target,net,variant,definitions,threads,modifiers)
                 if (route is not None and all(f.face not in target.constraints.forbidden_drilling_faces for f in route)
                         and not route_obstructions(target,net,route,threads,definitions,modifiers)):
-                    original=route
-                    route,connected=snapshot.simplify(target,net,route,known_failures=set())
-                    if connected:options=[dict(key=variant,route=route,hard_failures=0,
-                        risk=proximity_risk(target,net,route,definitions,threads),pruned_ids=sorted({f.id for f in original}-{f.id for f in route}))]
+                    option=dict(key=variant,route=route)
+                    if _verify_route_candidate(target,net,option,snapshot,known_failures=set()):options=[option]
             # A feasible old template is a seed, never a proof of optimality.
             # The same source-safe family/Pareto shortlist now competes after
             # pruning, while retained nets stay fixed in the compatibility screen.
@@ -203,11 +202,9 @@ def resolve_preview(request):
                         except ValueError:break
                 for option in sized:
                     if option['hard_failures']:continue
-                    option['route'],connected=snapshot.simplify(target,net,option['route'],known_failures=set())
-                    option['hard_failures']=0 if connected else 1
-                    option['risk']=proximity_risk(target,net,option['route'],definitions,threads)
+                    _verify_route_candidate(target,net,option,snapshot,known_failures=set())
                 options=sorted(sized,key=lambda o:(o['hard_failures'],route_objective(target,o['route'],o['risk'],definitions),o['key']))
-            if not options or options[0]['hard_failures']:
+            if not options or options[0]['hard_failures'] or not _candidate_admitted(options[0],effective):
                 return None,selected,blockers(options,target,net)
             option=options[0];selected[net.id]=option
             if option.get('tool_sizing'):net.diameter=option['tool_sizing']['diameter_mm']
