@@ -48,7 +48,7 @@ function previewTiming(value){const row=Object.fromEntries(Object.entries(value)
 function element(tag,text,cls){const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;}
 function notice(message,error=false){$('notice').textContent=userMessage(message,draft);$('notice').className=error?'error':'';}
 async function api(url,options={}){
-  const calculation=['/api/build','/api/optimize-routes','/api/refine-route','/api/freeze-net','/api/preview','/api/preview-solid','/api/preview-layer'].includes(url);
+  const calculation=['/api/build','/api/optimize-routes','/api/layout-proposals','/api/refine-route','/api/freeze-net','/api/preview','/api/preview-solid','/api/preview-layer'].includes(url);
   try{
     const r=await fetch(url,{...(calculation?{}:{signal:AbortSignal.timeout(30000)}),...options});
     if(!r.ok){const b=await r.json().catch(()=>null);let input=draft;try{const sent=JSON.parse(options.body);input=sent.design||sent;}catch{}throw Error(apiError(b,input));}

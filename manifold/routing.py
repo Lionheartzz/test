@@ -973,6 +973,7 @@ class _ProposalSnapshot:
         self.tools=None
         self.sizing={}
         self.pools={};self.pair_failures={};self.repair_states={};self.repair_diagnostics=[]
+        self.pool_diagnostics={};self.combination_diagnostics=[];self.combination_budget={'used':0}
 
     def simplify(self, design, net, route, *, known_failures=None):
         # Generated siblings affect obstruction screening, but not the same-net
@@ -1251,7 +1252,9 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
     # Keep an explicitly failing proposal if the constraint makes every candidate impossible.
     # The validator reports the conflict; never remove a required connection to hide it.
     def source_clear(option):
-        option['hard_failures']=len(route_obstructions(source,net,option['route'],thread_definitions,definitions,modifier_definitions,snapshot.obstructions))
+        failures=route_obstructions(source,net,option['route'],thread_definitions,definitions,modifier_definitions,snapshot.obstructions)
+        option['source_conflicts']=[list(f) for f in sorted(failures)]
+        option['hard_failures']=len(failures)
         return not option['hard_failures']
     fixed_failures={}
     for option in options:
@@ -1281,14 +1284,22 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
     # gone; a temporary connector may disappear, but retained nets never move.
     clear_options=[option for option in options if not option['hard_failures'] and (not seed or option['key']!=seed['key'])]
     clear=_strategy_shortlist(source,clear_options,definitions,limit=16-bool(seed),eligible=source_clear if seed else None)
-    if clear:
-        options=clear+[option for option in options if option['hard_failures'] and option not in clear]
-        for option in clear:
+    # An empty raw clear pool is not proof that every final route is blocked:
+    # redundant connector cuts can disappear after connectivity pruning. Give
+    # failing strategy families the SAME unused 16-slot pruning opportunity.
+    recover=expanded and not clear and not seed
+    shortlist=clear or (_strategy_shortlist(source,options,definitions,limit=16) if recover else [])
+    if shortlist:
+        options=shortlist+[option for option in options if option['hard_failures'] and option not in shortlist]
+        for option in shortlist:
             original=option['route']
-            route,connected=snapshot.simplify(design,net,original,known_failures=set())
+            route,connected=snapshot.simplify(design,net,original,known_failures=None if recover else set())
             option['route']=route
             option['pruned_ids']=sorted({f.id for f in original}-{f.id for f in route})
-            option['hard_failures']=(len(route_obstructions(design,net,route,thread_definitions,definitions,modifier_definitions,snapshot.obstructions)) if connected else 1)
+            failures=route_obstructions(design,net,route,thread_definitions,definitions,modifier_definitions,snapshot.obstructions)
+            if not connected:failures.add(('connectivity',net.id))
+            option['conflicts']=[list(f) for f in sorted(failures)]
+            option['hard_failures']=len(failures)
             option['risk']=proximity_risk(design,net,route,definitions,thread_definitions,snapshot.obstructions)
             option['cost']=route_cost(design,route)
             option['metrics']=manufacturing_metrics(design,route,option['risk'],definitions)
@@ -1369,10 +1380,14 @@ def _route_pool(source,net,snapshot,*,expanded=False,strategy_context=None):
                 failures=route_obstructions(source,net,option['route'],snapshot.threads,snapshot.definitions,snapshot.modifiers,snapshot.obstructions)
                 if failures:continue
                 option['risk']=proximity_risk(source,net,option['route'],snapshot.definitions,snapshot.threads,snapshot.obstructions)
+                option['connection_verified']=True
                 usable.append(option)
             except ValueError:
                 continue
         snapshot.pools[key]=sorted(usable,key=lambda o:(route_objective(source,o['route'],o['risk'],snapshot.definitions),o['key']))
+        from collections import Counter
+        snapshot.pool_diagnostics[net.id]=dict(retained_clear=len(usable),considered=len(options),
+            rejected_rules=dict(Counter(f[0] for o in options if o['hard_failures'] for f in o.get('conflicts',o.get('source_conflicts',[])))))
     return deepcopy(snapshot.pools[key])
 
 
@@ -1400,7 +1415,7 @@ def _conflict_objective(failures):
             sum(f[0] not in protected|cross for f in failures),len(failures))
 
 
-def _progressive_route_repair(target,selected,eligible,snapshot,*,expanded=True):
+def _progressive_route_repair(target,selected,eligible,snapshot,*,expanded=True,unconnected=()):
     """A count-bounded beam of complete layouts; partial repairs stay unapproved.
 
     Search uses source-safe pools and cached symmetric pair conflicts. Every
@@ -1415,15 +1430,17 @@ def _progressive_route_repair(target,selected,eligible,snapshot,*,expanded=True)
     source.features=[f for f in source.features if f.route_net not in eligible]
     nets={n.id:effective_net(target,n) for n in target.nets if n.id in eligible}
     pools={}
-    baseline={name:dict(key=selected[name],route=[f for f in target.features if f.route_net==name and not f.suppressed]) for name in sorted(eligible)}
+    baseline={name:dict(key=selected[name],route=[f for f in target.features if f.route_net==name and not f.suppressed],
+                        connection_verified=name not in unconnected) for name in sorted(eligible)}
     source_key=_routing_context_key(source);pair_budget={'used':0}
-    def signature(state):return tuple((name,tuple(_feature_key(f) for f in o['route'])) for name,o in sorted(state.items()))
+    def signature(state):return tuple((name,o.get('connection_verified',True),tuple(_feature_key(f) for f in o['route'])) for name,o in sorted(state.items()))
     def evaluate(state):
         key=(source_key,signature(state))
         if key not in snapshot.repair_states:
             failures=set()
             for name,option in state.items():
                 failures.update(route_obstructions(source,nets[name],option['route'],snapshot.threads,snapshot.definitions,snapshot.modifiers,snapshot.obstructions))
+                if not option.get('connection_verified',True):failures.add(('connectivity',name))
             for a,b in itertools.combinations(sorted(state),2):
                 failures.update(_route_pair_failures(source,nets[a],state[a],nets[b],state[b],snapshot,pair_budget))
             route=[f for o in state.values() for f in o['route']]
@@ -1515,95 +1532,114 @@ def _progressive_route_repair(target,selected,eligible,snapshot,*,expanded=True)
 
 
 def _complete_route_combination(design, definitions, thread_definitions, modifier_definitions, snapshot=None, net_ids=None, deadline=None, excluded=None):
-    """Count-bounded backtracking; legacy deadline arguments no longer stop work."""
-    nets = sorted((effective_net(design,n) for n in design.nets if n.routing == 'automatic' and (n.route_state=='unresolved' if net_ids is None else n.id in net_ids)), key=lambda n:n.id)
-    if len(nets)<2 or any(n.routing_variant for n in nets):
-        return None
-    automatic = {n.id for n in nets}
-    source = design.model_copy(update=dict(features=[f for f in design.features if f.route_net not in automatic]))
+    """Bounded, most-constrained-first global routing with forward checking."""
+    nets={n.id:effective_net(design,n) for n in design.nets if n.routing=='automatic' and
+          (n.route_state=='unresolved' if net_ids is None else n.id in net_ids)}
+    if len(nets)<2 or any(n.routing_variant for n in nets.values()):return None
+    source=design.model_copy(update=dict(features=[f for f in design.features if f.route_net not in nets]))
     snapshot=snapshot or _ProposalSnapshot(source,definitions,thread_definitions,modifier_definitions)
-    pools = {}
-    for net in nets:
-        options = _route_pool(source,net,snapshot)
-        pools[net.id] = [o for o in options if o['hard_failures']==0][:24]
-        if not pools[net.id]:
-            return None
-    compatible = {}
-    inspected = 0;pair_budget={'used':0}
-    best=None;best_key=None;states=0
+    pools={name:_route_pool(source,net,snapshot)[:24] for name,net in sorted(nets.items())}
+    pair_budget=snapshot.combination_budget
+    states=0;best=None;best_key=None;dead_ends=0;budget_blocked=False
     def combination_key(chosen):
         route=[f for option in chosen.values() for f in option['route']]
         return (route_objective(source,route,sum(o['risk'] for o in chosen.values()),definitions),
-                tuple(route_objective(source,option['route'],option['risk'],definitions) for _,option in sorted(chosen.items())),
-                tuple((name,option['key']) for name,option in sorted(chosen.items())))
-    minimum={net.id:dict(plugs=min(sum(f.plugged for f in o['route']) for o in pools[net.id]),
-                        count=min(len(o['route']) for o in pools[net.id]),
-                        maximum=min(max((f.depth for f in o['route']),default=0) for o in pools[net.id]),
-                        total=min(sum(f.depth for f in o['route']) for o in pools[net.id])) for net in nets}
-
-    def lower_bound(index,chosen):
-        route=[f for option in chosen.values() for f in option['route']]
-        remaining=[minimum[n.id] for n in nets[index:]]
-        plugs=sum(f.plugged for f in route)+sum(m['plugs'] for m in remaining)
-        count=len(route)+sum(m['count'] for m in remaining)
-        maximum=max([f.depth for f in route]+[m['maximum'] for m in remaining],default=0)
-        total=sum(f.depth for f in route)+sum(m['total'] for m in remaining)
-        priority=design.constraints.priority
-        if priority=='fewer_plugs':return (plugs,count,maximum,total)
-        if priority=='short_drills':return (maximum,total,count,plugs)
-        if priority=='simple_machining':return (count,len({f.face for f in route}),plugs,total)
+                tuple(route_objective(source,o['route'],o['risk'],definitions) for _,o in sorted(chosen.items())),
+                tuple((name,o['key']) for name,o in sorted(chosen.items())))
+    minimum={name:dict(plugs=min(sum(f.plugged for f in o['route']) for o in pool),
+        count=min(len(o['route']) for o in pool),maximum=min(max((f.depth for f in o['route']),default=0) for o in pool),
+        total=min(sum(f.depth for f in o['route']) for o in pool)) for name,pool in pools.items() if pool}
+    def lower_bound(chosen,remaining):
+        route=[f for option in chosen.values() for f in option['route']];rest=[minimum[n] for n in remaining]
+        plugs=sum(f.plugged for f in route)+sum(m['plugs'] for m in rest)
+        count=len(route)+sum(m['count'] for m in rest)
+        maximum=max([f.depth for f in route]+[m['maximum'] for m in rest],default=0)
+        total=sum(f.depth for f in route)+sum(m['total'] for m in rest)
+        if design.constraints.priority=='fewer_plugs':return (plugs,count,maximum,total)
+        if design.constraints.priority=='short_drills':return (maximum,total,count,plugs)
+        if design.constraints.priority=='simple_machining':return (count,len({f.face for f in route}),plugs,total)
         return (0,0,count,plugs,total)
-
-    def pair_clear(a, ao, b, bo):
-        nonlocal inspected
-        key = (a.id,ao['key'],b.id,bo['key'])
-        if key not in compatible:
-            inspected += 1
-            if inspected > 4000:
-                return False
-            compatible[key] = not _route_pair_failures(source,a,ao,b,bo,snapshot,pair_budget)
-        return compatible[key]
-
-    def search(index, chosen):
-        nonlocal best,best_key,states
+    def pair_clear(a,ao,b,bo):
+        nonlocal budget_blocked
+        failures=_route_pair_failures(source,nets[a],ao,nets[b],bo,snapshot,pair_budget)
+        if any(f[0]=='search_budget' for f in failures):budget_blocked=True
+        return not failures
+    def search(chosen,remaining):
+        nonlocal states,best,best_key,dead_ends
+        if states>=1000 or budget_blocked:return
         states+=1
-        if inspected > 4000 or states>1000:
-            return None
-        bound=lower_bound(index,chosen)
-        if best_key and bound>best_key[0][:len(bound)]:
-            return None
-        if index == len(nets):
-            if excluded and tuple(sorted((n,o['key']) for n,o in chosen.items())) in excluded:return None
-            route=[f for option in chosen.values() for f in option['route']]
-            if len(source.features)+len(route)>120:return None
+        bound=lower_bound(chosen,remaining)
+        if best_key and bound>best_key[0][:len(bound)]:return
+        if not remaining:
+            if excluded and tuple(sorted((n,o['key']) for n,o in chosen.items())) in excluded:return
+            if len(source.features)+sum(len(o['route']) for o in chosen.values())>120:return
             key=combination_key(chosen)
-            if best_key is None or key<best_key:
-                best,best_key=chosen,key
-            return None
-        net = nets[index]
-        for option in pools[net.id]:
-            if all(pair_clear(prior, chosen[prior.id], net, option) for prior in nets[:index]):
-                search(index+1,{**chosen,net.id:option})
-            if inspected>4000 or states>1000:break
-
-    search(0,{})
-    # The search is bounded, but its first complete combination is not a
-    # manufacturing optimum. Remove obvious compatible single-net improvements
-    # from the chosen combination using the same prepared pools/pair cache.
+            if best_key is None or key<best_key:best,best_key=dict(chosen),key
+            return
+        # Reject a branch as soon as ANY remaining net loses its last clear
+        # choice; alphabetical traversal used to discover this only at the end.
+        domains={}
+        for name in sorted(remaining,key=lambda n:(len(pools[n]),n)):
+            domains[name]=[o for o in pools[name] if all(pair_clear(prior,po,name,o) for prior,po in chosen.items())]
+            if budget_blocked:return
+            if not domains[name]:dead_ends+=1;return
+        name=min(domains,key=lambda n:(len(domains[n]),-len(nets[n].members),n))
+        for option in domains[name]:
+            search({**chosen,name:option},remaining-{name})
+            if states>=1000 or budget_blocked:break
+    empty=sorted(name for name,pool in pools.items() if not pool)
+    if not empty:search({},set(nets))
+    # Keep global objective ordering after feasibility; cached compatible moves
+    # can still improve a complete result without raising either search budget.
     if best:
         for _ in range(len(nets)):
             improved=False
-            for net in nets:
-                for option in pools[net.id]:
-                    if all(pair_clear(other,best[other.id],net,option) for other in nets if other.id!=net.id):
-                        chosen={**best,net.id:option}
-                        if excluded and tuple(sorted((n,o['key']) for n,o in chosen.items())) in excluded:continue
-                        route=[f for value in chosen.values() for f in value['route']]
-                        key=combination_key(chosen)
-                        if key<best_key:best,best_key=chosen,key;improved=True
-                    if inspected>4000:break
-            if not improved or inspected>4000:break
+            for name in sorted(nets,key=lambda n:(len(pools[n]),n)):
+                for option in pools[name]:
+                    if not all(pair_clear(other,po,name,option) for other,po in best.items() if other!=name):continue
+                    trial={**best,name:option}
+                    if excluded and tuple(sorted((n,o['key']) for n,o in trial.items())) in excluded:continue
+                    key=combination_key(trial)
+                    if key<best_key:best,best_key=trial,key;improved=True
+                    if budget_blocked:break
+                if budget_blocked:break
+            if not improved or budget_blocked:break
+    reason=('no_retained_source_safe_candidate' if empty else 'pair_budget' if budget_blocked else
+            'state_budget' if states>=1000 else 'clear_combination' if best else 'retained_pools_incompatible')
+    diagnostic=dict(states=states,state_limit=1000,pair_screens=pair_budget['used'],pair_limit=4000,
+        dead_ends=dead_ends,exit_reason=reason,empty_nets=empty,pools=dict(snapshot.pool_diagnostics),
+        selected={n:o['key'] for n,o in best.items()} if best else {})
+    snapshot.combination_diagnostics.append(diagnostic)
+    from .timing import diagnostic as record_diagnostic
+    record_diagnostic('route_combination',diagnostic)
     return best
+
+
+def _coordinated_fallback(source,automatic,snapshot):
+    """Best-effort COMPLETE seed, never an admission of conflicting geometry.
+
+    Clear constrained nets claim corridors first. Nets without a retained clear
+    candidate are considered last and keep their actual unresolved failures.
+    """
+    nets={n.id:effective_net(source,n) for n in source.nets if n.id in automatic}
+    pools={name:_route_pool(source,net,snapshot) for name,net in sorted(nets.items())}
+    order=sorted(nets,key=lambda n:(not bool(pools[n]),len(pools[n]),-len(nets[n].members),n))
+    chosen={};pair_budget=snapshot.combination_budget
+    for name in order:
+        net=nets[name]
+        options=pools[name] or route_options(source,net,expanded=True,definitions=snapshot.definitions,
+            thread_definitions=snapshot.threads,modifier_definitions=snapshot.modifiers,snapshot=snapshot)
+        if not pools[name]:options=_strategy_shortlist(source,options,snapshot.definitions,limit=16)
+        ranked=[]
+        for option in options:
+            failures=route_obstructions(source,net,option['route'],snapshot.threads,snapshot.definitions,snapshot.modifiers,snapshot.obstructions)
+            if any(f[0]=='connectivity' for f in option.get('conflicts',[])):failures.add(('connectivity',name))
+            for prior,po in chosen.items():
+                failures.update(_route_pair_failures(source,nets[prior],po,net,option,snapshot,pair_budget))
+            ranked.append((_conflict_objective(failures),route_objective(source,option['route'],option.get('risk',0),snapshot.definitions),option['key'],option))
+        if not ranked:return None,order
+        chosen[name]=min(ranked,key=lambda row:row[:3])[3]
+    return chosen,order
 
 
 def _proposal_source_key(design):
@@ -1652,8 +1688,12 @@ def _resolve_proposals(design, *, snapshots=None):
     # then rebuilding the same pools for the bounded combination search.
     combination = (_complete_route_combination(resolved,definitions,thread_definitions,modifier_definitions,snapshot)
                    if len(automatic)>2 else None)
+    seed=None;seed_order=[]
+    if not combination and len(automatic)>2 and not any(n.routing_variant for n in resolved.nets if n.id in automatic):
+        seed,seed_order=_coordinated_fallback(resolved,automatic,snapshot)
     candidates = []
-    for net in sorted(resolved.nets,key=lambda n:n.id):
+    sequence={name:i for i,name in enumerate(seed_order)}
+    for net in sorted(resolved.nets,key=lambda n:(sequence.get(n.id,len(sequence)),n.id)):
         if net.id not in automatic:
             continue
         def tool_size(option,context=resolved):
@@ -1674,7 +1714,7 @@ def _resolve_proposals(design, *, snapshots=None):
             return actual
         # Pinned candidates are materialized directly; enumerating their entire
         # neighbourhood again would multiply the cost of each exact attempt.
-        choices = ([combination[net.id]] if combination else [] if net.routing_variant else
+        choices = ([combination[net.id]] if combination else [seed[net.id]] if seed else [] if net.routing_variant else
                    route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions,
                                  modifier_definitions=modifier_definitions,snapshot=snapshot))
         if net.routing_variant:
@@ -1735,6 +1775,7 @@ def _resolve_proposals(design, *, snapshots=None):
                                objective=route_objective(resolved,route,selected['risk'],definitions),
                                pruned_drillings=selected.get('pruned_ids',[]),
                                sizing=sizing[net.id],
+                               connection_verified=not any(f[0]=='connectivity' for f in selected.get('conflicts',[])),
                                **route_margin(design,route),
                                candidates=max(1,len(choices)), drillings=len(route), plugs=sum(f.plugged for f in route),
                                length_mm=round(sum(f.depth for f in route),2), status='PROPOSAL_REQUIRES_EXACT_VALIDATION'))
@@ -1751,6 +1792,7 @@ def _resolve_proposals(design, *, snapshots=None):
                 resolved.features.extend(route)
                 metadata = next(r for r in candidates if r['net']==net.id)
                 metadata.update(variant=option['key'],axis_order=option['key'].split(':')[0],
+                                connection_verified=True,
                                 proximity_risk=option['risk'],drillings=len(route),
                                 plugs=sum(f.plugged for f in route),
                                 length_mm=round(sum(f.depth for f in route),2),
@@ -1760,7 +1802,8 @@ def _resolve_proposals(design, *, snapshots=None):
     # committed/manual/frozen geometry are never silently moved here.
     mutable={n.id for n in resolved.nets if n.id in automatic and not n.routing_variant}
     selected={r['net']:r['variant'] for r in candidates}
-    repairs=_progressive_route_repair(resolved,selected,mutable,snapshot,expanded=True)
+    repairs=_progressive_route_repair(resolved,selected,mutable,snapshot,expanded=True,
+        unconnected={r['net'] for r in candidates if not r.get('connection_verified',True)})
     if repairs:
         _,chosen=repairs[0]
         resolved.features=[f for f in resolved.features if f.route_net not in chosen]
@@ -1771,6 +1814,7 @@ def _resolve_proposals(design, *, snapshots=None):
             if option.get('tool_sizing'):net.diameter=option['tool_sizing']['diameter_mm']
             metadata=next(r for r in candidates if r['net']==net.id)
             metadata.update(variant=option['key'],axis_order=option['key'].split(':')[0],
+                connection_verified=option.get('connection_verified',metadata.get('connection_verified',True)),
                 proximity_risk=option.get('risk',0),drillings=len(route),plugs=sum(f.plugged for f in route),
                 sizing=option.get('tool_sizing',metadata['sizing']),pruned_drillings=option.get('pruned_ids',[]),
                 length_mm=round(sum(f.depth for f in route),2),**route_margin(design,route))
@@ -1781,6 +1825,8 @@ def _resolve_proposals(design, *, snapshots=None):
         [f for f in resolved.features if f.route_net==n.id and not f.suppressed],
         thread_definitions,definitions,modifier_definitions,snapshot.obstructions)
         for n in resolved.nets if n.id in automatic}
+    for row in candidates:
+        if not row.get('connection_verified',True):final_failures[row['net']].add(('connectivity',row['net']))
     for n in resolved.nets:
         for k,v in inherited[n.id].items():setattr(n,k,v)
         if n.id in automatic:
@@ -1792,14 +1838,23 @@ def _resolve_proposals(design, *, snapshots=None):
             by_feature={f.id:f for f in resolved.features}
             peers=sorted({by_feature[item].circuit for failure in failures for item in failure[1:]
                           if item in by_feature and by_feature[item].circuit and by_feature[item].circuit!=n.id})
+            pool=snapshot.pool_diagnostics.get(n.id,{})
+            search=snapshot.combination_diagnostics[-1] if snapshot.combination_diagnostics else {}
+            repair=snapshot.repair_diagnostics[-1] if snapshot.repair_diagnostics else {}
+            cause=('No source-safe connected route remains in the retained candidate families. Review layout alternatives; source access or candidate coverage is limiting.'
+                   if pool.get('retained_clear')==0 else
+                   'The bounded route search exhausted its '+('pair' if 'pair_budget' in (search.get('exit_reason'),repair.get('exit_reason')) else 'state')+' budget. Review layout alternatives or reroute after adjustment.'
+                   if any(r in ('pair_budget','state_budget') for r in (search.get('exit_reason'),repair.get('exit_reason'))) else
+                   'Retained route families remain incompatible in this arrangement. Review layout alternatives; physical infeasibility is not proven.')
             n.route_issue=(f'{n.label or n.id}: unresolved route conflicts ('+
                 ', '.join(sorted({failure[0].replace('_',' ') for failure in failures}))+')'+
-                (' with '+', '.join(peers) if peers else '')+'. Reroute / Optimize or edit placement.')[:500] if failures else ''
+                (' with '+', '.join(peers) if peers else '')+'. '+cause)[:500] if failures else ''
             metadata=next(r for r in candidates if r['net']==n.id)
             actual_route=[f for f in resolved.features if f.route_net==n.id and not f.suppressed]
             risk=proximity_risk(resolved,effective_net(resolved,n),actual_route,definitions,thread_definitions,snapshot.obstructions)
             n.routing_variant=metadata['variant']
             metadata.update(route_state=n.route_state,hard_failures=len(failures),
+                failure_cause=cause if failures else None,layout_repair_suggested=bool(failures),
                 proximity_risk=risk,objective=route_objective(resolved,actual_route,risk,definitions),
                 conflicts=[list(f) for f in sorted(failures)],
                 status='UNRESOLVED_ROUTE_CONFLICTS' if failures else 'PROPOSAL_REQUIRES_EXACT_VALIDATION')

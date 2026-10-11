@@ -328,23 +328,38 @@ def review_model(design,g,*,core_only=False):
     from .schema import COLORS
     parts=[dict(id='block',kind='body',color='#9ba9b9',**mesh(g.production))]
     # Boolean the authoritative solids before tessellation. Meshes never define connectivity.
-    unions = {}
+    unions = {};clipped={}
     with phase('hydraulic.net_geometry'):
         for circuit in sorted(set(g.circuits.values())):
             members=[key for key in g.nodes if g.circuits[key]==circuit]
-            shapes=[g.nodes[key].intersect(g.block) for key in members]
+            for key in members:clipped[key]=g.nodes[key].intersect(g.block)
+            shapes=[clipped[key] for key in members]
             shape=shapes[0].fuse(*shapes[1:]) if len(shapes)>1 else shapes[0]
             unions[circuit]=shape
             color=next((n.color for n in design.nets if n.id==circuit and n.color),COLORS.get(circuit,'#b08bea'))
             parts.append(dict(id='net:'+circuit,kind='hydraulic-net',circuit=circuit,color=color,members=members,
                               volume_mm3=shape.Volume(),solid_count=len(shape.Solids()),**mesh(shape)))
-    from itertools import combinations
-    collisions=[]
+    from itertools import combinations,product
+    collisions=[];attribution_remaining=64
     with phase('hydraulic.cross_net_geometry'):
         for a,b in combinations(unions,2):
             common=unions[a].intersect(unions[b])
             if common.Volume()>1e-6:
-                collisions.append(dict(nets=[a,b],volume_mm3=common.Volume()))
+                collision=dict(nets=[a,b],volume_mm3=common.Volume(),feature_pairs=[],attribution_complete=True)
+                # Attribute ONLY reported collisions, using the already-clipped
+                # exact fluid nodes. Bounds are a broad phase, not attribution.
+                # No additional production build or cross-net authorization.
+                from .spatial import geometry_pairs
+                pairs=geometry_pairs(g);examined=0
+                try:
+                    for first,second in product((key for key in clipped if g.circuits[key]==a),(key for key in clipped if g.circuits[key]==b)):
+                        if pairs.lower_bound(clipped[first],clipped[second])>0:continue
+                        if attribution_remaining<=0:collision['attribution_complete']=False;break
+                        examined+=1;attribution_remaining-=1;volume=pairs.volume(clipped[first],clipped[second])
+                        if volume>1e-6:collision['feature_pairs'].append(dict(features=[first,second],volume_mm3=volume))
+                except Exception as exc:
+                    collision.update(attribution_complete=False,attribution_error=type(exc).__name__)
+                collision['pair_checks']=examined;collisions.append(collision)
                 parts.append(dict(id=f'collision:{a}:{b}',kind='collision',color='#ff163e',nets=[a,b],**mesh(common)))
     if not core_only:
         parts.extend(review_layer(design,g,'void'))

@@ -155,6 +155,17 @@ def effective_project_conditions(design:Design):
     return project_engineering_context(design)
 
 
+@app.post('/api/layout-proposals')
+def layout_proposals(design:Design):
+    """Read-only analytic suggestions; applying/saving remains an editor action."""
+    from .engineering_db import validate_references
+    from .layout_planning import plan
+    try:
+        validate_references(design)
+        return plan(design)
+    except (ValueError,RuntimeError) as exc:raise HTTPException(422,str(exc)) from exc
+
+
 @app.get('/api/project-schema')
 def project_schema():
     return Design.model_json_schema()

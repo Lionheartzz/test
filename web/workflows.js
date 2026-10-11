@@ -126,6 +126,46 @@ export function workflows(ctx){
   function netMembers(d,netId){const members=[];for(const f of d.features){if(f.suppressed)continue;if(f.kind==='cavity'){for(const [id,net]of Object.entries(f.interface_nets||{}))if(net===netId)members.push(f.id+':'+id);}else if(f.kind==='port'&&f.circuit===netId)members.push(f.id);}return members;}
   function nets(){
     open('Hydraulic Nets · intent and derived connections');content.append(element('p','Net members are derived from cavity interface assignments and external ports. Automatic routing proposes geometry; exact validation decides whether it is acceptable.'));
+    const layoutHost=element('section',null,'library-card');layoutHost.hidden=true;
+    const layoutButton=action(content,'Review layout alternatives',guard(async()=>{
+      const owner=get(),baseline=JSON.stringify(owner);layoutButton.disabled=true;layoutHost.hidden=false;
+      layoutHost.replaceChildren(element('p','Checking source-window access and shared drilling corridors…'));
+      const current=()=>layoutHost.isConnected&&dialog.open&&get()===owner&&JSON.stringify(get())===baseline;
+      try{
+        const result=await post('/api/layout-proposals',owner);
+        if(!current())return;
+        layoutHost.replaceChildren(element('h3','Layout alternatives'),element('p',result.message),
+          element('p',result.evaluated_layouts+' analytic layouts considered · no CAD validation performed.'));
+        if(!result.block_growth_allowed)layoutHost.append(element('p','Block size retained to protect fixed machining or committed routing.'));
+        if(!result.proposals.length)layoutHost.append(element('p','No improving proposal was found in this bounded sample. This does not prove the layout is impossible. Review source access, explicit limits and fixed geometry.'));
+        for(const candidate of result.proposals){
+          const card=element('section',null,'port-row');layoutHost.append(card);
+          card.append(element('h3',candidate.reason),element('p','Block '+candidate.dimensions.map(v=>v.toFixed(2)).join(' × ')+' mm'),
+            element('p','Blocked nets in analytic sample: '+result.baseline.blocked_nets.length+' → '+candidate.assessment.blocked_nets.length+
+              ' · conflict records: '+result.baseline.conflicts.length+' → '+candidate.assessment.conflicts.length));
+          card.append(element('p','Recompute uncommitted automatic proposals: '+candidate.affected_nets.map(id=>displayNetName(owner,id)).join(', ')));
+          for(const move of candidate.changes){
+            const feature=owner.features.find(f=>f.id===move.id);
+            card.append(element('p',featureLabel(feature,owner)+' · '+move.face+' U/V '+move.before.map(v=>v.toFixed(2)).join(' / ')+' → '+move.after.map(v=>v.toFixed(2)).join(' / ')+' mm'));
+          }
+          action(card,'Apply to editable draft',guard(async()=>{
+            if(!current())throw Error('Draft changed. Request fresh layout alternatives before applying.');
+            const proposal=hydrateDesign(candidate.design,definitions(),threadDefinitions());
+            const decisionId='LAYOUT_'+result.source_revision.slice(0,16);
+            proposal.review_items??=[];
+            if(!proposal.review_items.some(item=>item.id===decisionId))proposal.review_items.push({id:decisionId,kind:'assumption',subject:'project',
+              description:candidate.reason+'. Analytic layout proposal; exact routing and manufacturing safety remain unverified.',
+              proposed_value:candidate.dimensions.map(v=>v.toFixed(2)).join(' × ')+' mm; '+candidate.changes.length+' component/port moves',
+              status:'accepted',resolution:'Applied explicitly in Model after reviewing the changes. This is layout acceptance, not engineering or manufacturing approval.'});
+            if(change(()=>set(proposal),{kind:'global',immediate:true})){
+              dialog.close();notice('Layout proposal applied to the editable draft. Current geometry is unvalidated; review Exact Preview, then Validate. Save Project remains explicit.');
+            }
+          }));
+        }
+      }catch(error){if(!current())return;layoutHost.replaceChildren(element('p',error.message));throw error;}
+      finally{if(layoutButton.isConnected)layoutButton.disabled=false;}
+    }));
+    content.append(layoutHost);
     action(content,'Optimize routes with exact checks',guard(async()=>{if(!state().project_id)throw Error('Save Project before running exact route optimization.');const baseline=JSON.stringify(get());const r=await post('/api/optimize-routes',{design:get(),project_id:state().project_id,expected_revision:state().revision,max_attempts:6});if(JSON.stringify(get())!==baseline)throw Error('Draft changed during optimization.');change(()=>set(hydrateDesign(r.design,definitions(),Object.fromEntries((get().threads||[]).map(row=>[row.id,row])))),{kind:'proposal',source_revision:r.source_revision,immediate:true});nets();content.prepend(element('p',`${r.attempts.length} exact candidates · FAIL ${r.baseline.FAIL} → ${r.final.FAIL}. Save Project to commit the proposed route geometry.`));}));
     const advanced=element('details');advanced.append(element('summary','Advanced'));content.append(advanced);action(advanced,'Reset all routes to automatic',()=>{if(!confirm('This will remove manual/frozen routing geometry and return all hydraulic nets to automatic routing. Continue?'))return;change(()=>{for(const net of get().nets)returnNetToAutomatic(get(),net.id);},{kind:'reroute',immediate:true});nets();});
     const newNet=element('div',null,'action-row'),name=element('input');name.setAttribute('aria-label','New net ID');name.placeholder='NET_P';newNet.append(name);action(newNet,'Add net',()=>{if(!/^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(name.value)||get().nets.some(n=>n.id===name.value)){$('workflow-error').textContent='Use a unique engineering ID';return;}change(()=>get().nets.push({id:name.value,label:name.value,routing:'automatic',diameter:8}));nets();});content.append(newNet);

@@ -51,17 +51,25 @@ def propose_dimensions(design,definitions,preferred=None):
     wall rule or a pressure rating. Explicit dimensions/limits remain binding.
     """
     from .engineering_conditions import required_wall
+    from .layout_planning import routing_gap
     bore=max((n.diameter for n in design.nets),default=0)
     allowance=max(bore,design.rules.minimum_access_gap)
     needed=[2*allowance]*3
     lower=design.constraints.envelope_min or (0,0,0);upper=design.constraints.envelope_max or (2000,2000,2000)
+    packing_limit=[max(lower[i],min(upper[i],preferred[i])) if preferred and preferred[i] is not None else upper[i] for i in range(3)]
     for face in FACE_AXES:
         group=[f for f in design.features if f.kind in ('cavity','port') and f.face==face and not f.suppressed]
         if not group:continue
         wall=max(required_wall(design,f,definitions=definitions) for f in group)
         u,v,axis,_=FACE_AXES[face]
         footprints=[(f.id,(machining_radius(definitions[f.definition]) if f.definition else max(f.diameter or 0,f.clearance_diameter)/2)+wall/2) for f in group]
-        _,_,_,_,width,height,_=circle_layout(footprints,upper[u]-wall-2*allowance,upper[v]-wall-2*allowance,design.rules.minimum_access_gap)
+        limits=(packing_limit[u]-wall-2*allowance,packing_limit[v]-wall-2*allowance)
+        try:layout=circle_layout(footprints,*limits,routing_gap(design,definitions,face))
+        except ValueError:
+            # A planning lane is a preference, not a new hard geometry rule.
+            # Respect explicit/inherited dimensions and keep exact routing open.
+            layout=circle_layout(footprints,*limits,design.rules.minimum_access_gap)
+        _,_,_,_,width,height,_=layout
         needed[u]=max(needed[u],width+wall+2*allowance);needed[v]=max(needed[v],height+wall+2*allowance)
         depth=max(max(p.end for p in definitions[f.definition].cutting_primitives or definitions[f.definition].stages) if f.definition else f.depth for f in group)
         needed[axis]=max(needed[axis],depth+wall+2*allowance)
@@ -89,6 +97,7 @@ def initial_placement(design,definitions=None):
     from .engineering_db import definitions_for_design
     from .engineering_conditions import required_wall
     from .routing import terminal_points
+    from .layout_planning import routing_gap
     if any(f.route_net or f.frozen_net or f.parent_id for f in design.features):
         raise ValueError('Initial placement is only available before routing and authored parent placement. Existing geometry is retained.')
     result=design.model_copy(deep=True)
@@ -115,9 +124,11 @@ def initial_placement(design,definitions=None):
         if not group:continue
         wall=max(required_wall(result,f,definitions=definitions) for f in group)
         u,v,_,_=FACE_AXES[face]
+        footprints=[(f.id,machining_radius(definitions[f.definition])+wall/2) for f in group]
         try:
-            _,_,_,_,width,height,positions=circle_layout(
-                [(f.id,machining_radius(definitions[f.definition])+wall/2) for f in group],dims[u]-wall,dims[v]-wall,result.rules.minimum_access_gap)
+            try:layout=circle_layout(footprints,dims[u]-wall,dims[v]-wall,routing_gap(result,definitions,face))
+            except ValueError:layout=circle_layout(footprints,dims[u]-wall,dims[v]-wall,result.rules.minimum_access_gap)
+            _,_,_,_,width,height,positions=layout
         except ValueError:
             unresolved(group[0].id,f'{face}: source footprints and required wall do not fit. Enlarge the block or choose another mounting face; initial locations retained.')
             continue
@@ -183,4 +194,19 @@ def initial_placement(design,definitions=None):
             continue
         port.u,port.v=min(available,key=lambda p:(math.dist(p,preferred),p))
         placed_ports.add(port.id)
+    # Four small analytic layouts at most, using the same source/window/cut
+    # semantics as Model. No exact geometry or multi-layout CAD generation.
+    from .layout_planning import plan
+    from .schema import EngineeringReview
+    try:planned=plan(result,definitions,initial=True)
+    except ValueError as exc:
+        result.review_items.append(EngineeringReview(id='LAYOUT_ROUTING_CORRIDORS',kind='connection',subject='project',
+            description=('Analytic corridor planning could not complete: '+str(exc)+'. Editable layout retained; source/geometry review and Exact Preview remain required.')[:2000]))
+        return result
+    if planned['proposals']:
+        result=type(result).model_validate(planned['proposals'][0]['design'])
+    if planned['baseline']['blocked_nets'] or planned['baseline']['conflicts']:
+        result.review_items.append(EngineeringReview(id='LAYOUT_ROUTING_CORRIDORS',kind='connection',subject='project',
+            description='Initial placement considered source-window access and competing hydraulic circuits using a bounded analytic corridor sample. '
+                        'This is not exact routing feasibility. Model can propose additional layout alternatives; Exact Preview and Validate remain required.'))
     return result

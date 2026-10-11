@@ -76,11 +76,14 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
             peers=sorted({other for collision in model['collisions'] if net.id in collision['nets'] for other in collision['nets'] if other!=net.id})
             if peers:
                 net.route_state='stale'
-                net.route_issue=(f'{net.label or net.id}: exact cross-net contact with '+', '.join(peers)+'. Proposal retained unresolved; Reroute / Optimize or edit placement.')[:500]
-        # Diagnostic attribution is intentionally separate from repair. Bounds
-        # identify suspects without another CAD build or node-pair Boolean loop.
+                cause=next((r.get('failure_cause') for r in routes if r['net']==net.id and r.get('failure_cause')),None)
+                net.route_issue=(f'{net.label or net.id}: exact cross-net contact with '+', '.join(peers)+'. '+
+                    (cause or net.route_issue or 'This route combination is rejected by exact geometry. Review layout alternatives or adjust the affected interfaces.'))[:500]
+        # Pair attribution comes from exact clipped nodes in review_model.
+        # Preserve a small source/cut coordinate record so future investigations
+        # can identify actual machining without regenerating a saved proposal.
         from .spatial import geometry_pairs
-        pairs=geometry_pairs(geometry);collision_diagnostics=[]
+        pairs=geometry_pairs(geometry);collision_diagnostics=[];by_id={f.id:f for f in resolved.features}
         for collision in model['collisions'][:64]:
             a,b=collision['nets'];suspects=[]
             detail={**collision,'bounds_suspect_pairs':suspects}
@@ -94,6 +97,9 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
                     if len(suspects)==64:break
             except Exception as exc:detail['inspection_error']=type(exc).__name__
             collision_diagnostics.append(detail)
+        contact_ids={node.split(':')[0] for collision in collision_diagnostics for pair in collision.get('feature_pairs',[]) for node in pair['features']}
+        contact_features={key:{name:getattr(by_id[key],name) for name in ('kind','face','u','v','diameter','depth','rotation','cavity_id','port_definition_id','route_net','schematic_id')}
+                          for key in sorted(contact_ids)[:64] if key in by_id}
         topology=dict(production_valid=model['brep_valid'],cause='not_determined')
         if not model['brep_valid']:
             try:
@@ -104,7 +110,8 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
                 topology['invalid_generated_cuts']=[key for key in topology['invalid_cut_ids'] if by_id[key].route_net]
                 topology['cause']='invalid_input_cut' if topology['invalid_cut_ids'] or topology['invalid_block_machining_ids'] or not topology['block_valid'] else 'combined_production_topology_unresolved'
             except Exception as exc:topology['inspection_error']=type(exc).__name__
-        timing.diagnostic('exact_preview',dict(topology=topology,collisions=collision_diagnostics,
+        timing.diagnostic('exact_preview',dict(source_revision=store.revision(design),topology=topology,
+            collisions=collision_diagnostics,contact_features=contact_features,
             selected={n.id:n.routing_variant for n in resolved.nets if n.routing=='automatic'},
             unresolved_nets=[n.id for n in resolved.nets if n.route_issue]))
         design_revision=store.revision(design)
