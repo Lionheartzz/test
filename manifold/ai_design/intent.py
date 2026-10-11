@@ -159,6 +159,35 @@ def effective_result(run, corrections=None):
     result['ports']=[p for p in result['ports'] if p['id'] not in excluded]
     for net in result['nets']:net['members']=[key for key in net['members'] if key not in excluded]
     result['nets']=[n for n in result['nets'] if n['members']]
+    if review.topology_review:
+        packet=review.topology_review
+        from .service import digest
+        if (packet.task_id,packet.run_id,packet.input_revision,packet.result_sha256)!=(run['task_id'],run['id'],run['input_revision'],digest(run['result'])):
+            raise ValueError('Topology review belongs to a different analysis revision')
+        changes=set(packet.port_labels)|set(packet.port_dispositions)|set(packet.net_assignments)
+        if not changes<=set(ports)-excluded or not set(packet.reasons)<=set(ports):
+            raise ValueError('Topology review refers to a missing or excluded interface')
+        if not changes<=set(packet.reasons):raise ValueError('Every topology correction requires its source/review reason')
+        for key,label in packet.port_labels.items():
+            if not label.strip():raise ValueError('Physical interface labels must not be blank')
+            ports[key]['label']=label.strip()
+            ports[key].setdefault('facts',{})['label']=label.strip()
+        for key,state in packet.port_dispositions.items():
+            if ports[key]['component_id'] is None and state in ('blocked','terminated'):
+                raise ValueError('An external functional port cannot be terminated by a component topology correction')
+            ports[key]['disposition']=state
+            if state in ('blocked','terminated'):
+                for net in result['nets']:net['members']=[p for p in net['members'] if p!=key]
+        from .generation import topology
+        from .generation_models import GenerationOptions
+        for key,label in packet.net_assignments.items():
+            if key in review.net_overrides:
+                existing=next((n for n in run['result']['nets'] if n['id']==review.net_overrides[key]),{})
+                if label not in (existing.get('id'),existing.get('label')):
+                    raise ValueError('Topology review conflicts with a retained explicit net correction')
+        result=topology(result,GenerationOptions(net_overrides=packet.net_assignments))
+        for p in result['ports']:
+            if p['id'] in packet.net_assignments:p['reviewed_net_label']=packet.net_assignments[p['id']]
     return result
 
 

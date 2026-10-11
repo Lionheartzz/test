@@ -6,6 +6,23 @@ export async function inspectGeneratedDraft(packet,post){
   return {design:inspection.design,definitions:inspection.engineering?.definitions||{},threads:inspection.engineering?.threads||{}};
 }
 
+export function topologyReviewChanges(before,after){
+  const labels=result=>Object.fromEntries((result.nets||[]).flatMap(n=>n.members.map(p=>[p,n.label||n.id])));
+  const oldNets=labels(before),newNets=labels(after),oldPorts=new Map(before.ports.map(p=>[p.id,p]));
+  return after.ports.flatMap(p=>{const old=oldPorts.get(p.id);if(!old)return [];
+    const from=[old.label,old.disposition||'unknown',oldNets[p.id]||'No net'],to=[p.label,p.disposition||'unknown',newNets[p.id]||'No net'];
+    return JSON.stringify(from)===JSON.stringify(to)?[]:[{id:p.id,component_id:p.component_id,before:from,after:to}];
+  });
+}
+
+export async function readTopologyReview(file,task,run){
+  if(file.size>200000)throw new Error('Topology review is too large. Use a review JSON under 200 KB.');
+  const packet=JSON.parse(await file.text());
+  if(packet.schema_version!==1||packet.task_id!==task.id||packet.run_id!==run.id||packet.input_revision!==run.input_revision)
+    throw new Error('Topology review belongs to a different analysis revision.');
+  return packet;
+}
+
 export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, onPreflight=()=>{}}) {
   const {$,element,field,action,api,post,newProject}=ctx, content=$('workflow-content');
   const faceOptions={'':'Use interpreted requirements / proposal',top:'Top',bottom:'Bottom',left:'Left',right:'Right',front:'Front',back:'Back'};
@@ -228,6 +245,7 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
       options.threaded_mounting_holes.forEach((hole,index)=>field(assignment,'Hole '+(index+1)+' requirement',hole.requirement_id||'',value=>{hole.requirement_id=value||null;},choices));
     }
     const topology=element('details');const uncertainConnections=plan.nets.some(net=>net.status==='uncertain');topology.open=uncertainConnections||plan.ports.some(p=>!p.net&&!['blocked','terminated'].includes(p.disposition));topology.append(element('summary','Review / correct hydraulic net assignments'));content.append(topology);
+    topologyReviewImport(topology,task,run,plan);
     if(uncertainConnections)topology.append(element('p','Review these proposed connections against the schematic. Generate editable 3D draft uses the current assignments.','review-warning'));
     topology.append(element('p','Hydraulic lines: '+plan.nets.map(n=>n.label).join(' · ')));
     for(const port of plan.ports){const owner=plan.components.find(c=>c.id===port.component_id)?.label,name=(owner?owner+' · ':'')+port.label;if(['blocked','terminated'].includes(port.disposition)){topology.append(element('p',name+' · '+port.disposition+' · no hydraulic net required'));continue;}
@@ -261,12 +279,40 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
     const token=screen;
     const excluded=new Set(plan.port_corrections?.excluded_port_ids||[]),overrides={...plan.port_corrections?.net_overrides};
     if(exclude){excluded.add(portId);delete overrides[portId];}else excluded.delete(portId);
-    const response=await post(`/api/ai-design/tasks/${task.id}/port-corrections`,{expected_revision:task.revision,run_id:run.id,excluded_port_ids:[...excluded],net_overrides:overrides});
+    const review=plan.port_corrections?.topology_review?structuredClone(plan.port_corrections.topology_review):null;
+    if(review)for(const key of excluded)for(const field of ['port_labels','port_dispositions','net_assignments','reasons'])delete review[field][key];
+    const response=await post(`/api/ai-design/tasks/${task.id}/port-corrections`,{expected_revision:task.revision,run_id:run.id,excluded_port_ids:[...excluded],net_overrides:overrides,topology_review:review});
     await refreshTask(task.id);run.port_corrections=response.port_corrections;run.reviewed_result=response.reviewed_result;
     if(token!==screen||!here()||$('workflow-title').textContent!=='AI Design · Create manifold draft'||session().task?.id!==task.id)return;
     delete options.net_overrides[portId];
     for(const binding of Object.values(options.bindings))for(const [zone,port]of Object.entries(binding.zone_ports))if(excluded.has(port))delete binding.zone_ports[zone];
     const navigation=await prepare();navigation?.jump({section:'component',target_id:componentId,field:'mapping'});
+  }
+
+  function topologyReviewImport(parent,task,run,plan){
+    const panel=element('section',null,'library-card'),input=element('input'),preview=element('div');
+    panel.append(element('h4','Import a source-reviewed topology proposal'),element('p','Review changes before applying. The original analysis remains unchanged; this does not call AI.'));
+    input.type='file';input.accept='.json,application/json';input.setAttribute('aria-label','Topology review JSON');panel.append(input,preview);parent.append(panel);
+    input.onchange=safe(async()=>{
+      const token=screen,file=input.files?.[0];if(!file)return;
+      const packet=await readTopologyReview(file,task,run);
+      for(const [port,label]of Object.entries(packet.net_assignments||{}))if(options.net_overrides[port]&&options.net_overrides[port]!==label)
+        throw new Error('This proposal conflicts with a current explicit net choice. Review that choice before importing.');
+      const request={expected_revision:task.revision,run_id:run.id,excluded_port_ids:plan.port_corrections?.excluded_port_ids||[],net_overrides:plan.port_corrections?.net_overrides||{},topology_review:packet};
+      const response=await post(`/api/ai-design/tasks/${task.id}/port-corrections`,{...request,preview_only:true});
+      if(token!==screen||!panel.isConnected||session().task?.id!==task.id)return;
+      const changes=topologyReviewChanges(run.reviewed_result||run.result,response.reviewed_result);
+      preview.replaceChildren(element('p',`${changes.length} interface changes · proposal pending your review`));
+      for(const row of changes){const owner=plan.components.find(c=>c.id===row.component_id)?.label||'External port';
+        preview.append(element('p',`${owner}: ${row.before.join(' · ')} → ${row.after.join(' · ')}`),element('p',packet.reasons[row.id]||'','property-note'));}
+      const apply=action(preview,'Apply reviewed topology',safe(async()=>{
+        apply.disabled=true;
+        try{const adopted=await post(`/api/ai-design/tasks/${task.id}/port-corrections`,request);
+          await refreshTask(task.id);run.port_corrections=adopted.port_corrections;run.reviewed_result=adopted.reviewed_result;
+          if(token===screen&&here()&&session().task?.id===task.id)await prepare();
+        }finally{apply.disabled=false;}
+      }));apply.disabled=!changes.length;
+    });
   }
 
   function librarySearch(parent,task,role,label,onSelect){

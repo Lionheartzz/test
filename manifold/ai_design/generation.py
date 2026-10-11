@@ -304,7 +304,7 @@ def fid(generation_id, key, prefix):
     return prefix + '_' + hashlib.sha256((generation_id + ':' + key).encode()).hexdigest()[:20]
 
 
-def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,progress=None,cancelled=lambda:False):
+def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixed_faces=None,progress=None,cancelled=lambda:False):
     """Generation-local ownership: never called by Model, load or routing.
 
     No origin flag grants permission. Only the newly compiled candidate below
@@ -312,7 +312,7 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,prog
     The returned draft carries assessment evidence, not future resize authority.
     """
     from ..layout import initial_placement
-    from ..layout_planning import plan as layout_plan
+    from .layout_search import plan_new as layout_plan
     from ..schema import EngineeringReview
     names=('length','width','height')
     # Linked dimensions are engineer-owned preferences, not generated sizes.
@@ -345,7 +345,8 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,prog
         # Reuse the existing eight-layout proposal bound instead of four CAD
         # attempts. These are analytic samples from the SAME fixed-geometry
         # Router; no BRep, connectivity approval or production build occurs here.
-        planned=layout_plan(design,definitions,movable_features=set(feature_map.values()),growth_axes=axes,progress=update)
+        planned=layout_plan(design,definitions,movable_features=set(feature_map.values()),growth_axes=axes,
+            fixed_faces={**design.constraints.required_feature_faces,**(fixed_faces or {})},progress=update)
     except ValueError as exc:
         settings['layout_planning']=dict(scope='AI_GENERATION_ONLY',status='ANALYTIC_UNAVAILABLE',evaluated_layouts=0)
         design.review_items.append(EngineeringReview(id='AI_LAYOUT_ROUTING',kind='connection',subject='project',
@@ -358,6 +359,7 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,prog
         source_revision=planned['source_revision'],evaluated_layouts=planned['evaluated_layouts'],layout_limit=planned['layout_limit'],
         growth_axes=[names[i] for i in axes],before_dimensions=[getattr(design.block,name) for name in names],
         dimensions=[getattr(result.block,name) for name in names],baseline=planned['baseline'],selected=assessment,
+        evaluations=planned.get('evaluations',[]),
         reason=selected['reason'] if selected else 'Initial layout retained; bounded samples did not improve engineering screening.')
     if assessment['blocked_nets'] or assessment['conflicts']:
         result.review_items.append(EngineeringReview(id='AI_LAYOUT_ROUTING',kind='connection',subject='project',
@@ -558,7 +560,12 @@ def candidate(plan, generation_id, variant,*,progress=None,cancelled=lambda:Fals
         inherited_label=inputs.project_engineering.block.material if inputs.project_engineering and settings['material_source'] is None else None,
         restrictions=settings['material_restrictions'],preferred_dimensions=preferred)
     settings['material_proposal']=selection
-    design=_plan_generated_layout(design,by_definition,settings,inputs,feature_map,progress=progress,cancelled=cancelled)
+    fixed_faces={feature_map[key]:face for key,face in {**options.component_faces,**options.port_faces}.items() if key in feature_map}
+    if options.preferred_component_face:
+        fixed_faces.update({feature_map[c['id']]:options.preferred_component_face for c in plan['components'] if c['id'] in feature_map})
+    if options.preferred_port_face:
+        fixed_faces.update({feature_map[p['id']]:options.preferred_port_face for p in plan['external'] if p['id'] in feature_map})
+    design=_plan_generated_layout(design,by_definition,settings,inputs,feature_map,fixed_faces=fixed_faces,progress=progress,cancelled=cancelled)
     return Design.model_validate(design.model_dump()),feature_map,terminal_map
 
 

@@ -135,7 +135,7 @@ def cavity_terminal_candidates(design, net, definitions, threads=None, modifiers
     return candidates
 
 
-def axial_route(design, net, definitions, variant, candidates=None, threads=None, modifiers=None, *, port_approaches=None, connection_topology=None):
+def axial_route(design, net, definitions, variant, candidates=None, threads=None, modifiers=None, *, port_approaches=None, connection_topology=None,entry_safe=False,obstruction_cache=None,junction_override=None):
     """Regenerate a stable terminal strategy, including its true opposite-face access."""
     from .routing import propose, terminal_points, segment_depth, add_construction_access
     import hashlib
@@ -166,6 +166,8 @@ def axial_route(design, net, definitions, variant, candidates=None, threads=None
         if end < start:
             return None
         desired = end
+        if junction_override is not None:
+            desired=sum((junction_override[i]-origin[i])*direction[i] for i in range(3))
         others = [p for key,p in points.items() if key in net.members and key not in selected]
         if level == 1 and others:
             desired = min((sum((p[i]-origin[i])*direction[i] for i in range(3)) for p in others),
@@ -188,7 +190,8 @@ def axial_route(design, net, definitions, variant, candidates=None, threads=None
         if bends:connector_bends[overrides[member]]=(tuple(bends),FACE_AXES[bore.face][2])
     if any(int(change.split('_')[0][1:]) not in [members.index(member) for member in selected] for change in changes):return None
     route = propose(design,net,tuple('xyz'.index(a) for a in order),entry,definitions=definitions,
-                    terminal_overrides=overrides,connector_bends=connector_bends or None,port_approaches=port_approaches,connection_topology=connection_topology)
+                    terminal_overrides=overrides,connector_bends=connector_bends or None,port_approaches=port_approaches,connection_topology=connection_topology,
+                    entry_safe=entry_safe,thread_definitions=threads,modifier_definitions=modifiers,obstruction_cache=obstruction_cache,junction_override=junction_override)
     if route is None:return None
     # Those accesses refer to the final trunk, which changes when its axial
     # connector becomes an opposite-face first-contact hole. Reapply them below.

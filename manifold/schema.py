@@ -285,8 +285,8 @@ class ConstructionAccess(Strict):
 
 # Shared by project persistence and transient preview context. Explicit detour
 # coordinates preserve meaning when neighbouring automatic routes change.
-ROUTING_VARIANT_PATTERN = (r'^(?:tree_[0-3]:)?(?:port_[0-9]+_(?:window|clear):)?([xyz]{3}:(nearest|positive|negative):(direct|offset_[xyz]_[pm]2?|planes_[0-2]_[0-9]+(?:\.[0-9]{1,6})?(?:_[0-2]_[0-9]+(?:\.[0-9]{1,6})?)?)'
-    r'|simple_[0-9]+|axial_[0-9]+_[01]:[xyz]{3}:(nearest|positive|negative)(?::(?:c[0-9]+_[xyz]_|j[0-9]+_)[0-9]+(?:\.[0-9]{1,6})?(?:\+(?:c[0-9]+_[xyz]_|j[0-9]+_)[0-9]+(?:\.[0-9]{1,6})?){0,2})?)$')
+ROUTING_VARIANT_PATTERN = (r'^(?:safe:)?(?:tree_[0-4]:)?(?:port_[0-9]+_(?:window|clear):)?([xyz]{3}:(nearest|positive|negative):(direct|offset_[xyz]_[pm]2?|planes_[0-2]_[0-9]+(?:\.[0-9]{1,6})?(?:_[0-2]_[0-9]+(?:\.[0-9]{1,6})?)?)'
+    r'|simple_[0-9]+|branch_[0-9]+_[0-9]+(?:\.[0-9]{1,6})?_[0-9]+(?:\.[0-9]{1,6})?_[0-9]+(?:\.[0-9]{1,6})?:[xyz]{3}:(nearest|positive|negative)|axial_[0-9]+_[01]:[xyz]{3}:(nearest|positive|negative)(?::(?:c[0-9]+_[xyz]_|j[0-9]+_)[0-9]+(?:\.[0-9]{1,6})?(?:\+(?:c[0-9]+_[xyz]_|j[0-9]+_)[0-9]+(?:\.[0-9]{1,6})?){0,2})?)$')
 
 
 class HydraulicNet(Strict):

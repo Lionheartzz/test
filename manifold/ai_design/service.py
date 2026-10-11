@@ -173,9 +173,17 @@ def correct_ports(key,request):
         run=load_run(key,request.run_id)
         if run['status']!='completed' or run['input_revision']!=digest(record['inputs']):
             raise ValueError('Port corrections require the current completed analysis')
+        previous=record.get('port_corrections') or {}
+        if previous.get('run_id')==run['id'] and previous.get('input_revision')==run['input_revision']:
+            prior=previous.get('topology_review')
+            if prior and request.topology_review is None:
+                request=request.model_copy(update={'topology_review':PortCorrections.model_validate(previous).topology_review})
         corrections=PortCorrections(run_id=run['id'],input_revision=run['input_revision'],
-            reviewed_at=now(),excluded_port_ids=request.excluded_port_ids,net_overrides=request.net_overrides).model_dump()
+            reviewed_at=now(),excluded_port_ids=request.excluded_port_ids,net_overrides=request.net_overrides,
+            topology_review=request.topology_review).model_dump()
         reviewed=effective_result(run,corrections)  # Validate all removals/references before writing.
+        if request.preview_only:
+            return dict(task=record,port_corrections=corrections,reviewed_result=reviewed)
         task=write({**record,'port_corrections':corrections},record)
     return dict(task=task,port_corrections=corrections,reviewed_result=reviewed)
 

@@ -1,5 +1,6 @@
 """Engineer choices, distinct from provider observations and immutable run data."""
 from pydantic import Field
+from typing import Literal, Annotated
 from ..schema import Strict, Face
 from .models import Key, Digest, RecordId
 from ..limits import ANALYSIS_COMPONENTS, ANALYSIS_PORTS, COMPONENT_INTERFACES
@@ -57,6 +58,18 @@ class GenerationRequest(Strict):
     options: GenerationOptions = Field(default_factory=GenerationOptions)
 
 
+class TopologyReview(Strict):
+    schema_version: Literal[1] = 1
+    task_id: RecordId
+    run_id: RecordId
+    input_revision: Digest
+    result_sha256: Digest
+    port_labels: dict[Key, Annotated[str, Field(min_length=1, max_length=120)]] = Field(default_factory=dict,max_length=ANALYSIS_PORTS)
+    port_dispositions: dict[Key, Literal['connected','blocked','terminated','unknown']] = Field(default_factory=dict,max_length=ANALYSIS_PORTS)
+    net_assignments: dict[Key, Annotated[str, Field(min_length=1, max_length=120)]] = Field(default_factory=dict,max_length=ANALYSIS_PORTS)
+    reasons: dict[Key, Annotated[str, Field(min_length=1, max_length=2000)]] = Field(default_factory=dict,max_length=ANALYSIS_PORTS)
+
+
 class PortCorrections(Strict):
     kind: str = Field(default='engineer_port_correction',pattern=r'^engineer_port_correction$')
     run_id: RecordId
@@ -64,6 +77,7 @@ class PortCorrections(Strict):
     reviewed_at: str = Field(default='',max_length=80)
     excluded_port_ids: list[Key] = Field(default_factory=list,max_length=ANALYSIS_PORTS)
     net_overrides: dict[Key,Key] = Field(default_factory=dict,max_length=ANALYSIS_PORTS)
+    topology_review: TopologyReview | None = None
 
 
 class PortCorrectionRequest(Strict):
@@ -71,3 +85,5 @@ class PortCorrectionRequest(Strict):
     run_id: RecordId
     excluded_port_ids: list[Key] = Field(default_factory=list,max_length=ANALYSIS_PORTS)
     net_overrides: dict[Key,Key] = Field(default_factory=dict,max_length=ANALYSIS_PORTS)
+    topology_review: TopologyReview | None = None
+    preview_only: bool = False
