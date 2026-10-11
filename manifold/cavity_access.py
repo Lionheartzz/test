@@ -135,7 +135,7 @@ def cavity_terminal_candidates(design, net, definitions, threads=None, modifiers
     return candidates
 
 
-def axial_route(design, net, definitions, variant, candidates=None, threads=None, modifiers=None):
+def axial_route(design, net, definitions, variant, candidates=None, threads=None, modifiers=None, *, port_approaches=None):
     """Regenerate a stable terminal strategy, including its true opposite-face access."""
     from .routing import propose, terminal_points, segment_depth, add_construction_access
     import hashlib
@@ -188,7 +188,7 @@ def axial_route(design, net, definitions, variant, candidates=None, threads=None
         if bends:connector_bends[overrides[member]]=(tuple(bends),FACE_AXES[bore.face][2])
     if any(int(change.split('_')[0][1:]) not in [members.index(member) for member in selected] for change in changes):return None
     route = propose(design,net,tuple('xyz'.index(a) for a in order),entry,definitions=definitions,
-                    terminal_overrides=overrides,connector_bends=connector_bends or None)
+                    terminal_overrides=overrides,connector_bends=connector_bends or None,port_approaches=port_approaches)
     if route is None:return None
     # Those accesses refer to the final trunk, which changes when its axial
     # connector becomes an opposite-face first-contact hole. Reapply them below.

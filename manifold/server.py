@@ -159,10 +159,10 @@ def effective_project_conditions(design:Design):
 def layout_proposals(design:Design):
     """Read-only analytic suggestions; applying/saving remains an editor action."""
     from .engineering_db import validate_references
-    from .layout_planning import plan
+    from .layout_planning import plan,saved_route_evidence
     try:
         validate_references(design)
-        return plan(design)
+        return plan(design,evidence=saved_route_evidence(design,executor.status()['recent']))
     except (ValueError,RuntimeError) as exc:raise HTTPException(422,str(exc)) from exc
 
 

@@ -10,6 +10,67 @@ from .kinematics import FACE_AXES,dimensions
 from .layout import machining_radius
 
 
+def saved_route_evidence(design,records=()):
+    """Read bounded saved Exact attribution for this precise authored revision.
+
+    No caller paths, CAD execution, or adoption of a historical route. Evidence
+    only prioritizes explicit proposals; it never clears a safety check.
+    """
+    import json
+    from .store import OUTPUT,revision
+    source_revision=revision(design)
+    def latest(value):
+        return value[-1] if isinstance(value,list) and value else value if isinstance(value,dict) else {}
+    def matching(record):
+        diagnostics=record.get('diagnostics',{})
+        exact=latest(diagnostics.get('exact_preview',{}))
+        if record.get('state')!='completed' or exact.get('source_revision')!=source_revision:return None
+        proposal=latest(diagnostics.get('route_proposal',{}))
+        failures=[f for rows in proposal.get('conflicts',{}).values() for f in rows]
+        combination=latest(diagnostics.get('route_combination',{}))
+        return dict(trace_id=record.get('id'),source_revision=source_revision,
+            collisions=exact.get('collisions',[])[:64],contact_features=exact.get('contact_features',{}),
+            unresolved_nets=sorted({f[1] for f in failures if len(f)==2 and f[0]=='connectivity'}|set(combination.get('empty_nets',[]))))
+    for record in reversed(records):
+        result=matching(record)
+        if result:return result
+    directory=OUTPUT/'cad-diagnostics'
+    if not directory.is_dir():return None
+    # Restarts lose executor history but not the saved owned traces. Source hash
+    # equality prevents another browser/project/revision from supplying hints.
+    paths=[]
+    for path in directory.glob('*.json'):
+        try:paths.append((path.stat().st_mtime,path))
+        except OSError:continue
+    for _,path in sorted(paths,reverse=True)[:64]:
+        try:
+            if path.stat().st_size>4_000_000:continue
+            result=matching(json.loads(path.read_text(encoding='utf-8')))
+        except (OSError,ValueError):continue
+        if result:return result
+    return None
+
+
+def _evidence_focus(design,evidence):
+    by_id={f.id:f for f in design.features};nets={n.id:n for n in design.nets}
+    affected=set();contacts=[];implicated=set((evidence or {}).get('unresolved_nets',[]))
+    for collision in (evidence or {}).get('collisions',[]):
+        if not collision.get('attribution_complete'):continue
+        implicated.update(name for name in collision.get('nets',[]) if name in nets)
+        for pair in collision.get('feature_pairs',[]):
+            if pair.get('volume_mm3',0)<=0:continue
+            features=pair.get('features',[])
+            if len(features)!=2:continue
+            rows=[(evidence.get('contact_features',{}).get(key.split(':')[0]) or {}) for key in features]
+            if any(not row for row in rows):continue
+            for key,row in zip(features,rows):
+                if key.split(':')[0] in by_id:affected.add(key.split(':')[0])
+                if row.get('route_net') in nets:implicated.add(row['route_net'])
+            contacts.append((features,rows))
+    affected.update(member.split(':')[0] for name in implicated if name in nets for member in nets[name].members)
+    return affected,contacts,implicated
+
+
 def _routing_owners(design):
     return {n.id for n in design.nets if n.routing=='automatic' and n.route_state in ('unresolved','proposal') and
             not any(f.frozen_net==n.id for f in design.features)}
@@ -33,7 +94,7 @@ def routing_gap(design,definitions,face):
 
 
 def _catalogs(design,definitions,threads,modifiers,tools):
-    from .routing import propose,obstacle_safe_planes,route_obstructions,segment_depth
+    from .routing import propose,obstacle_safe_planes,route_obstructions,segment_depth,port_approach_candidates
     from .cavity_access import cavity_terminal_candidates,axial_route
     from .closure_runtime import bind_route
     source=design.model_copy(deep=True)
@@ -60,7 +121,11 @@ def _catalogs(design,definitions,threads,modifiers,tools):
                     key=f'axial_{mask}_{level}:'+''.join('xyz'[i] for i in order)+':'+entry
                     yield key,axial_route(source,net,definitions,key,axial_terminals,threads,modifiers)
         axial=axial_sample()
-        queues=[iter(direct),iter(detours),iter(axial)];raw=[];seen=set();attempted=0;candidate_errors=0
+        def port_sample():
+            bases=[dict(key=''.join('xyz'[i] for i in o)+':'+entry+':direct',route=propose(source,net,o,entry,definitions=definitions)) for o in orders[:2]]
+            bases.extend(dict(key=key,route=route) for key,route in itertools.islice(axial_sample(),2) if route is not None)
+            yield from port_approach_candidates(source,net,bases,definitions,threads,modifiers)
+        queues=[iter(direct),iter(detours),iter(axial),iter(port_sample())];raw=[];seen=set();attempted=0;candidate_errors=0
         while queues and len(raw)<8 and attempted<32:
             active=[]
             for queue in queues:
@@ -150,22 +215,26 @@ def _fits(design,definitions):
     return True
 
 
-def alternatives(design,definitions,baseline,*,allow_growth=True):
+def alternatives(design,definitions,baseline,*,allow_growth=True,evidence=None):
     """Lazy strategy diversity: swap, port alignment, then a measured extra lane."""
     from .routing import terminal_points
     movable,grow=_permissions(design);by_id={f.id:f for f in design.features}
     affected={key for f in baseline['conflicts'] for key in f[1:] if key in by_id}
     affected.update(f.id for f in design.features if set(f.circuits.values())&set(baseline['blocked_nets']))
+    exact_affected,contacts,_=_evidence_focus(design,evidence)
+    affected.update(exact_affected)
     cavities=sorted((f for f in design.features if f.kind=='cavity' and f.id in movable),key=lambda f:(f.id not in affected,f.schematic_id or f.id))
     def swaps():
         for a,b in itertools.combinations(cavities,2):
             if a.face!=b.face:continue
+            if exact_affected and (a.id not in exact_affected or b.id not in exact_affected):continue
             target=design.model_copy(deep=True);items={f.id:f for f in target.features}
             items[a.id].u,items[b.id].u=b.u,a.u;items[a.id].v,items[b.id].v=b.v,a.v
             yield 'Rearrange neighbouring hydraulic interfaces',target
     def ports():
         points=terminal_points(design,definitions)
-        for port in sorted((f for f in design.features if f.kind=='port' and f.id in movable),key=lambda f:(f.circuit not in baseline['blocked_nets'],f.id)):
+        for port in sorted((f for f in design.features if f.kind=='port' and f.id in movable),key=lambda f:(f.id not in exact_affected,f.circuit not in baseline['blocked_nets'],f.id)):
+            if exact_affected and port.id not in exact_affected:continue
             net=next((n for n in design.nets if port.id in n.members),None)
             if not net:continue
             u,v,_,_=FACE_AXES[port.face]
@@ -175,6 +244,42 @@ def alternatives(design,definitions,baseline,*,allow_growth=True):
                 f.u,f.v=points[member][u],points[member][v]
                 if math.dist((f.u,f.v),(port.u,port.v))<1e-6:continue
                 yield 'Align external access with an assigned hydraulic window',target
+    def exact_local_moves():
+        # Sample owners round-robin so one port cannot exhaust the seven layout
+        # evaluations before an attributed cavity/connectivity owner is tried.
+        collision_nets={row.get('route_net') for _,rows in contacts for row in rows}
+        implicated_features=sorted((f for f in design.features if f.id in exact_affected&movable),
+            key=lambda f:(f.kind!='port',not bool({f.circuit,*f.circuits.values()}&collision_nets),f.schematic_id or f.id))
+        def moves(feature):
+            own={feature.circuit,*feature.circuits.values()}
+            u,v,_,_=FACE_AXES[feature.face]
+            for _,rows in contacts:
+                for row in rows:
+                    if row.get('route_net') in own or row.get('kind')!='drilling':continue
+                    ou,ov,_,_=FACE_AXES[row['face']]
+                    fixed={ou:row['u'],ov:row['v']}
+                    for coordinate in (v,u):
+                        if coordinate not in fixed:continue
+                        radius=machining_radius(definitions[feature.definition]) if feature.definition else max(feature.diameter or 0,feature.clearance_diameter)/2
+                        gap=radius+row['diameter']/2+required_wall(design,feature,definitions=definitions)+design.rules.minimum_access_gap
+                        for sign in (-1,1):
+                            target=design.model_copy(deep=True);item=next(f for f in target.features if f.id==feature.id)
+                            setattr(item,'u' if coordinate==u else 'v',fixed[coordinate]+sign*gap)
+                            yield 'Separate interfaces implicated by saved Exact contact',target
+            if feature.kind=='cavity':
+                lane=max((n.diameter for n in design.nets if n.id in set(feature.circuits.values())),default=0)+required_wall(design,feature,definitions=definitions)
+                for field,sign in itertools.product(('u','v'),(-1,1)):
+                    target=design.model_copy(deep=True);item=next(f for f in target.features if f.id==feature.id)
+                    setattr(item,field,getattr(item,field)+sign*lane)
+                    yield 'Open a local corridor at an implicated hydraulic interface',target
+        queues=[iter(moves(f)) for f in implicated_features]
+        while queues:
+            active=[]
+            for queue in queues:
+                try:proposal=next(queue)
+                except StopIteration:continue
+                active.append(queue);yield proposal
+            queues=active
     def growth():
         if not allow_growth or not grow or not (baseline['blocked_nets'] or baseline['conflicts']):return
         dims=dimensions(design.block);upper=design.constraints.envelope_max or (2000,2000,2000)
@@ -191,7 +296,7 @@ def alternatives(design,definitions,baseline,*,allow_growth=True):
                 if u==axis:f.u+=delta/2
                 if v==axis:f.v+=delta/2
             yield 'Reserve two additional machining corridors',target
-    queues=[iter(swaps()),iter(ports()),iter(growth())];seen=set();examined=0
+    queues=([iter(exact_local_moves()),iter(ports())] if exact_affected else [iter(swaps()),iter(ports()),iter(growth())]);seen=set();examined=0
     while queues and examined<48:
         active=[]
         for queue in queues:
@@ -206,15 +311,16 @@ def alternatives(design,definitions,baseline,*,allow_growth=True):
         queues=active
 
 
-def plan(design,definitions=None,*,initial=False):
+def plan(design,definitions=None,*,initial=False,evidence=None):
     from .engineering_db import definitions_for_design,thread_definitions_for_design,modifier_definitions_for_design,tool_definitions
     from .store import revision
+    if evidence and evidence.get('source_revision')!=revision(design):evidence=None
     definitions=definitions if definitions is not None else definitions_for_design(design)
     threads=thread_definitions_for_design(design)
     modifiers=modifier_definitions_for_design(design) if any(f.machining_modifiers for f in design.features) else {}
     tools=tool_definitions('drill');baseline=assess(design,definitions,threads,modifiers,tools)
     proposals=[];evaluated=1;limit=4 if initial else 8
-    for reason,target in alternatives(design,definitions,baseline,allow_growth=not initial):
+    for reason,target in alternatives(design,definitions,baseline,allow_growth=not initial,evidence=evidence):
         if evaluated>=limit:break
         result=assess(target,definitions,threads,modifiers,tools);evaluated+=1
         if {tuple(f) for f in result['fixed_conflicts']}-{tuple(f) for f in baseline['fixed_conflicts']}:continue
@@ -235,7 +341,8 @@ def plan(design,definitions=None,*,initial=False):
             affected_nets=sorted(affected),design=target.model_dump()))
     proposals.sort(key=lambda p:(p['assessment']['score'],len(p['changes']),p['reason']))
     movable,grow=_permissions(design)
-    return dict(source_revision=revision(design),status='ANALYTIC_LAYOUT_PROPOSALS',baseline=baseline,
+    return dict(source_revision=revision(design),status='ANALYTIC_LAYOUT_PROPOSALS',baseline=baseline,evidence=evidence,
         proposals=proposals[:3],evaluated_layouts=evaluated,layout_limit=limit,
         movable_features=sorted(movable),block_growth_allowed=grow,
-        message='Review proposed changes before applying. Analytic corridor samples do not prove physical infeasibility or exact safety. Exact Preview and Validate remain required.')
+        message=('Saved Exact contact and unresolved terminals prioritized these local proposals. ' if evidence else '')+
+            'Review proposed changes before applying. Analytic corridor samples do not prove physical infeasibility or exact safety. Exact Preview and Validate remain required.')
