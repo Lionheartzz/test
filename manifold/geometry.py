@@ -277,6 +277,11 @@ def build_geometry(design: Design, definitions=None, thread_definitions=None, mo
         all_cuts=[*cuts.values(),*(shape for key,shape in manufacturing_features.items()
                                    if not any(item.id==key and item.kind=='chamfer' for item in design.block_modifiers))]
         production = stock.cut(*all_cuts).clean() if all_cuts else stock
+        # Boolean results may share edges/surfaces with their operands. Later
+        # contact/protection intersections can update those shared tolerances,
+        # invalidating an initially valid production solid during validation.
+        # Detach exact topology/geometry, without healing or changing the cut.
+        production = production.copy(mesh=False)
     return Geometry(block, production, cuts, nodes, circuits, envelopes, plugs, placements, boundaries,manufacturing_features)
 
 

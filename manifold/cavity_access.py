@@ -217,8 +217,47 @@ def axial_route(design, net, definitions, variant, candidates=None, threads=None
     return add_construction_access(design,net,route)
 
 
+def _common_axial_candidates(design,net,definitions,candidates,threads=None,modifiers=None):
+    """Parallel deep-end accesses can share one source-safe junction plane.
+
+    Independently choosing each bore's deepest junction makes an orthogonal
+    connector climb through the other cavity. Intersect the real full-cylinder
+    intervals instead; stop depths and window eligibility stay unchanged.
+    """
+    members=sorted(net.members);groups={}
+    for member,bore in candidates.items():groups.setdefault(bore.face,[]).append(member)
+    orders=[o for o in itertools.permutations('xyz') if net.preferred_axis=='auto' or o[0]==net.preferred_axis]
+    entries=('nearest','negative','positive') if net.entry_preference=='nearest' else (net.entry_preference,)
+    for face,selected in sorted(groups.items()):
+        if len(selected)<2:continue
+        axis=FACE_AXES[face][2];intervals=[]
+        for member in selected:
+            from .closure_runtime import bind_route
+            bore=bind_route(design,[candidates[member]])[0];origin,direction=pose(bore,design.block)
+            start=(bore.plug_length if bore.plugged else 0)+net.diameter/2+planning_wall(design,net,definitions)
+            end=bore.depth-net.diameter/2-planning_wall(design,net,definitions)
+            if end<start:break
+            intervals.append(sorted((origin[axis]+direction[axis]*start,origin[axis]+direction[axis]*end)))
+        if len(intervals)!=len(selected):continue
+        low,high=max(row[0] for row in intervals),min(row[1] for row in intervals)
+        if low>high:continue
+        # Stay inside the common cylinder rather than tangent to a drill's
+        # cylinder/cone shoulder. That tangency can create unstable BRep edges.
+        mask=sum(1<<members.index(member) for member in selected)
+        edge=math.floor(high*1e6)/1e6 if FACE_AXES[face][3]>0 else math.ceil(low*1e6)/1e6
+        for coordinate in dict.fromkeys((round((low+high)/2,6),edge)):
+            if not low<=coordinate<=high:continue
+            suffix='+'.join(f'j{members.index(member)}_{coordinate:.6f}' for member in sorted(selected))
+            for order,entry in itertools.product(orders,entries):
+                key=f'axial_{mask}_0:'+''.join(order)+':'+entry+':'+suffix
+                if len(key)>80:continue
+                route=axial_route(design,net,definitions,key,candidates,threads,modifiers)
+                if route is not None:yield key,route
+
+
 def _direct_axial_candidates(design, net, definitions, threads=None, modifiers=None):
     candidates = cavity_terminal_candidates(design,net,definitions,threads,modifiers)
+    yield from _common_axial_candidates(design,net,definitions,candidates,threads,modifiers)
     members = sorted(net.members)
     masks = {1 << members.index(member) for member in candidates}
     if masks: masks.add(sum(masks))

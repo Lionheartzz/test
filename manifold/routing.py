@@ -210,7 +210,11 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None, s
             for axis in order:
                 if abs(p[axis]-end[axis]) < 1e-7:
                     continue
-                fixed = tuple(round(p[i], 6) for i in range(3) if i != axis)
+                # Preserve the source/junction coordinate exactly. Rounding a
+                # transverse hole off an axial access by sub-micron amounts can
+                # make OCCT return an empty common or an invalid production
+                # Boolean for otherwise intersecting cylinders.
+                fixed = tuple(p[i] for i in range(3) if i != axis)
                 key = (axis, fixed)
                 lo,hi = sorted((p[axis], end[axis]))
                 lines.setdefault(key,[]).append((lo,hi)); p[axis] = end[axis]
@@ -393,6 +397,75 @@ def cylinder_bounds(feature, block, start, end, diameter):
              max(a[i],b[i])+diameter/2*math.sqrt(max(0,1-direction[i]**2))) for i in range(3)]
 
 
+def _source_safe_coaxial_stops(design,net,routes,definitions):
+    """Cap real single-entry drillings at the existing source safety boundary.
+
+    A full bore to the terminal centre can cut a seat even though its drill tip
+    can legally open into the assigned window. Keep the greatest safe prefix;
+    ordinary exact connectivity/flow checks still have to prove every member.
+    No junction or authored drilling is shortened here.
+    """
+    from .engineering_db import thread_definitions_for_design,modifier_definitions_for_design
+    threads=thread_definitions_for_design(design)
+    modifiers=modifier_definitions_for_design(design) if any(f.machining_modifiers for f in design.features) else {}
+    cache={}
+    for route in routes:
+        if len(route)!=1:continue
+        feature=route[0]
+        if feature.plugged or feature.direction is not None or feature.frozen_net or feature.depth<=9:continue
+        failures=route_obstructions(design,net,route,threads,definitions,modifiers,cache)
+        if not failures or any(f[0] not in ('source_protected','source_wall','external_wall') for f in failures):continue
+        low,high=9.0,feature.depth
+        protected=[]
+        for other in design.features:
+            if other.suppressed or not other.definition:continue
+            if (other.kind=='port' and other.id in net.members and other.circuit==net.id and
+                other.face==feature.face and abs(other.u-feature.u)<1e-6 and abs(other.v-feature.v)<1e-6):continue
+            for cut,own in _protected_source_cuts(other,net,definitions,threads,modifiers):
+                protected.append((cut,0 if own else required_wall(design,feature,other,definitions=definitions)))
+        def clear(depth):
+            probe=feature.model_copy(update=dict(depth=depth))
+            parts=list(_manufacturing_cuts(probe,definitions,threads,modifiers))
+            if any(_cuts_too_close(parts,cut,design.block,wall) for cut,wall in protected):return False
+            # The ordinary screen changes from stand-off wall to intentional
+            # window contact as a tip approaches its assigned member. Search
+            # the fixed protected cuts above, not that nonmonotonic proximity
+            # switch. The FULL ordinary screen still gates the final candidate.
+            return not any(f[0] not in ('source_protected','source_wall') for f in
+                route_obstructions(design,net,[probe],threads,definitions,modifiers,cache))
+        if not clear(low):continue
+        # A deeper fixed-radius cylinder+tip contains its shallower prefix, so
+        # protected-source/wall obstruction is monotonic. No BRep in this search.
+        for _ in range(24):
+            middle=(low+high)/2
+            if clear(middle):low=middle
+            else:high=middle
+        stop=math.floor(low*1e6)/1e6
+        # Bounds supply only a conservative first-contact lower bound. They
+        # never authorize a connection: exact volume/opening verification does.
+        # Prefer an interior stop to a cone tangent to the protection boundary;
+        # retain the maximum safe prefix for cases needing more actual opening.
+        origin,direction=pose(feature,design.block);axis=FACE_AXES[feature.face][2]
+        first=[]
+        for member in net.members:
+            source=next((f for f in design.features if f.id==member.split(':')[0]),None)
+            if source is None:continue
+            zone=next((z for z in definitions[source.definition].zones if source.kind=='cavity' and member==f'{source.id}:{z.id}'),None) if source.definition else None
+            boxes=[]
+            for cut in _manufacturing_cuts(source,definitions,threads,modifiers):
+                start,end=cut['start'],cut['end']
+                if zone:
+                    start,end=max(start,zone.start),min(end,zone.end)
+                    if start>=end:continue
+                boxes.append(cylinder_bounds(cut['feature'],design.block,start,end,2*max(cut['radius_start'],cut['radius_end'])))
+            if boxes:first.append(min(min((box[axis][i]-origin[axis])*direction[axis] for i in (0,1)) for box in boxes))
+        earliest=max(9,max(first,default=0)-feature.diameter/2/math.tan(math.radians(feature.tip_angle/2)))
+        depths=[round((earliest+stop)/2,6),stop] if earliest<stop else [stop]
+        for depth in dict.fromkeys(depths):
+            revised=feature.model_copy(update=dict(depth=depth))
+            if not route_obstructions(design,net,[revised],threads,definitions,modifiers,cache):yield [revised]
+
+
 def simple_routes(design,net,definitions=None):
     net=effective_net(design,net)
     """Single-entry proposals may exploit offset intersection; exact checks decide adequacy."""
@@ -418,6 +491,7 @@ def simple_routes(design,net,definitions=None):
             continue
         routes.append([Feature(id=f'R-{digest}-1',kind='drilling',face=port.face,u=port.u,v=port.v,circuit=net.id,
                               diameter=net.diameter,depth=max(depths)+net.diameter/2,route_net=net.id)])
+    coaxial=list(routes)
     if net.drilling_mode!='orthogonal' and len(set(targets))==2:
         a,b=targets;length=math.dist(a,b)
         if length>1e-6:
@@ -460,6 +534,8 @@ def simple_routes(design,net,definitions=None):
                                     continue
                                 seen.add(signature)
                                 routes.append(route)
+    # Append so existing simple_N strategy indices remain stable.
+    routes.extend(_source_safe_coaxial_stops(design,net,coaxial,definitions))
     return routes
 
 

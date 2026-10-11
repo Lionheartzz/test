@@ -94,8 +94,8 @@ def routing_gap(design,definitions,face):
 
 
 def _catalogs(design,definitions,threads,modifiers,tools,progress=None):
-    from .routing import propose,obstacle_safe_planes,route_obstructions,segment_depth,port_approach_candidates,connection_topology_candidates
-    from .cavity_access import cavity_terminal_candidates,axial_route
+    from .routing import propose,obstacle_safe_planes,route_obstructions,segment_depth,port_approach_candidates,connection_topology_candidates,simple_routes,_conflict_objective,route_objective
+    from .cavity_access import _direct_axial_candidates
     from .closure_runtime import bind_route
     source=design.model_copy(deep=True)
     released=_routing_owners(source)
@@ -114,14 +114,8 @@ def _catalogs(design,definitions,threads,modifiers,tools,progress=None):
         detours=(( ''.join('xyz'[i] for i in o)+':'+entry+':offset_'+axis+'_'+side,
                    propose(source,net,o,entry,'offset_'+axis+'_'+side,definitions,planes))
                  for axis,side,o in itertools.product('xyz','mp',orders[:2]))
-        axial_terminals=cavity_terminal_candidates(source,net,definitions,threads,modifiers)
         def axial_sample():
-            members=sorted(net.members)
-            for member in sorted(axial_terminals)[:2]:
-                mask=1<<members.index(member)
-                for level,order in itertools.product(range(2),orders[:2]):
-                    key=f'axial_{mask}_{level}:'+''.join('xyz'[i] for i in order)+':'+entry
-                    yield key,axial_route(source,net,definitions,key,axial_terminals,threads,modifiers)
+            yield from _direct_axial_candidates(source,net,definitions,threads,modifiers)
         axial=axial_sample()
         def port_sample():
             bases=[dict(key=''.join('xyz'[i] for i in o)+':'+entry+':direct',route=propose(source,net,o,entry,definitions=definitions)) for o in orders[:2]]
@@ -130,7 +124,8 @@ def _catalogs(design,definitions,threads,modifiers,tools,progress=None):
         def topology_sample():
             bases=[dict(key=''.join('xyz'[i] for i in o)+':'+entry+':direct',route=propose(source,net,o,entry,definitions=definitions)) for o in orders[:2]]
             yield from connection_topology_candidates(source,net,bases,definitions,threads,modifiers)
-        queues=[iter(direct),iter(detours),iter(axial),iter(port_sample()),iter(topology_sample())];raw=[];seen=set();attempted=0;candidate_errors=0
+        simple=((f'simple_{i}',route) for i,route in sorted(enumerate(simple_routes(source,net,definitions)),key=lambda row:(len(row[1]),row[0])))
+        queues=[iter(simple),iter(direct),iter(detours),iter(axial),iter(port_sample()),iter(topology_sample())];raw=[];rejected=[];seen=set();attempted=0;candidate_errors=0
         while queues and len(raw)<8 and attempted<32:
             active=[]
             for queue in queues:
@@ -148,9 +143,16 @@ def _catalogs(design,definitions,threads,modifiers,tools,progress=None):
                 failures.update(('forbidden_face',f.id) for f in route if f.face in source.constraints.forbidden_drilling_faces)
                 if any(not any(abs(t['diameter_mm']-f.diameter)<=.011 and t['max_depth_mm']+1e-6>=segment_depth(f) for t in tools) for f in route):
                     failures.add(('tool_reach',net.id))
-                raw.append(dict(key=key,route=route,failures=failures))
+                option=dict(key=key,route=route,failures=failures)
+                (rejected if failures else raw).append(option)
                 if len(raw)==8 or attempted>=32:break
             queues=active
+        # An unsafe raw variant must not spend all eight retained slots before
+        # a legal stopping/common-plane strategy is even sampled. The 32-attempt
+        # count remains unchanged; keep rejected samples only as diagnostics or
+        # fallback when a layout has no source-clear route.
+        rejected.sort(key=lambda o:(_conflict_objective(o['failures']),route_objective(source,o['route'],definitions=definitions),o['key']))
+        raw.extend(rejected[:8-len(raw)])
         catalogs[net.id]=raw
         diagnostics[net.id]=dict(analytic_candidates=len(raw),source_clear=sum(not o['failures'] for o in raw),candidate_errors=candidate_errors)
     return source,catalogs,diagnostics,cache
