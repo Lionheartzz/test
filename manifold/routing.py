@@ -127,13 +127,14 @@ def _fixed_strategy_source(design):
     return design.model_copy(update=dict(features=[f for f in design.features if f.route_net not in mutable or f.frozen_net]))
 
 
-def propose(design, net, order, entry=None, detour='direct', definitions=None, safe_planes=None, *, terminal_overrides=None, connector_bends=None, port_approaches=None, connection_topology=None, entry_safe=False, thread_definitions=None, modifier_definitions=None, obstruction_cache=None,junction_override=None):
+def propose(design, net, order, entry=None, detour='direct', definitions=None, safe_planes=None, *, terminal_overrides=None, connector_bends=None, port_approaches=None, connection_topology=None, entry_safe=False, thread_definitions=None, modifier_definitions=None, obstruction_cache=None,junction_override=None,terminal_orders=None):
     net=effective_net(design,net)
     if definitions is None:
         from .engineering_db import definitions_for_design
         definitions=definitions_for_design(design)
     points = terminal_points(design,definitions)
     points.update(terminal_overrides or {})
+    orders_at={points[m]:o for m,o in (terminal_orders or {}).items() if m in points}
     pairs = spanning_pairs(sorted(set(points[m] for m in net.members if m in points)))
     if junction_override is not None:
         if len(junction_override)!=3 or any(not math.isfinite(x) or not 0<=x<=dimensions(design.block)[i] for i,x in enumerate(junction_override)):return None
@@ -172,6 +173,7 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None, s
     lines = {}
     for a,b in pairs:
         if b in ports_at and a not in ports_at:a,b=b,a
+        branch_order=orders_at.get(a,orders_at.get(b,order))
         start=port_stem(ports_at[a],a) if a in ports_at else a
         end=port_stem(ports_at[b],b) if b in ports_at else b
         # A junction already inside the real port's fluid cylinder needs no
@@ -220,7 +222,7 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None, s
             waypoints[insert:insert]=outward+inward[::-1]
         for start,end in zip(waypoints,waypoints[1:]):
             p = list(start)
-            for axis in order:
+            for axis in branch_order:
                 if abs(p[axis]-end[axis]) < 1e-7:
                     continue
                 # Preserve the source/junction coordinate exactly. Rounding a
@@ -241,6 +243,7 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None, s
             modifier_definitions_for_design(design) if any(f.machining_modifiers for f in design.features) else {})
         obstruction_cache=obstruction_cache if obstruction_cache is not None else {}
         entry_source=_fixed_strategy_source(design)
+        own_entries=entry_source.model_copy(update=dict(features=[]))
     digest = hashlib.sha256(net.id.encode()).hexdigest()[:8]
     segments=[]
     for key,intervals in lines.items():
@@ -282,6 +285,12 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None, s
                 # another mutable net has been selected. Compatibility with
                 # those nets belongs to the complete combination screen.
                 failures=route_obstructions(entry_source,net,[feature],thread_definitions,definitions,modifier_definitions,obstruction_cache)
+                # Two individually clear entries may clash with each other's
+                # plug machining. Compare real opposite-face cuts against the
+                # already generated same-net cuts too, before discarding the
+                # whole branching strategy. No mutable sibling net is pinned.
+                if features:
+                    failures|=route_obstructions(own_entries,net,[*features,feature],thread_definitions,definitions,modifier_definitions,obstruction_cache)
                 ranked.append((_conflict_objective(failures),choice,feature))
             features.append(min(ranked,key=lambda row:row[:2])[2])
         else:
@@ -745,6 +754,7 @@ def route_dominates(design, better, worse, better_risk=0, worse_risk=0, definiti
 
 
 def _strategy_family(key):
+    if key.startswith('window:'):return 'window-branch'
     if key.startswith('safe:'):return 'source-entry'
     if key.startswith('branch_'):return 'branch-topology'
     if key.startswith('tree_'):return 'branch-topology' if key.startswith('tree_3:') else 'terminal-tree'
@@ -762,7 +772,7 @@ def _strategy_shortlist(design, options, definitions=None, limit=16, eligible=No
     it may prune better or clear a different sibling route. Keep those as later
     Pareto layers rather than deleting them before exact connectivity pruning.
     """
-    buckets={family:[] for family in ('axial','axial-detour','source-entry','terminal-tree','branch-topology','port-approach','coordinated-detour','simple','direct','detour')}
+    buckets={family:[] for family in ('axial','axial-detour','source-entry','window-branch','terminal-tree','branch-topology','port-approach','coordinated-detour','simple','direct','detour')}
     for option in options:
         option['metrics']=manufacturing_metrics(design,option['route'],option['risk'],definitions)
         buckets[_strategy_family(option['key'])].append(option)
@@ -778,6 +788,7 @@ def _strategy_shortlist(design, options, definitions=None, limit=16, eligible=No
         for option in ranked:
             key=option['key'];faces=tuple(sorted({f.face for f in option['route']}))
             strategy=(key.split(':')[0] if family in ('axial','port-approach','terminal-tree','branch-topology') else key.split(':')[-1] if family in ('detour','axial-detour','coordinated-detour') else family,faces)
+            if family=='window-branch':strategy=(key.rsplit(':',1)[0],faces)
             (remaining if strategy in seen else distinct).append(option);seen.add(strategy)
         queues[family]=distinct+remaining
     selected=[]
@@ -1551,7 +1562,9 @@ def port_approach_candidates(design,net,options,definitions,threads=None,modifie
     from collections import defaultdict
     groups=defaultdict(list)
     for option in options:
-        if not option['key'].startswith(('simple_','port_')):groups[_strategy_family(option['key'])].append(option)
+        # Coordinate-bound branches already define their terminal strategy.
+        # They cannot be wrapped by the legacy port:<axis-order> grammar.
+        if not option['key'].startswith(('simple_','port_','branch_','window:')):groups[_strategy_family(option['key'])].append(option)
     bases=[]
     for family in sorted(groups):
         bases.extend(sorted(groups[family],key=lambda o:(route_objective(design,o['route'],definitions=definitions),o['key']))[:2])
@@ -1629,7 +1642,7 @@ def source_entry_candidates(design,net,options,definitions,threads,modifiers,cac
     if len(net.members)<3:return
     groups={}
     for option in options:
-        if option['key'].startswith(('simple_','safe:','branch_')):continue
+        if option['key'].startswith(('simple_','safe:','branch_','window:')):continue
         groups.setdefault(_strategy_family(option['key']),[]).append(option)
     queues=[]
     for family in ('branch-topology','terminal-tree','axial','direct','port-approach','detour','axial-detour'):
@@ -1681,6 +1694,10 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
     catalog_key=(net.model_dump_json(exclude={'routing_variant'}),tuple(net.members),expanded)
     if catalog_key not in snapshot.catalogs:
         snapshot.catalogs[catalog_key]=route_candidate_catalog(source,net,definitions,thread_definitions,modifier_definitions,expanded=expanded,cache=snapshot.obstructions)
+        from .branch_candidates import terminal_branch_candidates
+        for key,route in terminal_branch_candidates(source,net,definitions,thread_definitions,modifier_definitions,snapshot.obstructions):
+            snapshot.catalogs[catalog_key].append(dict(key=key,route=route,
+                risk=proximity_risk(source,net,route,definitions,thread_definitions),cost=route_cost(source,route)))
     options=deepcopy(snapshot.catalogs[catalog_key])
     options.extend(coordinated_detours(source,net,strategy_context or design,definitions,thread_definitions,modifier_definitions,snapshot.obstructions))
     # Connector detours see actual retained automatic routes during local/repair
@@ -1844,18 +1861,29 @@ def route_from_variant(design, net, variant, definitions, threads=None, modifier
     """Shared regeneration for global selection and incremental current templates."""
     entry_safe=variant.startswith('safe:')
     if entry_safe:variant=variant[5:]
+    window_approach=variant.startswith('window:')
+    if window_approach:variant=variant[7:]
     if variant.startswith('branch_'):
         design=_fixed_strategy_source(design)
         trunk,order,entry=variant.split(':')
         _,mask,*coordinates=trunk.split('_');junction=tuple(float(x) for x in coordinates)
         if sorted(order)!=list('xyz') or len(junction)!=3:return None
+        overrides={};orders={}
+        if window_approach:
+            from .branch_candidates import face_window_points
+            selected={m for i,m in enumerate(sorted(net.members)) if int(mask)&(1<<i)}
+            overrides={m:p for m,p in face_window_points(design,net,definitions,threads or {},modifiers or {}).items() if m not in selected}
+            base=tuple('xyz'.index(i) for i in order);by_id={f.id:f for f in design.features}
+            orders={m:(base[1],base[0],base[2]) if FACE_AXES[by_id[m.split(':')[0]].face][2]==base[0] else base for m in overrides}
         if int(mask):
             from .cavity_access import axial_route
             route=axial_route(design,net,definitions,f'axial_{int(mask)}_0:'+order+':'+entry,
-                threads=threads,modifiers=modifiers,entry_safe=True,obstruction_cache=obstruction_cache,junction_override=junction)
+                threads=threads,modifiers=modifiers,entry_safe=True,obstruction_cache=obstruction_cache,junction_override=junction,
+                terminal_overrides=overrides,terminal_orders=orders)
         else:
             route=propose(design,net,tuple('xyz'.index(i) for i in order),entry,definitions=definitions,
-                entry_safe=True,thread_definitions=threads,modifier_definitions=modifiers,obstruction_cache=obstruction_cache,junction_override=junction)
+                entry_safe=True,thread_definitions=threads,modifier_definitions=modifiers,obstruction_cache=obstruction_cache,junction_override=junction,
+                terminal_overrides=overrides,terminal_orders=orders)
         return prune_branch_connectors(design,net,route,definitions,threads,modifiers,obstruction_cache) if route is not None else None
     connection_topology=None
     if variant.startswith('tree_'):
@@ -1893,7 +1921,7 @@ def resize_route(design, net, option, diameter, definitions, threads=None, modif
     option.pop('_connectivity_conditions',None)
     option.pop('admission',None)
     option.pop('connectivity_detail',None)
-    if option['key'].startswith(('axial_','port_','tree_','safe:','branch_')):
+    if option['key'].startswith(('axial_','port_','tree_','safe:','branch_','window:')):
         sized = net.model_copy(update=dict(diameter=diameter))
         route = route_from_variant(design,sized,option['key'],definitions,threads,modifiers)
         if route is None:raise ValueError(f'{net.id}: selected drill has no safe terminal approach')
@@ -2298,7 +2326,7 @@ def _resolve_proposals(design, *, snapshots=None):
                    route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions,
                                  modifier_definitions=modifier_definitions,snapshot=snapshot))
         if net.routing_variant:
-            if net.routing_variant.startswith(('axial_','port_','tree_','safe:','branch_')):
+            if net.routing_variant.startswith(('axial_','port_','tree_','safe:','branch_','window:')):
                 route=route_from_variant(resolved,net,net.routing_variant,definitions,thread_definitions,modifier_definitions)
                 if route is None:
                     choices=route_options(resolved,net,definitions=definitions,thread_definitions=thread_definitions,

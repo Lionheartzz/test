@@ -1,7 +1,7 @@
 from fastapi import APIRouter,HTTPException,Request,Query
 from fastapi.responses import JSONResponse,Response
 from pydantic import Field
-from ..schema import Strict
+from ..schema import Strict, Design
 from .models import TaskInput,Digest,RecordId,HydraulicRepresentation
 from .providers import provider_info
 from . import service
@@ -130,10 +130,18 @@ def get_generation(key:str,generation_id:str):return call(generation.load_genera
 
 
 @router.get('/tasks/{key}/generations/{generation_id}/project')
-def generation_project(key:str,generation_id:str):
+def generation_project(key:str,generation_id:str,release_analytic_samples:bool=False):
     packet=call(generation.load_generation,key,generation_id)
     if not packet.get('design'):raise HTTPException(409,'This generation has no editable draft')
-    return JSONResponse(packet['design'],headers={'Content-Disposition':'attachment; filename="ai-manifold-draft.pmc.json"'})
+    design=packet['design']
+    if release_analytic_samples:
+        design=call(generation.recover_analytic_routes,key,generation_id,Design.model_validate(design))['design']
+    return JSONResponse(design,headers={'Content-Disposition':'attachment; filename="ai-manifold-draft.pmc.json"'})
+
+
+@router.post('/tasks/{key}/generations/{generation_id}/recover-analytic-routes')
+def recover_analytic_routes(key:str,generation_id:str,design:Design):
+    return call(generation.recover_analytic_routes,key,generation_id,design)
 
 
 @router.get('/tasks/{key}/library-choices')

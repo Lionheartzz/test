@@ -359,7 +359,7 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
         source_revision=planned['source_revision'],evaluated_layouts=planned['evaluated_layouts'],layout_limit=planned['layout_limit'],
         growth_axes=[names[i] for i in axes],before_dimensions=[getattr(design.block,name) for name in names],
         dimensions=[getattr(result.block,name) for name in names],baseline=planned['baseline'],selected=assessment,
-        evaluations=planned.get('evaluations',[]),
+        evaluations=planned.get('evaluations',[]),frontier=planned.get('frontier',[]),
         reason=selected['reason'] if selected else 'Initial layout retained; bounded samples did not improve engineering screening.')
     if assessment['blocked_nets'] or assessment['conflicts']:
         result.review_items.append(EngineeringReview(id='AI_LAYOUT_ROUTING',kind='connection',subject='project',
@@ -627,3 +627,36 @@ def load_generation(key,generation_id):
     service.read(key)
     path=store.OUTPUT/'ai-design'/service.identifier(key)/'generations'/service.identifier(generation_id)/'generation.json'
     return json.loads(path.read_text(encoding='utf-8'))
+
+
+def recover_analytic_routes(key,generation_id,design):
+    """Explicit recovery of an unchanged historical generation, never a save.
+
+    Origin text alone proves nothing. The owned immutable packet, full design
+    equality and matching uncommitted analytic choices are required together.
+    Later user changes, explicit different pins and stored cuts are refused.
+    """
+    from ..store import revision
+    packet=load_generation(key,generation_id)
+    if packet.get('task_id')!=key or packet.get('id')!=generation_id:
+        raise ValueError('Generation identity mismatch')
+    planning=packet.get('layout_planning') or {}
+    assessment=planning.get('selected') or {}
+    if (planning.get('scope')!='AI_GENERATION_ONLY' or assessment.get('status')!='ANALYTIC_UNVALIDATED' or
+        packet.get('route_status')!='NOT_ROUTED_NOT_VALIDATED' or packet.get('validation') or packet.get('attempts')):
+        raise ValueError('No uncommitted analytic route provenance is available')
+    original=Design.model_validate(packet['design'])
+    if revision(design)!=revision(original):
+        raise ValueError('Draft changed after generation; existing user choices and geometry are retained. Use explicit Reroute for reviewed nets.')
+    if any(f.route_net or f.frozen_net for f in design.features) or any(n.routing!='automatic' or n.route_state!='unresolved' for n in design.nets):
+        raise ValueError('Recovery cannot release manual, frozen or committed machining')
+    selections=assessment.get('selected') or {}
+    released={n.id:n.routing_variant for n in design.nets if n.routing_variant}
+    if not released or any(selections.get(name)!=variant for name,variant in released.items()):
+        raise ValueError('Routing variants are not proven analytic samples; explicit user variants are retained')
+    result=design.model_copy(deep=True)
+    for net in result.nets:
+        if net.id in released:net.routing_variant=None
+    return dict(design=result.model_dump(),source_revision=revision(design),released_variants=released,
+        status='UNCOMMITTED_ANALYTIC_SAMPLES_RELEASED',
+        message='Recovered copy: automatic routing may search globally. Source geometry and original generation are unchanged; no validation approval is implied.')

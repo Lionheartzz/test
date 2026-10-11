@@ -357,16 +357,29 @@ export function aiGeneration(ctx, {open, back, session, refreshTask, watchJob, o
   }
 
   function showPacket(packet){
+    ++screen;
     open('AI Design · Generated manifold draft');content.classList.add('ai-content');
     content.append(element('h3',packet.status==='draft'?'Your editable manifold draft':'Generation needs review'),element('p',packet.message||packet.status));
     if(packet.design){
+      const analyticSamples=packet.layout_planning?.scope==='AI_GENERATION_ONLY'&&packet.layout_planning?.selected?.status==='ANALYTIC_UNVALIDATED'
+        &&packet.design.nets?.some(n=>n.routing_variant);
+      if(analyticSamples){
+        content.append(element('p','This historical draft contains fixed analytic samples. Recover an unchanged copy to let automatic routing search alternatives. The original generation stays unchanged.','review-warning'));
+        const recover=action(content,'Recover automatic route search',safe(async()=>{
+          const token=screen;recover.disabled=true;
+          try{const result=await post(`/api/ai-design/tasks/${packet.task_id}/generations/${packet.id}/recover-analytic-routes`,packet.design);
+            if(token!==screen||!here())return;
+            showPacket({...packet,design:result.design,recovered_analytic_samples:true,message:result.message});
+          }finally{recover.disabled=false;}
+        }));
+      }
       const material=packet.engineering_defaults?.material;
       if(material)content.append(element('p',(material.automatic?'Automatically proposed material: ':'Engineering material: ')+(material.material||'Unresolved')+'. '+material.reason,'property-note'));
       if(packet.validation)content.append(element('p',`Exact report: ${packet.validation.counts.PASS} PASS · ${packet.validation.counts.WARNING} WARNING · ${packet.validation.counts.FAIL} FAIL. Geometry failures: ${packet.geometry_failures}.`,'ai-summary'));
       else content.append(element('p','Initial project ready · not routed or validated. Open it in Model to start the shared route proposal. You can edit and Save Draft while routing runs.','ai-summary'));
       content.append(element('p','The draft preserves all failed checks and open engineering decisions. Opening it does not mark it approved. Move, replace, reroute, save, then Validate in the normal Studio.','ai-provider-note'));
       action(content,'Open draft in Manifold Studio',safe(async()=>{const handoff=await inspectGeneratedDraft(packet,post);if(newProject(handoff.design,handoff.definitions,handoff.threads)){$('workflow-dialog').close();ctx.notice('AI Draft opened. Review the linked analysis and engineering decisions, then Save Project or Validate.');}})).classList.add('primary');
-      const a=element('a','Download draft project JSON');a.href=`/api/ai-design/tasks/${packet.task_id}/generations/${packet.id}/project`;a.className='download';content.append(a);
+      const a=element('a','Download draft project JSON');a.href=`/api/ai-design/tasks/${packet.task_id}/generations/${packet.id}/project${packet.recovered_analytic_samples?'?release_analytic_samples=true':''}`;a.className='download';content.append(a);
       for(const attempt of packet.attempts){content.append(element('p',`Candidate ${attempt.index+1}: ${attempt.error||`${attempt.geometry_failures} geometry failures · ${attempt.counts.FAIL} total FAIL · ${(attempt.failed_rules||[]).join(', ')||'no failed rules'}`}`));}
       if(packet.validation){const failures=element('details');failures.append(element('summary','Inspect retained exact validation failures'));for(const check of packet.validation.checks.filter(c=>c.status==='FAIL'))failures.append(element('p',`${check.rule} · ${check.items.join(', ')} · ${check.message} · Actual: ${check.actual??'unavailable'} · Required: ${check.required??'review engineering definition'}`));content.append(failures);}
     }

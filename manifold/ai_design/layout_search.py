@@ -169,11 +169,20 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         clear, rejected, seen = [], [], set()
         # Same 32 analytic samples and eight retained choices as the previous
         # AI screen. Round-robin axes/entries before the next junction anchor.
-        choices = itertools.islice(itertools.product(('negative', 'nearest', 'positive'), ('yxz', 'xyz', 'yzx', 'xzy'), positions), 32)
-        for entry, order, x in choices:
-            z = junction_z[name] if isinstance(junction_z,dict) else junction_z
-            key = f'branch_{mask}_{x:.6f}_{lanes[name]:.6f}_{z:.6f}:{order}:{entry}'
-            route = route_from_variant(source, net, key, definitions, threads, modifiers, obstruction_cache=snapshot.obstructions)
+        from ..branch_candidates import terminal_branch_candidates
+        def custom():
+            for entry,order,x in itertools.product(('negative','nearest','positive'),('yxz','xyz','yzx','xzy'),positions):
+                z=junction_z[name] if isinstance(junction_z,dict) else junction_z
+                key=f'branch_{mask}_{x:.6f}_{lanes[name]:.6f}_{z:.6f}:{order}:{entry}'
+                yield key,route_from_variant(source,net,key,definitions,threads,modifiers,obstruction_cache=snapshot.obstructions)
+        def strategies():
+            common=iter(terminal_branch_candidates(source,net,definitions,threads,modifiers,snapshot.obstructions))
+            for i,option in enumerate(custom()):
+                if i%2==0:
+                    try:yield next(common)
+                    except StopIteration:pass
+                yield option
+        for key,route in itertools.islice(strategies(),32):
             if route is None:
                 continue
             signature = tuple((f.face, f.u, f.v, f.depth, f.diameter, f.plugged) for f in route)
@@ -189,7 +198,7 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         clear.sort(key=lambda o: (route_objective(source, o['route'], definitions=definitions), o['key']))
         groups = defaultdict(list)
         for o in clear:
-            groups[(o['key'].split('_')[2],o['key'].split(':')[1][0])].append(o)
+            groups[(o['key'].startswith('window:'),o['key'].split('_')[2],o['key'].rsplit(':',2)[1][0])].append(o)
         kept = []
         while groups and len(kept) < 8:
             for group in list(groups):
@@ -239,6 +248,120 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         combination=combination, witnesses=list(witnesses.values()), drillings=len(route), plugs=sum(f.plugged for f in route))
 
 
+def _scout(entry,definitions,threads,modifiers):
+    """One regenerated hypothesis, not a second global/Exact layout search."""
+    from ..routing import route_from_variant,route_obstructions,_conflict_objective,_fixed_strategy_source
+    from ..branch_candidates import terminal_branch_candidates
+    target,lanes,z=entry['candidate'];source=_fixed_strategy_source(target.model_copy(deep=True))
+    routes={};missing=[];cache={}
+    for net in source.nets:
+        key=entry['parent'].get('selected',{}).get(net.id)
+        if key and key.startswith(('branch_','window:branch_')):
+            trunk,order,side=key.rsplit(':',2);tokens=trunk.split('_')
+            tokens[3]=f'{lanes[net.id]:.6f}';tokens[4]=f'{(z[net.id] if isinstance(z,dict) else z):.6f}'
+            key='_'.join(tokens)+':'+order+':'+side
+            route=route_from_variant(source,net,key,definitions,threads,modifiers,obstruction_cache=cache)
+        else:
+            option=next(iter(terminal_branch_candidates(source,net,definitions,threads,modifiers,cache)),None)
+            route=option[1] if option else None
+        if route:routes[net.id]=route
+        else:missing.append(net.id)
+    context=source.model_copy(update=dict(features=source.features+[f for r in routes.values() for f in r]))
+    failures={('source_wall',*sorted((f.id,other))) for f in source.features if f.kind in ('cavity','port')
+              for other in placement_conflicts(source,f,definitions,threads,modifiers)}
+    for net in source.nets:
+        if net.id in routes:failures.update(route_obstructions(context,net,routes[net.id],threads,definitions,modifiers,cache))
+    return (len(missing),*_conflict_objective(failures),math.prod(dimensions(target.block)))
+
+
+def _rank_frontier(entries,definitions,threads,modifiers,cache):
+    """Evaluate bounded family representatives before the two-parent beam."""
+    groups=defaultdict(list)
+    for entry in entries:
+        target,lanes,z=entry['candidate']
+        key=(target.model_dump_json(),tuple(sorted(lanes.items())),repr(sorted(z.items())) if isinstance(z,dict) else repr(z))
+        entry={**entry,'signature':key}
+        if any(e['signature']==key for e in groups[entry['family']]):continue
+        groups[entry['family']].append(entry)
+    raw=[]
+    # Two representatives per transformation family; no append-order privilege.
+    for family in groups:groups[family].sort(key=lambda e:(tuple(e['parent']['feasibility_score']),e['signature']))
+    for level in range(2):
+        for family in sorted(groups):
+            if len(groups[family])>level and len(raw)<12:raw.append(groups[family][level])
+    ranked=[]
+    for entry in raw[:12]:
+        key=entry['signature']
+        if key not in cache:cache[key]=_scout(entry,definitions,threads,modifiers)
+        ranked.append({**entry,'scout_score':cache[key]})
+    ranked.sort(key=lambda e:(e['scout_score'],e['family'],e['signature']))
+    if not ranked:return []
+    first=ranked[0]
+    second=next((e for e in ranked[1:] if e['family']!=first['family']),None)
+    if second is None:second=next(iter(ranked[1:]),None)
+    return [first,*([second] if second else [])]
+
+
+def _children(target,definitions,movable,growth_axes,fixed_faces,lanes,z,result):
+    """Conflict-directed proposals owned only by new AI generation."""
+    from ..kinematics import FACE_AXES
+    children=[]
+    def add(family,child,child_lanes=None,planes=None):
+        if _fits(child,definitions):children.append(dict(family=family,parent=result,
+            candidate=(child,child_lanes or lanes.copy(),planes if planes is not None else z)))
+    implicated={n for w in result['witnesses'] for n in w['nets']}|set(result['blocked_nets'])
+    panels=[f for f in target.features if f.kind=='cavity' and f.face in ('front','left') and
+            f.id in movable and _distributed_openings(definitions[f.definition])]
+    for f in panels:
+        if not set(f.circuits.values())&implicated:continue
+        pitch=max((n.diameter for n in target.nets if n.id in f.circuits.values()),default=8)+required_wall(target,f,definitions=definitions)
+        for turn in (90,180):
+            child=target.model_copy(deep=True);item=next(c for c in child.features if c.id==f.id)
+            item.rotation=(item.rotation+turn)%360;add('source-rotation',child)
+        if f.face=='front' and f.id not in fixed_faces and all(p.id not in fixed_faces for p in target.features if p.kind=='port'):
+            child=target.model_copy(deep=True);item=next(c for c in child.features if c.id==f.id)
+            item.face='left';item.u=max(machining_radius(definitions[f.definition])+pitch,min(lanes.values())+pitch)
+            for port in child.features:
+                if port.kind=='port':port.face='right'
+            add('mounting-face',child)
+        for sign in (-1,1):
+            child=target.model_copy(deep=True);item=next(c for c in child.features if c.id==f.id);item.u+=sign*pitch
+            add('source-position',child)
+    pairs=sorted(result['witnesses'],key=lambda w:(-len(w['failures']),w['nets']))[:2]
+    for witness in pairs:
+        for name in witness['nets']:
+            net=next(n for n in target.nets if n.id==name);pitch=net.diameter+required_wall(target,definitions=definitions)
+            for sign in (-1,1):
+                planes=z.copy() if isinstance(z,dict) else dict.fromkeys(lanes,z)
+                planes[name]+=sign*pitch
+                if 0<planes[name]<target.block.height:add('branch-plane',target.model_copy(deep=True),planes=planes)
+            child_lanes=lanes.copy();child_lanes[name]+=pitch
+            child=target.model_copy(deep=True)
+            for port in child.features:
+                if port.kind=='port' and port.circuit==name and port.id in movable:
+                    if FACE_AXES[port.face][0]==1:port.u=child_lanes[name]
+            add('separate-corridors',child,child_lanes)
+        # Relative group separation, with growth only to cover measured source
+        # footprints. Moving a whole block boundary alone is not a repair.
+        a,b=witness['nets'];owners={n:{m.split(':')[0] for m in next(net for net in target.nets if net.id==n).members} for n in (a,b)}
+        group=(owners[a]-owners[b])&movable
+        if group and 1 in growth_axes:
+            child=target.model_copy(deep=True)
+            members=[f for f in child.features if f.id in group and f.kind=='cavity' and f.face in ('top','bottom')]
+            if members:
+                pitch=max(2*machining_radius(definitions[f.definition]) for f in members)+max(n.diameter for n in target.nets)
+                for item in members:item.v+=pitch
+                needed=max(f.v+machining_radius(definitions[f.definition])+required_wall(child,f,definitions=definitions) for f in members)
+                child.block.width=max(child.block.width,math.ceil(needed/5)*5)
+                add('source-group-spacing',child)
+    for port in target.features:
+        if port.kind=='port' and port.circuit in implicated and port.id in movable and port.id not in fixed_faces:
+            child=target.model_copy(deep=True);item=next(f for f in child.features if f.id==port.id)
+            item.face={'left':'right','right':'left','front':'back','back':'front','top':'bottom','bottom':'top'}[item.face]
+            add('port-entry-face',child)
+    return children
+
+
 def plan_new(design, definitions, *, movable_features, growth_axes, fixed_faces=None, progress=None):
     """Only the new AI compiler calls this. Inputs are copied, never mutated."""
     from ..engineering_db import thread_definitions_for_design, modifier_definitions_for_design, tool_definitions
@@ -252,11 +375,13 @@ def plan_new(design, definitions, *, movable_features, growth_axes, fixed_faces=
     def report(index):
         return lambda stage, **detail: progress(stage, layout=index, layout_limit=limit, **detail) if progress else None
     baseline = assess(design, definitions, threads, modifiers, tools, report(1))
-    seed = _columns(design, definitions, movable, growth_axes if grow else (), fixed_faces or design.constraints.required_feature_faces)
+    fixed_routes=any(n.routing_variant or n.route_state not in ('unresolved','proposal') for n in design.nets)
+    seed = None if fixed_routes else _columns(design, definitions, movable, growth_axes if grow else (), fixed_faces or design.constraints.required_feature_faces)
     evaluated, proposals, seen, history = 1, [], set(), []
-    queue = [seed] if seed else []
+    queue = [dict(candidate=seed,family='source-columns',parent=baseline)] if seed else []
+    scout_cache={};frontier_history=[]
     while queue and evaluated < limit:
-        target, lanes, z = queue.pop(0)
+        entry=queue.pop(0);target, lanes, z = entry['candidate']
         signature = (target.model_dump_json(exclude={'nets':{'__all__':{'routing_variant'}}}),tuple(sorted(z.items())) if isinstance(z,dict) else z)
         if signature in seen:
             continue
@@ -265,52 +390,21 @@ def plan_new(design, definitions, *, movable_features, growth_axes, fixed_faces=
         if progress:
             progress('layout_alternate', layout=evaluated, layout_limit=limit)
         result = screen(target, definitions, threads, modifiers, tools, lanes, z, report(evaluated))
-        history.append(dict(layout=evaluated,dimensions=list(dimensions(target.block)),assessment=result))
+        history.append(dict(layout=evaluated,family=entry['family'],dimensions=list(dimensions(target.block)),assessment=result))
         changes = [dict(id=f.id, before=[old.face, old.u, old.v], after=[f.face, f.u, f.v]) for f in target.features
                    for old in design.features if f.id == old.id and (f.face, f.u, f.v) != (old.face, old.u, old.v)]
         if result['score'] < baseline['score']:
-            for net in target.nets:
-                net.routing_variant = result['selected'].get(net.id)
+            # Assessment selections are diagnostics, including incompatible
+            # fallback samples. They grant no pin/commit authority in Model.
             proposals.append(dict(reason='Allocate source columns and coordinated hydraulic corridors', assessment=result,
                 changes=changes, dimensions=list(dimensions(target.block)), design=target.model_dump(), affected_nets=sorted(lanes)))
         if not result['conflicts'] and not result['blocked_nets']:
             break
-        # A progressive child retains ALL previous coordinated moves. Offset
-        # panel approaches using the actual implicated route diameter/wall band;
-        # avoid the old independent single-move-from-baseline search.
-        panels = [f for f in target.features if f.kind == 'cavity' and f.face in ('front','left') and f.id in movable and
-                  _distributed_openings(definitions[f.definition])]
-        implicated = {name for w in result['witnesses'] for name in w['nets']} | set(result['blocked_nets'])
-        for f in sorted(panels, key=lambda f: (not bool(set(f.circuits.values()) & implicated), f.id)):
-            pitch = max((n.diameter for n in target.nets if n.id in f.circuits.values()), default=8)
-            pitch += required_wall(target, f, definitions=definitions)
-            # Rotate the actual offset source pattern to separate coincident
-            # work-port heights. No port number, source offset or net changes.
-            child=target.model_copy(deep=True)
-            item=next(c for c in child.features if c.id==f.id);item.rotation=(item.rotation+90)%360
-            if set(f.circuits.values())&implicated and _fits(child,definitions):
-                queue.append((child,lanes.copy(),z))
-            if f.face=='front' and f.id not in (fixed_faces or {}) and all(p.id not in (fixed_faces or {}) for p in target.features if p.kind=='port'):
-                child=target.model_copy(deep=True)
-                item=next(c for c in child.features if c.id==f.id)
-                item.face='left';item.u=max(machining_radius(definitions[f.definition])+pitch,min(lanes.values())+pitch)
-                for port in child.features:
-                    if port.kind=='port':port.face='right'
-                if _fits(child,definitions):queue.append((child,lanes.copy(),z))
-        if result['witnesses']:
-            name=result['witnesses'][0]['nets'][0]
-            net=next(n for n in target.nets if n.id==name)
-            planes=z.copy() if isinstance(z,dict) else dict.fromkeys(lanes,z)
-            planes[name]+=net.diameter+required_wall(target,definitions=definitions)
-            if 0<planes[name]<target.block.height:
-                queue.append((target.model_copy(deep=True),lanes.copy(),planes))
-        for f in panels:
-            pitch=max((n.diameter for n in target.nets if n.id in f.circuits.values()),default=8)+required_wall(target,f,definitions=definitions)
-            for sign in (-1,1):
-                child=target.model_copy(deep=True);item=next(c for c in child.features if c.id==f.id);item.u+=sign*pitch
-                if _fits(child,definitions):queue.append((child,lanes.copy(),z))
-        # Keep a two-parent beam, rather than multiplying every arrangement.
-        queue = queue[:2]
+        children=_children(target,definitions,movable,growth_axes if grow else (),
+                           fixed_faces or design.constraints.required_feature_faces,lanes,z,result)
+        queue=_rank_frontier(queue+children,definitions,threads,modifiers,scout_cache)
+        frontier_history.append(dict(layout=evaluated,scouted_total=len(scout_cache),
+            selected=[dict(family=e['family'],score=e['scout_score']) for e in queue]))
     proposals.sort(key=lambda p: (p['assessment']['score'], math.prod(p['dimensions'])))
     return dict(source_revision=revision(design), baseline=baseline, proposals=proposals[:3], evaluated_layouts=evaluated,
-                layout_limit=limit, evaluations=history, status='ANALYTIC_LAYOUT_PROPOSALS')
+                layout_limit=limit, evaluations=history, frontier=frontier_history,status='ANALYTIC_LAYOUT_PROPOSALS')
