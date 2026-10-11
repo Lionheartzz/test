@@ -23,7 +23,15 @@ def opening_area(a, b, directions, *, common=None, context=None):
     with cad_operation('opening_area.common_center',context):center=common.Center()
     with cad_operation('opening_area.common_bounds',context):size=common.BoundingBox().DiagonalLength*4+10
     areas = []
+    # Opposite normals define the identical plane through this common centroid.
+    # Evaluate that exact section once; no geometric approximation/tolerance.
+    unique={}
     for direction in directions:
+        vector=tuple(direction)
+        first=next((value for value in vector if value),0)
+        key=tuple(-value for value in vector) if first<0 else vector
+        unique.setdefault(key,vector)
+    for direction in unique.values():
         with cad_operation('opening_area.make_plane',context):plane=cq.Face.makePlane(size,size,center,cq.Vector(*direction))
         section=checked_intersection(common,plane,'opening_area.section_intersection',context)
         state=checked_shape(section,'opening_area.section',context)

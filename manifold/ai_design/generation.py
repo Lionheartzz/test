@@ -271,7 +271,72 @@ def fid(generation_id, key, prefix):
     return prefix + '_' + hashlib.sha256((generation_id + ':' + key).encode()).hexdigest()[:20]
 
 
-def candidate(plan, generation_id, variant):
+def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,progress=None,cancelled=lambda:False):
+    """Generation-local ownership: never called by Model, load or routing.
+
+    No origin flag grants permission. Only the newly compiled candidate below
+    enters this function; linked project geometry is never passed or mutated.
+    The returned draft carries assessment evidence, not future resize authority.
+    """
+    from ..layout import initial_placement
+    from ..layout_planning import plan as layout_plan
+    from ..schema import EngineeringReview
+    names=('length','width','height')
+    # Linked dimensions are engineer-owned preferences, not generated sizes.
+    # Equal/min/max requirements are additionally enforced by the envelope.
+    axes=tuple(i for i,name in enumerate(names) if not (
+        inputs.project_engineering and name not in settings['envelope_axes']) and
+        not (design.constraints.envelope_min and design.constraints.envelope_max and
+             design.constraints.envelope_min[i]==design.constraints.envelope_max[i]))
+    positional={'position','positions','coordinates','location','fixed_position','u','v','x','y','z'}
+    pending=[row for row in settings['dispositions'] if row.get('strength')=='requirement' and
+        row.get('property','').lower() in positional and row.get('status') not in ('applied','resolved')]
+    if pending:
+        settings['layout_planning']=dict(scope='AI_GENERATION_ONLY',status='POSITION_REQUIREMENT_UNRESOLVED',evaluated_layouts=0,
+            message='Explicit positions need an engineering resolution; automatic rearrangement was not authorized.')
+        design.review_items.append(EngineeringReview(id='AI_LAYOUT_POSITION',kind='dimension',subject='project',severity='blocking',
+            description='Explicit feature coordinates could not be compiled. Resolve the retained position requirements before relying on this scaffold; automatic layout adaptation was skipped.'))
+        return design
+    design=initial_placement(design,definitions,plan_routes=False)
+    def update(stage,**detail):
+        if cancelled():raise CalculationError('Draft creation cancelled; analysis retained.',409)
+        if not progress:return
+        labels=dict(access='Checking candidate machining access',conflicts='Screening competing hydraulic circuits',
+                    layout_alternate='Exploring alternative layout and block size')
+        layout,limit=detail['layout'],detail['layout_limit']
+        fraction=detail.get('completed',0)/max(1,detail.get('total',1))
+        progress(dict(message=labels[stage],progress=dict(stage=stage,stage_text=labels[stage],
+            percent=5+75*(layout-1+fraction)/limit,layout=layout,layout_limit=limit,
+            detail=('Net '+detail['net']) if detail.get('net') else 'Analytic layout screening · Exact checks remain required')))
+    try:
+        # Reuse the existing eight-layout proposal bound instead of four CAD
+        # attempts. These are analytic samples from the SAME fixed-geometry
+        # Router; no BRep, connectivity approval or production build occurs here.
+        planned=layout_plan(design,definitions,movable_features=set(feature_map.values()),growth_axes=axes,progress=update)
+    except ValueError as exc:
+        settings['layout_planning']=dict(scope='AI_GENERATION_ONLY',status='ANALYTIC_UNAVAILABLE',evaluated_layouts=0)
+        design.review_items.append(EngineeringReview(id='AI_LAYOUT_ROUTING',kind='connection',subject='project',
+            description=('Analytic layout screening could not complete: '+str(exc)+'. Initial editable draft retained; Exact Preview remains required.')[:2000]))
+        return design
+    selected=planned['proposals'][0] if planned['proposals'] else None
+    assessment=selected['assessment'] if selected else planned['baseline']
+    result=Design.model_validate(selected['design']) if selected else design
+    settings['layout_planning']=dict(scope='AI_GENERATION_ONLY',status='ANALYTIC_UNVALIDATED',
+        source_revision=planned['source_revision'],evaluated_layouts=planned['evaluated_layouts'],layout_limit=planned['layout_limit'],
+        growth_axes=[names[i] for i in axes],before_dimensions=[getattr(design.block,name) for name in names],
+        dimensions=[getattr(result.block,name) for name in names],baseline=planned['baseline'],selected=assessment,
+        reason=selected['reason'] if selected else 'Initial layout retained; bounded samples did not improve engineering screening.')
+    if assessment['blocked_nets'] or assessment['conflicts']:
+        result.review_items.append(EngineeringReview(id='AI_LAYOUT_ROUTING',kind='connection',subject='project',
+            description='Bounded shared-router layout screening still has unresolved machining access or competing circuits. '
+                        'Larger stock alone does not prove source-window access or connectivity. Draft retained; Exact Preview and Validate remain required.'))
+    # Material identity remains selected; do not present the pre-layout size as
+    # the final material/stock proposal or invent a standard blank.
+    settings['material_proposal']['proposed_dimensions']=[getattr(result.block,name) for name in names]
+    return result
+
+
+def candidate(plan, generation_id, variant,*,progress=None,cancelled=lambda:False):
     options, settings, inputs, result = (plan[x] for x in ('options','settings','inputs','result'))
     wall = options.minimum_wall or (inputs.project_engineering.rules.minimum_wall if inputs.project_engineering else None) or 0
     aliases = {}
@@ -453,7 +518,6 @@ def candidate(plan, generation_id, variant):
             members=[terminal_map[p] for p in net['members']],routing='automatic',diameter=diameter,
             flow_lpm=prototype.flow_lpm,pressure_bar=prototype.pressure_bar,velocity_limit=prototype.velocity_limit,drilling_mode=prototype.drilling_mode))
     from ..draft_defaults import apply_draft_defaults
-    from ..layout import initial_placement
     preferred=tuple(getattr(inputs.project_engineering.block,name) if inputs.project_engineering and name not in settings['envelope_axes'] else None for name in ('length','width','height'))
     design,selection=apply_draft_defaults(design,by_definition,
         explicit=settings['material'] if settings['material_source']=='explicit' else None,
@@ -461,12 +525,12 @@ def candidate(plan, generation_id, variant):
         inherited_label=inputs.project_engineering.block.material if inputs.project_engineering and settings['material_source'] is None else None,
         restrictions=settings['material_restrictions'],preferred_dimensions=preferred)
     settings['material_proposal']=selection
-    design=initial_placement(design,by_definition)
+    design=_plan_generated_layout(design,by_definition,settings,inputs,feature_map,progress=progress,cancelled=cancelled)
     return Design.model_validate(design.model_dump()),feature_map,terminal_map
 
 
 def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False):
-    """Compile one normal project. Model owns routing, preview and validation."""
+    """Plan one AI-owned layout; hand off fixed geometry for Model routing."""
     started=time.monotonic()
     record,run,inputs,result=context(key,request.run_id,request.expected_revision)
     service.verified_documents(inputs)
@@ -479,22 +543,26 @@ def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False
     generation_id=uuid.uuid4().hex
     folder=store.OUTPUT/'ai-design'/key/'generations'/generation_id
     folder.mkdir(parents=True,exist_ok=False)
-    design,feature_map,terminal_map=candidate(plan,generation_id,0)
+    def layout_progress(value):
+        value['progress']['elapsed_s']=round(time.monotonic()-started,3)
+        progress(value)
+    design,feature_map,terminal_map=candidate(plan,generation_id,0,progress=layout_progress,cancelled=cancelled)
+    if cancelled():raise CalculationError('Draft creation cancelled; analysis retained.',409)
     from ..schema import DesignOrigin
     design.origin=DesignOrigin(author='PMC AI Design',method='ai-assisted',provider=run['provider']['id'],model=run['provider']['model'],
-        notes='Resolved schematic compiled into an editable project. Shared Model routing and Validate remain explicit engineering operations. '+plan['settings']['material_proposal']['reason'])
+        notes='AI-owned layout screened before handoff. Model owns all subsequent geometry edits; routing and Validate do not redesign it. '+plan['settings']['material_proposal']['reason'])
     store.atomic_json(folder/'authored-draft.json',design.model_dump())
     progress(dict(message='Preparing editable project',progress=dict(stage='finalizing',
         stage_text='Preparing editable project',percent=90,elapsed_s=round(time.monotonic()-started,3))))
     packet=dict(id=generation_id,task_id=key,run_id=run['id'],status='draft',design=design.model_dump(),
-        validation=None,attempts=[],feature_mapping=feature_map,terminal_mapping=terminal_map,
+        validation=None,attempts=[],feature_mapping=feature_map,terminal_mapping=terminal_map,layout_planning=plan['settings']['layout_planning'],
         dispositions=plan['settings']['dispositions'],engineering_defaults=dict(material=plan['settings']['material_proposal'],
             actual_loads_source='explicit_requirements_or_linked_project',pressure_safety_factor=design.rules.pressure_safety_factor,
             velocity_limit=design.project_defaults.velocity_limit,drilling_mode=design.project_defaults.drilling_mode,priority=design.constraints.priority),route_status='NOT_ROUTED_NOT_VALIDATED',
-        message='Editable project created. Open in Model to start the shared routing proposal; edit, Save and Validate there. No layout optimization or CAD validation was performed during draft creation.')
+        message='Editable project created with bounded analytic layout screening. Open in Model for shared routing and Exact checks. Subsequent resizing and placement changes remain user-controlled; this draft is not validated.')
     packet['elapsed_s']=round(time.monotonic()-started,2)
     packet['resource_limits']=dict(total_features=PROJECT_FEATURES,nets=PROJECT_NETS,placement_attempts=1,
-                                  exact_route_attempts_per_placement=0,total_seconds=None)
+                                  analytic_layout_limit=8,exact_route_attempts_per_placement=0,total_seconds=None)
     packet['topology_acceptance']=dict(action='generate',signature=plan['topology_review']['signature'])
     packet.update(created_at=service.now(),provider=run['provider'],input_revision=run['input_revision'],
                   source_task_revision=request.expected_revision,

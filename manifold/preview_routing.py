@@ -1,5 +1,9 @@
 from .engineering_conditions import effective_net
-"""Transient, source-checked incremental proposals. Never used by Validate/Build."""
+"""Transient routing in fixed user geometry. Never used by Validate/Build.
+
+An AI-origin draft in Model has the same ownership as any manual project.
+Preview never invokes the layout planner or changes block/feature placement.
+"""
 from typing import Literal, Annotated
 from pydantic import Field
 from .schema import Design, Strict, Identifier, Circuit, ROUTING_VARIANT_PATTERN

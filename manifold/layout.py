@@ -92,7 +92,7 @@ def propose_dimensions(design,definitions,preferred=None):
     return tuple(sizes)
 
 
-def initial_placement(design,definitions=None):
+def initial_placement(design,definitions=None,*,plan_routes=True):
     """Place a NEW project using fixed faces, source windows and shared nets."""
     from .engineering_db import definitions_for_design
     from .engineering_conditions import required_wall
@@ -194,6 +194,9 @@ def initial_placement(design,definitions=None):
             continue
         port.u,port.v=min(available,key=lambda p:(math.dist(p,preferred),p))
         placed_ports.add(port.id)
+    # AI generation owns its separate bounded planning call before handoff.
+    # Default new/manual creation retains the existing fixed-size behaviour.
+    if not plan_routes:return result
     # Four small analytic layouts at most, using the same source/window/cut
     # semantics as Model. No exact geometry or multi-layout CAD generation.
     from .layout_planning import plan

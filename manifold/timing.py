@@ -39,7 +39,7 @@ def diagnostic(name,value):
     publish()
 
 
-def progress(stage, percent, *, candidate=None, candidate_limit=None):
+def progress(stage, percent, *, candidate=None, candidate_limit=None, routing=None):
     """Coarse actual milestones in the existing trace; never a wall-time percent.
 
     Reserve completion for the API's authoritative commit. Retries retain the
@@ -53,6 +53,7 @@ def progress(stage, percent, *, candidate=None, candidate_limit=None):
     events=_progress.get('events',[])
     if candidate is not None:_progress['candidate']=candidate
     if candidate_limit is not None:_progress['candidate_limit']=candidate_limit
+    if routing is not None:_progress['routing']=dict(routing)
     event=dict(stage=stage,percent=value,elapsed_s=round(time.monotonic()-_started,3),
                candidate=_progress.get('candidate'))
     _progress.update(stage=stage,percent=value,events=(events+[event])[-32:])

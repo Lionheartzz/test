@@ -1,6 +1,10 @@
 from .engineering_conditions import effective_net,required_wall,planning_wall,wall_unresolved
 from .timing import timed,phase
-"""Deterministic orthogonal route proposals. Only the BRep validator grants PASS."""
+"""Route within supplied fixed geometry. Only the BRep validator grants PASS.
+
+Layout/size exploration belongs to AI-owned generation or explicit reviewable
+layout proposals. Neither AI origin nor a route failure grants resize authority.
+"""
 import hashlib
 import itertools
 import math
@@ -1041,6 +1045,18 @@ class _ProposalSnapshot:
         self.pool_diagnostics={};self.combination_diagnostics=[];self.combination_budget={'used':0}
         self.last_connectivity={}
         self.candidate_errors={};self.cad_error_records=[]
+        self.progress_nets={n.id for n in self.source.nets if n.id in automatic and len(n.members)>=2}
+        self.completed_nets=set()
+
+    def route_progress(self,stage,net=None,completed=0,total=0,*,finished=False):
+        """Actual bounded pool work in the existing request-owned trace."""
+        from .timing import progress
+        if finished and net is not None:self.completed_nets.add(net.id)
+        count=len(self.progress_nets)
+        fraction=min(1,completed/max(1,total)) if net is not None and net.id not in self.completed_nets else 0
+        progress(stage,8+32*min(1,(len(self.completed_nets)+fraction)/max(1,count)),routing=dict(
+            net=net.id if net else None,completed_candidates=completed,candidate_limit=total,
+            completed_nets=len(self.completed_nets),net_count=count))
 
     def simplify(self, design, net, route, *, known_failures=None):
         # Generated siblings affect obstruction screening, but not the same-net
@@ -1112,7 +1128,11 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
     signatures={key:'source:'+key for key in nodes}
     directions=dict(source_geometry.placements)
     for feature in route:
-        signature=feature.model_dump_json(exclude={'id','connects_to','schematic_id','machining_id'})
+        # Identity/net ownership are graph labels, not fluid solid geometry.
+        # Keep every effective cut/closure/placement field and the fixed block;
+        # identical machining can reuse its exact measurement across variants.
+        signature=repr(dimensions(design.block))+':'+feature.model_dump_json(
+            exclude={'id','connects_to','schematic_id','machining_id','route_net','frozen_net','circuit'})
         if signature not in cuts:
             candidate=design.model_copy(update=dict(features=[feature],engravings=[],block_modifiers=[]))
             context=dict(scope='candidate',net_id=net.id,node_pair=[feature.id])
@@ -1127,9 +1147,11 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
     graph={key:set() for key in nodes};fluid_graph={key:set() for key in nodes}
     area=required_area(net.flow_lpm,net.velocity_limit) if net.flow_lpm else None
     fluid_contacts=cache.setdefault('fluid_contacts',{})
+    measurements=cache.setdefault('fluid_contact_measurements',{})
     contact_errors=cache.setdefault('fluid_contact_errors',{})
     for a,b in itertools.combinations(nodes,2):
-        key=(tuple(sorted((signatures[a],signatures[b]))),design.rules.minimum_overlap_volume,area)
+        pair=tuple(sorted((signatures[a],signatures[b])))
+        key=(pair,design.rules.minimum_overlap_volume,area)
         context=dict(scope='source' if a in source_keys and b in source_keys else 'candidate',net_id=net.id,node_pair=[a,b])
         if key in contact_errors:
             raise GeometryEvaluationError({**contact_errors[key],**context,'cached_rejection':True})
@@ -1142,11 +1164,23 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
                         checked_shape(nodes[node],'routing.bounds_input',node_context,allow_empty=False)
                         with cad_operation('routing.node_bounds',node_context):box=nodes[node].BoundingBox()
                         bounds[signature]=((box.xmin,box.xmax),(box.ymin,box.ymax),(box.zmin,box.zmax))
-                separated=any(min(x[1],y[1])<=max(x[0],y[0]) for x,y in zip(bounds[signatures[a]],bounds[signatures[b]]))
-                common=None if separated else checked_intersection(nodes[a],nodes[b],'routing.fluid_intersection',context)
-                contact=not separated and solid_volume(common,'routing.common_volume',context)+1e-6>=design.rules.minimum_overlap_volume
-                opening=opening_area(nodes[a],nodes[b],
-                    [directions[node.split(':')[0]]['direction'] for node in (a,b)],common=common,context=context) if contact else 0
+                # Measurements belong to unchanged individual fluid geometry;
+                # flow area and overlap thresholds only decide acceptance.
+                # Different sizing/flow checks reuse the same exact measurement.
+                common=None
+                if pair not in measurements:
+                    separated=any(min(x[1],y[1])<=max(x[0],y[0]) for x,y in zip(bounds[signatures[a]],bounds[signatures[b]]))
+                    common=None if separated else checked_intersection(nodes[a],nodes[b],'routing.fluid_intersection',context)
+                    volume=0 if separated else solid_volume(common,'routing.common_volume',context)
+                    measurements[pair]=(volume,None)
+                volume,opening=measurements[pair]
+                contact=volume>0 and volume+1e-6>=design.rules.minimum_overlap_volume
+                if contact and opening is None:
+                    if common is None:common=checked_intersection(nodes[a],nodes[b],'routing.fluid_intersection',context)
+                    opening=opening_area(nodes[a],nodes[b],
+                        [directions[node.split(':')[0]]['direction'] for node in (a,b)],common=common,context=context)
+                    measurements[pair]=(volume,opening)
+                if not contact:opening=0
             except GeometryEvaluationError as exc:
                 contact_errors[key]=dict(exc.record)
                 raise
@@ -1485,6 +1519,7 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
         from .engineering_db import modifier_definitions_for_design
         modifier_definitions=modifier_definitions_for_design(design) if any(f.machining_modifiers for f in design.features) else {}
     snapshot=snapshot or _ProposalSnapshot(design,definitions,thread_definitions,modifier_definitions)
+    snapshot.route_progress('access',net)
     source=snapshot.source
     catalog_key=(net.model_dump_json(exclude={'routing_variant'}),tuple(net.members),expanded)
     if catalog_key not in snapshot.catalogs:
@@ -1553,10 +1588,12 @@ def route_options(design, net, *, expanded=False, definitions=None,thread_defini
     recover=expanded and not clear and not seed
     shortlist=clear or (_strategy_shortlist(source,options,definitions,limit=16) if recover else [])
     def simplify_options(candidates,recovery):
-        for option in candidates:
+        for index,option in enumerate(candidates):
+            snapshot.route_progress('connectivity',net,index,len(candidates))
             _verify_route_candidate(design,net,option,snapshot,known_failures=None if recovery else set())
             option['connectivity_recovery']=recovery
             option['metrics']=manufacturing_metrics(design,option['route'],option['risk'],definitions)
+            snapshot.route_progress('connectivity',net,index+1,len(candidates))
     if shortlist:
         options=shortlist+[option for option in options if option['hard_failures'] and option not in shortlist]
         simplify_options(shortlist,recover)
@@ -1673,6 +1710,7 @@ def _route_pool(source,net,snapshot,*,expanded=False,strategy_context=None):
             connectivity_candidates=[dict(variant=o['key'],admission=o.get('admission',{}),detail=o['connectivity_detail']) for o in options if 'connectivity_detail' in o],
             rejected_candidates=[dict(variant=o['key'],failures=o.get('conflicts',o.get('source_conflicts',[]))) for o in options if o['hard_failures']][:16],
             rejected_rules=dict(Counter(f[0] for o in options if o['hard_failures'] for f in o.get('conflicts',o.get('source_conflicts',[])))))
+        snapshot.route_progress('connectivity',net,finished=True)
     return deepcopy([o for o in snapshot.pools[key] if _candidate_admitted(o,net)])
 
 
@@ -1832,6 +1870,7 @@ def _complete_route_combination(design, definitions, thread_definitions, modifie
     source=design.model_copy(update=dict(features=[f for f in design.features if f.route_net not in nets]))
     snapshot=snapshot or _ProposalSnapshot(source,definitions,thread_definitions,modifier_definitions)
     pools={name:[o for o in _route_pool(source,net,snapshot) if _candidate_admitted(o,net)][:24] for name,net in sorted(nets.items())}
+    snapshot.route_progress('global_conflicts')
     pair_budget=snapshot.combination_budget
     states=0;best=None;best_key=None;dead_ends=0;budget_blocked=False
     def combination_key(chosen):

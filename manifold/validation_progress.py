@@ -2,6 +2,10 @@
 STAGES={
     'preparing':'Preparing design',
     'routes':'Resolving automatic routes',
+    'access':'Checking candidate machining access',
+    'connectivity':'Verifying hydraulic connectivity',
+    'global_conflicts':'Screening conflicts between hydraulic circuits',
+    'layout_alternate':'Exploring alternative layout and block size',
     'layout':'Arranging engineering components',
     'repair':'Resolving conflicts between hydraulic routes',
     'comparison':'Comparing automatic routes',
@@ -30,6 +34,12 @@ def public_progress(row):
     detail=''
     if candidate:
         detail=f'Route candidate {candidate} of up to {progress.get("candidate_limit",8)}'
+    routing=progress.get('routing',{})
+    if stage in ('access','connectivity','global_conflicts') and routing:
+        detail=(f'Net {routing["net"]} · ' if routing.get('net') else '')
+        if routing.get('candidate_limit'):
+            detail+=f'{routing.get("completed_candidates",0)} of up to {routing["candidate_limit"]} connection checks completed · '
+        detail+=f'{routing.get("completed_nets",0)} of {routing.get("net_count",0)} route pools prepared'
     phase=row.get('phase','')
     # The existing timing stack describes work within coarse milestones. Do not
     # turn repeated Boolean calls or elapsed seconds into a fake percentage.

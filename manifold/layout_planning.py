@@ -6,7 +6,7 @@ The corridor score is evidence for a proposal, never proof of manufacturability.
 import itertools
 import math
 from .engineering_conditions import effective_net,required_wall
-from .kinematics import FACE_AXES,dimensions
+from .kinematics import FACE_AXES,dimensions,pose
 from .layout import machining_radius
 
 
@@ -93,15 +93,17 @@ def routing_gap(design,definitions,face):
     return gap
 
 
-def _catalogs(design,definitions,threads,modifiers,tools):
-    from .routing import propose,obstacle_safe_planes,route_obstructions,segment_depth,port_approach_candidates
+def _catalogs(design,definitions,threads,modifiers,tools,progress=None):
+    from .routing import propose,obstacle_safe_planes,route_obstructions,segment_depth,port_approach_candidates,connection_topology_candidates
     from .cavity_access import cavity_terminal_candidates,axial_route
     from .closure_runtime import bind_route
     source=design.model_copy(deep=True)
     released=_routing_owners(source)
     source.features=[f for f in source.features if f.route_net not in released]
     catalogs={};diagnostics={};cache={}
-    for net in sorted((effective_net(source,n) for n in source.nets if n.id in released),key=lambda n:n.id):
+    nets=sorted((effective_net(source,n) for n in source.nets if n.id in released and len(n.members)>=2),key=lambda n:n.id)
+    for index,net in enumerate(nets):
+        if progress:progress('access',net=net.id,completed=index,total=len(nets))
         if len(net.members)<2:continue
         planes=obstacle_safe_planes(source,net,definitions,threads,modifiers)
         orders=[o for o in itertools.permutations(range(3)) if net.preferred_axis=='auto' or o[0]=='xyz'.index(net.preferred_axis)]
@@ -125,7 +127,10 @@ def _catalogs(design,definitions,threads,modifiers,tools):
             bases=[dict(key=''.join('xyz'[i] for i in o)+':'+entry+':direct',route=propose(source,net,o,entry,definitions=definitions)) for o in orders[:2]]
             bases.extend(dict(key=key,route=route) for key,route in itertools.islice(axial_sample(),2) if route is not None)
             yield from port_approach_candidates(source,net,bases,definitions,threads,modifiers)
-        queues=[iter(direct),iter(detours),iter(axial),iter(port_sample())];raw=[];seen=set();attempted=0;candidate_errors=0
+        def topology_sample():
+            bases=[dict(key=''.join('xyz'[i] for i in o)+':'+entry+':direct',route=propose(source,net,o,entry,definitions=definitions)) for o in orders[:2]]
+            yield from connection_topology_candidates(source,net,bases,definitions,threads,modifiers)
+        queues=[iter(direct),iter(detours),iter(axial),iter(port_sample()),iter(topology_sample())];raw=[];seen=set();attempted=0;candidate_errors=0
         while queues and len(raw)<8 and attempted<32:
             active=[]
             for queue in queues:
@@ -151,9 +156,10 @@ def _catalogs(design,definitions,threads,modifiers,tools):
     return source,catalogs,diagnostics,cache
 
 
-def assess(design,definitions,threads,modifiers,tools):
+def assess(design,definitions,threads,modifiers,tools,progress=None):
     from .routing import route_obstructions,_conflict_objective,route_objective
-    source,pools,diagnostics,cache=_catalogs(design,definitions,threads,modifiers,tools)
+    source,pools,diagnostics,cache=_catalogs(design,definitions,threads,modifiers,tools,progress)
+    if progress:progress('conflicts',completed=len(pools),total=len(pools))
     nets={n.id:effective_net(source,n) for n in source.nets};context=source.model_copy(deep=True)
     selected={};failures=set();blocked=[]
     for name in sorted(pools,key=lambda n:(not bool(diagnostics[n]['source_clear']),diagnostics[n]['source_clear'],-len(nets[n].members),n)):
@@ -174,8 +180,9 @@ def assess(design,definitions,threads,modifiers,tools):
     failures.update(fixed_conflicts)
     route=[f for o in selected.values() for f in o['route']]
     if len(source.features)+len(route)>120:failures.add(('feature_budget',))
-    score=(len(blocked),*_conflict_objective(failures),*route_objective(source,route,definitions=definitions))
-    return dict(score=score,status='ANALYTIC_UNVALIDATED',blocked_nets=blocked,pools=diagnostics,
+    feasibility=(len(blocked),*_conflict_objective(failures))
+    score=(*feasibility,*route_objective(source,route,definitions=definitions))
+    return dict(score=score,feasibility_score=feasibility,status='ANALYTIC_UNVALIDATED',blocked_nets=blocked,pools=diagnostics,
         conflicts=[list(f) for f in sorted(failures)][:64],fixed_conflicts=[list(f) for f in sorted(fixed_conflicts)],
         selected={n:o['key'] for n,o in selected.items()},
         drillings=len(route),plugs=sum(f.plugged for f in route),max_depth=max((f.depth for f in route),default=0),
@@ -192,7 +199,7 @@ def _permissions(design):
     parents={f.parent_id for f in design.features if f.parent_id}
     movable={f.id for f in design.features if not f.suppressed and f.kind in ('cavity','port') and
         not f.parent_id and f.direction is None and f.id not in parents|fixed_refs and not ({f.circuit,*f.circuits.values()}&fixed_nets)}
-    grow=not design.engravings and not design.block_modifiers and all(f.id in movable or f.route_net and f.route_net not in fixed_nets for f in design.features if not f.suppressed)
+    grow=not design.block.stock_id and not design.engravings and not design.block_modifiers and all(f.id in movable or f.route_net and f.route_net not in fixed_nets for f in design.features if not f.suppressed)
     return movable,grow
 
 
@@ -215,10 +222,12 @@ def _fits(design,definitions):
     return True
 
 
-def alternatives(design,definitions,baseline,*,allow_growth=True,evidence=None):
+def alternatives(design,definitions,baseline,*,allow_growth=True,evidence=None,movable_features=None,growth_axes=None):
     """Lazy strategy diversity: swap, port alignment, then a measured extra lane."""
     from .routing import terminal_points
     movable,grow=_permissions(design);by_id={f.id:f for f in design.features}
+    if movable_features is not None:
+        allowed=set(movable_features);grow=grow and movable<=allowed;movable&=allowed
     affected={key for f in baseline['conflicts'] for key in f[1:] if key in by_id}
     affected.update(f.id for f in design.features if set(f.circuits.values())&set(baseline['blocked_nets']))
     exact_affected,contacts,_=_evidence_focus(design,evidence)
@@ -282,21 +291,45 @@ def alternatives(design,definitions,baseline,*,allow_growth=True,evidence=None):
             queues=active
     def growth():
         if not allow_growth or not grow or not (baseline['blocked_nets'] or baseline['conflicts']):return
+        # Missing source data/method or tooling alone cannot justify more stock.
+        spatial={'external_wall','source_protected','source_wall','cross_net_wall','feature_wall','installation_access','plug_cut'}
+        if not exact_affected and not any(row[0] in spatial for row in baseline['conflicts']):return
         dims=dimensions(design.block);upper=design.constraints.envelope_max or (2000,2000,2000)
-        lane=max([routing_gap(design,definitions,face) for face in FACE_AXES]+[n.diameter+design.rules.minimum_access_gap for n in design.nets])
-        for axis in sorted(range(3),key=lambda a:(-sum(FACE_AXES[f.face][2]!=a for f in cavities),a)):
-            # One full additional drilling corridor on each side, in mm. No
-            # percentage enlargement; explicit envelope limits are never changed.
-            delta=2*lane
+        bore=max((effective_net(design,n).diameter for n in design.nets),default=0)
+        wall=max((required_wall(design,f,definitions=definitions) for f in design.features if f.id in movable),default=0)
+        lane=max([routing_gap(design,definitions,face) for face in FACE_AXES]+[bore+wall+design.rules.minimum_access_gap])
+        for axis in (range(3) if growth_axes is None else sorted(set(growth_axes))):
+            # Insert a real lane BETWEEN interface groups, not a uniform
+            # recentering that preserves the colliding routes' relative layout.
+            planar=[f for f in design.features if f.id in movable and FACE_AXES[f.face][2]!=axis]
+            if not planar:continue
+            def coordinate(f):return f.u if FACE_AXES[f.face][0]==axis else f.v
+            coordinates=sorted(set(coordinate(f) for f in planar))
+            focus=[coordinate(f) for f in planar if f.id in affected] or coordinates
+            center=sum(focus)/len(focus)
+            cuts=[(a+b)/2 for a,b in zip(coordinates,coordinates[1:])]
+            cut=min(cuts,key=lambda p:(abs(p-center),p)) if cuts else None
+            shifted={f.id for f in planar if coordinate(f)>cut} if cut is not None else {f.id for f in planar if f.id in affected}
+            if not shifted:continue
+            delta=lane
             if dims[axis]+delta>upper[axis]:continue
             target=design.model_copy(deep=True);setattr(target.block,('length','width','height')[axis],dims[axis]+delta)
+            # No stock SKU or source blank is inferred for expanded dimensions.
+            if target.block.stock_id:continue
             for f in target.features:
-                if f.id not in movable:continue
+                if f.id not in shifted:continue
                 u,v,_,_=FACE_AXES[f.face]
-                if u==axis:f.u+=delta/2
-                if v==axis:f.v+=delta/2
-            yield 'Reserve two additional machining corridors',target
-    queues=([iter(exact_local_moves()),iter(ports())] if exact_affected else [iter(swaps()),iter(ports()),iter(growth())]);seen=set();examined=0
+                if u==axis:f.u+=delta
+                if v==axis:f.v+=delta
+            translations={round(pose(f,target.block)[0][axis]-pose(by_id[f.id],design.block)[0][axis],9)
+                          for f in target.features if f.id in movable}
+            if len(translations)<2:continue  # Uniform translation opens no corridor.
+            yield 'Insert a machining corridor along '+('X','Y','Z')[axis]+' and separate interfaces',target
+    # Exact evidence prioritizes local owners; it does not disable growth.
+    # Round-robin preserves strategy opportunities inside the existing bound.
+    queues=([iter(exact_local_moves()),iter(ports()),iter(growth())] if exact_affected else [iter(swaps()),iter(ports()),iter(growth())])
+    if growth_axes is not None:queues=[queues[2],*queues[:2]]  # Reserve X/Y/Z opportunities in the AI-owned bound.
+    seen=set();examined=0
     while queues and examined<48:
         active=[]
         for queue in queues:
@@ -311,20 +344,28 @@ def alternatives(design,definitions,baseline,*,allow_growth=True,evidence=None):
         queues=active
 
 
-def plan(design,definitions=None,*,initial=False,evidence=None):
+def plan(design,definitions=None,*,initial=False,evidence=None,movable_features=None,growth_axes=None,progress=None):
     from .engineering_db import definitions_for_design,thread_definitions_for_design,modifier_definitions_for_design,tool_definitions
     from .store import revision
     if evidence and evidence.get('source_revision')!=revision(design):evidence=None
     definitions=definitions if definitions is not None else definitions_for_design(design)
     threads=thread_definitions_for_design(design)
     modifiers=modifier_definitions_for_design(design) if any(f.machining_modifiers for f in design.features) else {}
-    tools=tool_definitions('drill');baseline=assess(design,definitions,threads,modifiers,tools)
-    proposals=[];evaluated=1;limit=4 if initial else 8
-    for reason,target in alternatives(design,definitions,baseline,allow_growth=not initial,evidence=evidence):
+    tools=tool_definitions('drill');limit=4 if initial else 8
+    def report(index):
+        def update(stage,**detail):
+            if progress:progress(stage,layout=index,layout_limit=limit,**detail)
+        return update
+    baseline=assess(design,definitions,threads,modifiers,tools,report(1))
+    proposals=[];evaluated=1
+    for reason,target in alternatives(design,definitions,baseline,allow_growth=not initial,evidence=evidence,
+            movable_features=movable_features,growth_axes=growth_axes):
         if evaluated>=limit:break
-        result=assess(target,definitions,threads,modifiers,tools);evaluated+=1
+        if progress:progress('layout_alternate',layout=evaluated+1,layout_limit=limit)
+        result=assess(target,definitions,threads,modifiers,tools,report(evaluated+1));evaluated+=1
         if {tuple(f) for f in result['fixed_conflicts']}-{tuple(f) for f in baseline['fixed_conflicts']}:continue
         if result['score']>=baseline['score']:continue
+        if dimensions(target.block)!=dimensions(design.block) and result['feasibility_score']>=baseline['feasibility_score']:continue
         original={f.id:f for f in design.features};changes=[]
         for f in target.features:
             before=original[f.id]
@@ -341,8 +382,9 @@ def plan(design,definitions=None,*,initial=False,evidence=None):
             affected_nets=sorted(affected),design=target.model_dump()))
     proposals.sort(key=lambda p:(p['assessment']['score'],len(p['changes']),p['reason']))
     movable,grow=_permissions(design)
+    if movable_features is not None:grow=grow and movable<=set(movable_features);movable&=set(movable_features)
     return dict(source_revision=revision(design),status='ANALYTIC_LAYOUT_PROPOSALS',baseline=baseline,evidence=evidence,
         proposals=proposals[:3],evaluated_layouts=evaluated,layout_limit=limit,
-        movable_features=sorted(movable),block_growth_allowed=grow,
+        movable_features=sorted(movable),block_growth_allowed=grow and not initial and growth_axes!=(),
         message=('Saved Exact contact and unresolved terminals prioritized these local proposals. ' if evidence else '')+
             'Review proposed changes before applying. Analytic corridor samples do not prove physical infeasibility or exact safety. Exact Preview and Validate remain required.')
