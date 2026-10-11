@@ -21,6 +21,7 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
         from .preview_routing import PreviewRequest,resolve_preview
         request=PreviewRequest.model_validate(payload) if 'design' in payload else PreviewRequest(design=Design.model_validate(payload))
         design=request.design
+        timing.diagnostic('request_source',dict(source_revision=store.revision(design),operation=operation))
         timing.progress('routes',8)
         resolved,routes,update=resolve_preview(request)
         proposal=dict(design=resolved.model_dump(),routes=routes,routing_update=update,
@@ -174,8 +175,19 @@ def run(work,bootstrap_s=None):
             temp.write_text(json.dumps(result),encoding='utf-8');temp.replace(work/'proposal.json')
         with timing.phase('operation.'+request['operation']):result=dispatch(request['operation'],request['payload'],completed,proposal,exact_not_before=request.get('exact_not_before'))
     except Exception as exc:
-        result=dict(error=str(exc)[:2000] or type(exc).__name__,status=422)
-    timing.progress('finalizing',99)
+        import traceback
+        source=timing.summary().get('diagnostics',{}).get('request_source',[])
+        detail=dict(getattr(exc,'record',{}))
+        detail.setdefault('phase','operation.'+request['operation'])
+        detail.setdefault('cad_operation',None)
+        detail.setdefault('exception_type',type(exc).__name__)
+        detail.setdefault('source_revision',source[-1].get('source_revision') if source else None)
+        if not detail.get('traceback'):detail['traceback']=(''.join(traceback.format_tb(exc.__traceback__,limit=16))+type(exc).__name__)[-12000:]
+        timing.diagnostic('worker_failure',detail)
+        message=getattr(exc,'public_message',None) or (
+            'CAD geometry could not be evaluated. Inspect local calculation diagnostics.' if isinstance(exc,ValueError) and str(exc)=='Null TopoDS_Shape object' else str(exc)[:2000] or type(exc).__name__)
+        result=dict(error=message,status=422)
+    if 'error' not in result:timing.progress('finalizing',99)
     with timing.phase('result.serialization'):
         temp=work/'result.tmp';temp.write_text(json.dumps(result),encoding='utf-8');temp.replace(work/'result.json')
         # Small, separate protocol status lets the API return large preview JSON

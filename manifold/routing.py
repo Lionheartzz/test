@@ -1040,6 +1040,7 @@ class _ProposalSnapshot:
         self.pools={};self.pair_failures={};self.repair_states={};self.repair_diagnostics=[]
         self.pool_diagnostics={};self.combination_diagnostics=[];self.combination_budget={'used':0}
         self.last_connectivity={}
+        self.candidate_errors={};self.cad_error_records=[]
 
     def simplify(self, design, net, route, *, known_failures=None):
         # Generated siblings affect obstruction screening, but not the same-net
@@ -1052,7 +1053,13 @@ class _ProposalSnapshot:
             if self.pruning_geometry is None:
                 from .geometry import feature_geometry
                 from types import SimpleNamespace
-                _,nodes,circuits,_,_,placements,_=feature_geometry(self.source,self.definitions,self.threads,self.modifiers)
+                from .cad_geometry import cad_operation,require_fluid_solid
+                context=dict(scope='source',net_id=net.id,source_features=[f.id for f in self.source.features][:16])
+                with cad_operation('geometry.feature_geometry.source',context):
+                    source_cuts,nodes,circuits,_,_,placements,_=feature_geometry(self.source,self.definitions,self.threads,self.modifiers)
+                for label,items in (('cut',source_cuts),('node',nodes)):
+                    for node,shape in items.items():
+                        require_fluid_solid(shape,'routing.source_'+label,dict(context,node_pair=[node]))
                 self.pruning_geometry=SimpleNamespace(nodes=nodes,circuits=circuits,placements=placements)
             detail={}
             result,connected=simplify_generated_route(design,net,route,source_geometry=self.pruning_geometry,
@@ -1071,12 +1078,20 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
     """Prune only proven redundant automatic cuts using exact fluid-node contacts."""
     from .geometry import build_geometry,feature_geometry
     from .flow import required_area, opening_area
+    from .cad_geometry import cad_operation,require_fluid_solid,checked_shape,checked_intersection,solid_volume,GeometryEvaluationError
     if source_geometry is None:
         source=design.model_copy(update=dict(features=[f for f in design.features if f.route_net!=net.id]))
-        source_geometry=build_geometry(source,definitions,thread_definitions,modifier_definitions)
+        with cad_operation('routing.source_geometry',dict(scope='source',net_id=net.id)):
+            source_geometry=build_geometry(source,definitions,thread_definitions,modifier_definitions)
     cache=cache if cache is not None else {}
     cuts=cache.setdefault('cuts',{});bounds=cache.setdefault('bounds',{})
     nodes={key:shape for key,shape in source_geometry.nodes.items() if source_geometry.circuits[key]==net.id}
+    source_keys=set(nodes)
+    validated=cache.setdefault('validated_fluid_nodes',set())
+    for node,shape in nodes.items():
+        if 'source:'+node not in validated:
+            require_fluid_solid(shape,'routing.source_node',dict(scope='source',net_id=net.id,node_pair=[node]))
+            validated.add('source:'+node)
     required=set(net.members)
     protected=required|{access.id for access in net.construction_access}
     for feature in design.features:
@@ -1100,7 +1115,10 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
         signature=feature.model_dump_json(exclude={'id','connects_to','schematic_id','machining_id'})
         if signature not in cuts:
             candidate=design.model_copy(update=dict(features=[feature],engravings=[],block_modifiers=[]))
-            _,fluid,_,_,_,placements,_=feature_geometry(candidate,definitions,thread_definitions or {},modifier_definitions or {})
+            context=dict(scope='candidate',net_id=net.id,node_pair=[feature.id])
+            with cad_operation('geometry.feature_geometry.generated',context):
+                _,fluid,_,_,_,placements,_=feature_geometry(candidate,definitions,thread_definitions or {},modifier_definitions or {})
+            require_fluid_solid(fluid[feature.id],'routing.generated_node',context)
             cuts[signature]=(fluid[feature.id],placements[feature.id])
         nodes[feature.id],directions[feature.id]=cuts[signature]
         signatures[feature.id]=signature
@@ -1109,19 +1127,29 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
     graph={key:set() for key in nodes};fluid_graph={key:set() for key in nodes}
     area=required_area(net.flow_lpm,net.velocity_limit) if net.flow_lpm else None
     fluid_contacts=cache.setdefault('fluid_contacts',{})
+    contact_errors=cache.setdefault('fluid_contact_errors',{})
     for a,b in itertools.combinations(nodes,2):
         key=(tuple(sorted((signatures[a],signatures[b]))),design.rules.minimum_overlap_volume,area)
+        context=dict(scope='source' if a in source_keys and b in source_keys else 'candidate',net_id=net.id,node_pair=[a,b])
+        if key in contact_errors:
+            raise GeometryEvaluationError({**contact_errors[key],**context,'cached_rejection':True})
         if key not in fluid_contacts:
-            for node in (a,b):
-                signature=signatures[node]
-                if signature not in bounds:
-                    box=nodes[node].BoundingBox()
-                    bounds[signature]=((box.xmin,box.xmax),(box.ymin,box.ymax),(box.zmin,box.zmax))
-            separated=any(min(x[1],y[1])<=max(x[0],y[0])
-                          for x,y in zip(bounds[signatures[a]],bounds[signatures[b]]))
-            contact=not separated and nodes[a].intersect(nodes[b]).Volume()+1e-6>=design.rules.minimum_overlap_volume
-            opening=opening_area(nodes[a],nodes[b],
-                [directions[node.split(':')[0]]['direction'] for node in (a,b)]) if contact else 0
+            try:
+                for node in (a,b):
+                    signature=signatures[node]
+                    if signature not in bounds:
+                        node_context=dict(scope='source' if node in source_keys else 'candidate',net_id=net.id,node_pair=[node])
+                        checked_shape(nodes[node],'routing.bounds_input',node_context,allow_empty=False)
+                        with cad_operation('routing.node_bounds',node_context):box=nodes[node].BoundingBox()
+                        bounds[signature]=((box.xmin,box.xmax),(box.ymin,box.ymax),(box.zmin,box.zmax))
+                separated=any(min(x[1],y[1])<=max(x[0],y[0]) for x,y in zip(bounds[signatures[a]],bounds[signatures[b]]))
+                common=None if separated else checked_intersection(nodes[a],nodes[b],'routing.fluid_intersection',context)
+                contact=not separated and solid_volume(common,'routing.common_volume',context)+1e-6>=design.rules.minimum_overlap_volume
+                opening=opening_area(nodes[a],nodes[b],
+                    [directions[node.split(':')[0]]['direction'] for node in (a,b)],common=common,context=context) if contact else 0
+            except GeometryEvaluationError as exc:
+                contact_errors[key]=dict(exc.record)
+                raise
             # Finite tip overlap still requires a real positive opening. With
             # unknown flow there is no invented flow/velocity area requirement.
             physical=contact and opening>1e-6
@@ -1213,6 +1241,39 @@ def simplify_generated_route(design, net, route, *, source_geometry=None, defini
 
 
 def _verify_route_candidate(design,net,option,snapshot,*,known_failures=None):
+    """Reject recoverable generated-candidate CAD failures, never source failures."""
+    from .cad_geometry import cad_operation,GeometryEvaluationError
+    from copy import deepcopy
+    from .timing import diagnostic
+    if option.get('cad_geometry_error'):return False
+    context=dict(scope='candidate',net_id=net.id,candidate_variant=option['key'])
+    key=(effective_net(design,net).model_dump_json(),tuple(_feature_key(f) for f in option['route']))
+    try:
+        if key in snapshot.candidate_errors:
+            raise GeometryEvaluationError({**snapshot.candidate_errors[key],**context,'cached_rejection':True})
+        with cad_operation('routing.verify_candidate',context):
+            return _verify_route_candidate_impl(design,net,option,snapshot,known_failures=known_failures)
+    except GeometryEvaluationError as exc:
+        exc.record.setdefault('net_id',net.id);exc.record.setdefault('candidate_variant',option['key'])
+        if exc.record.get('scope')=='source':
+            diagnostic('cad_source_error',exc.record)
+            raise
+        record=deepcopy(exc.record);record.update(context)
+        snapshot.candidate_errors[key]=record
+        snapshot.cad_error_records=(snapshot.cad_error_records+[{k:v for k,v in record.items() if k!='traceback'}])[-32:]
+        diagnostic('cad_candidate_error',record)
+        # Do not pass a potentially malformed generated cut to production CAD.
+        # Other candidates continue; only this rejected candidate loses its cuts.
+        option.update(route=[],connection_verified=False,cad_geometry_error=record,
+            admission=dict(source_obstruction_safe=None,fluid_connectivity_verified=False,all_fluid_nodes_connected=False,
+                           flow_opening_adequate=None,full_engineering_validation_passed=None),
+            connectivity_detail=dict(connected=False,missing_required=list(net.members),cad_geometry_error={k:v for k,v in record.items() if k!='traceback'}),
+            conflicts=[['candidate_geometry_error',net.id],['connectivity',net.id]],hard_failures=2,risk=0,cost=0)
+        option.pop('_connectivity_geometry',None);option.pop('_connectivity_conditions',None)
+        return False
+
+
+def _verify_route_candidate_impl(design,net,option,snapshot,*,known_failures=None):
     """Independent source, fluid, optional flow, and full-validation facts.
 
     This gate uses cached individual BReps, never a full production build. It is
@@ -1608,6 +1669,7 @@ def _route_pool(source,net,snapshot,*,expanded=False,strategy_context=None):
         snapshot.pools[key]=sorted(usable,key=lambda o:(route_objective(source,o['route'],o['risk'],snapshot.definitions),o['key']))
         from collections import Counter
         snapshot.pool_diagnostics[net.id]=dict(retained_clear=len(usable),considered=len(options),
+            geometry_errors=[r for r in snapshot.cad_error_records if r['net_id']==net.id][-8:],
             connectivity_candidates=[dict(variant=o['key'],admission=o.get('admission',{}),detail=o['connectivity_detail']) for o in options if 'connectivity_detail' in o],
             rejected_candidates=[dict(variant=o['key'],failures=o.get('conflicts',o.get('source_conflicts',[]))) for o in options if o['hard_failures']][:16],
             rejected_rules=dict(Counter(f[0] for o in options if o['hard_failures'] for f in o.get('conflicts',o.get('source_conflicts',[])))))
@@ -2071,7 +2133,9 @@ def _resolve_proposals(design, *, snapshots=None):
             pool=snapshot.pool_diagnostics.get(n.id,{})
             search=snapshot.combination_diagnostics[-1] if snapshot.combination_diagnostics else {}
             repair=snapshot.repair_diagnostics[-1] if snapshot.repair_diagnostics else {}
-            cause=('No source-safe connected route remains in the retained candidate families. Review layout alternatives; source access or candidate coverage is limiting.'
+            cause=('Some routing candidates could not be evaluated by CAD. Inspect local calculation diagnostics; no connected route was accepted.'
+                   if pool.get('retained_clear')==0 and pool.get('geometry_errors') else
+                   'No source-safe connected route remains in the retained candidate families. Review layout alternatives; source access or candidate coverage is limiting.'
                    if pool.get('retained_clear')==0 else
                    'The bounded route search exhausted its '+('pair' if 'pair_budget' in (search.get('exit_reason'),repair.get('exit_reason')) else 'state')+' budget. Review layout alternatives or reroute after adjustment.'
                    if any(r in ('pair_budget','state_budget') for r in (search.get('exit_reason'),repair.get('exit_reason'))) else
