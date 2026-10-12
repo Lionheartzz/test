@@ -83,8 +83,74 @@ def _translated(design,group,axis,delta,domain,definitions):
     return target
 
 
-def measured_actions(design,assessment,definitions,domain,threads,modifiers):
-    from .design_space import signature,source_conflicts
+def exact_witnesses(design,failures,definitions,threads,modifiers):
+    """Keep Exact attribution, not a guessed topology diagnosis or CAD repair."""
+    nets={n.id:n for n in design.nets};sources={f.id:f for f in design.features if not f.route_net}
+    constraints=[];diagnostics={}
+    for failure in failures:
+        rule=failure.get('rule') if isinstance(failure,dict) else failure[0]
+        items=failure.get('items',[]) if isinstance(failure,dict) else failure[1:]
+        ids={str(v).split(':')[0] for v in items}
+        cuts=[f for f in design.features if f.route_net and (f.id in ids or f.route_net in ids)]
+        for a,b in itertools.combinations(cuts,2):
+            if a.route_net!=b.route_net:
+                constraints.append(dict(nets=[a.route_net,b.route_net],failures=[failure],
+                    features=[a.model_dump(mode='json'),b.model_dump(mode='json')],
+                    evidence='EXACT_REJECTION',rule=rule,exact_verified=False))
+        for bore in cuts:
+            for key in ids&sources.keys():
+                # Only recognized source-machining rules supply protected-cut
+                # witnesses. Other engineering failures remain explicit review.
+                mapping={'cavity_protected_region':'source_protected','cavity_wall':'source_wall',
+                         'source_wall':'source_wall','source_protected':'source_protected'}
+                if rule not in mapping:continue
+                diagnostics.setdefault(bore.route_net,dict(rejected_samples=[]))['rejected_samples'].append(
+                    dict(variant='exact-rejected',features=[bore.model_dump(mode='json')],
+                         failures=[(mapping[rule],key,bore.id)]))
+    return constraints,obstruction_witnesses(design,nets,diagnostics,definitions,threads,modifiers)
+
+
+def _joint_translation(design,group,opponents,axis,delta,domain,definitions,threads,modifiers):
+    """Expand a motion cluster by actual source collisions, with finite closure.
+
+    If moving a group hits another movable installation, move it jointly. A
+    fixed source or an opposing terminal stops this action, never relaxes it.
+    """
+    from .design_space import source_conflicts
+    group=set(group)
+    while group:
+        target=_translated(design,group,axis,delta,domain,definitions)
+        if target is None or not domain.accepts(design,target):return None,group
+        clashes=source_conflicts(target,definitions,threads,modifiers,domain._placement_cache)
+        if not clashes:return target,group
+        additions={owner for pair in clashes if set(pair)&group for owner in pair}-group
+        if not additions or additions&set(opponents) or not additions<=domain.movable:return None,group
+        group.update(additions)
+    return None,group
+
+
+def _dilated(design,axis,split,amount,domain):
+    """Insert measured stock space and move the sources on its far side.
+
+    Opposite-face sources follow their boundary. Unowned/fixed coordinates are
+    checked by LayoutDomain, so this cannot stretch a saved Model design.
+    """
+    if axis not in domain.dimension_axes:return None
+    target=design.model_copy(deep=True)
+    value=dimensions(design.block)[axis]+amount
+    if value>(design.constraints.envelope_max or (2000,)*3)[axis]:return None
+    setattr(target.block,('length','width','height')[axis],value)
+    for old,f in zip(design.features,target.features):
+        u,v,normal,_=FACE_AXES[f.face]
+        if axis!=normal and pose(old,design.block)[0][axis]>split:
+            if f.id not in domain.movable:return None
+            field='u' if u==axis else 'v'
+            setattr(f,field,getattr(f,field)+amount)
+    return target if domain.accepts(design,target) else None
+
+
+def _measured_actions(design,assessment,definitions,domain,threads,modifiers):
+    from .design_space import signature,source_conflicts,fit_violations
     nets={n.id:n for n in design.nets};by_id={f.id:f for f in design.features};seen=set()
     def emit(target,reason):
         if target is None:return None
@@ -92,7 +158,7 @@ def measured_actions(design,assessment,definitions,domain,threads,modifiers):
         if key in seen or not domain.accepts(design,target):return None
         seen.add(key)
         # This is a cheap SOURCE check, never route or engineering approval.
-        if source_conflicts(target,definitions,threads,modifiers,domain._placement_cache):return None
+        if fit_violations(target,definitions,domain) or source_conflicts(target,definitions,threads,modifiers,domain._placement_cache):return None
         return 'feedback-machining-separation',target,reason
     # The best rejected strategy's full cuts locate the specific blocked entry,
     # source seat or plug. Separate one measured boundary instead of a blind pitch.
@@ -123,7 +189,8 @@ def measured_actions(design,assessment,definitions,domain,threads,modifiers):
     # Cross-Net cut witnesses provide a separating plane for the exclusive
     # terminal group. Shared owners cannot be assigned contradictory motions.
     from ..routing import _manufacturing_cuts
-    for witness in assessment.get('witnesses',[]):
+    witnesses=assessment.get('coordination_constraints',assessment.get('witnesses',[]))
+    for witness in witnesses:
         bores=[Feature.model_validate(f) for f in witness.get('features',[])]
         for a,b in itertools.combinations(bores,2):
             if a.route_net==b.route_net or a.route_net not in nets or b.route_net not in nets:continue
@@ -133,12 +200,29 @@ def measured_actions(design,assessment,definitions,domain,threads,modifiers):
             wall=required_wall(design,a,b,definitions=definitions)+.01
             emitted_owners=set()
             for ra,rb in itertools.product(ab,bb):
+                if any(min(x[1],y[1])+wall<max(x[0],y[0]) for x,y in zip(ra,rb)):continue
+                contact=[(max(x[0],y[0])+min(x[1],y[1]))/2 for x,y in zip(ra,rb)]
                 for axis in range(3):
-                    for delta in (rb[axis][0]-wall-ra[axis][1],rb[axis][1]+wall-ra[axis][0]):
-                        group=(oa-ob)&domain.movable
-                        result=emit(_translated(design,group,axis,delta,domain,definitions),
-                            dict(nets=[a.route_net,b.route_net],rule='cross_net_wall',drillings=[a.id,b.id],
-                                 owners=sorted(group),axis=axis,delta_mm=delta,measured_clearance_mm=wall,requires_route_regeneration=True))
+                    for group,opponents,own,other in ((oa-ob,ob,ra,rb),(ob-oa,oa,rb,ra)):
+                        # Do not translate only the unlocked half of a Net and
+                        # pretend that its entire machining corridor moved.
+                        if not group or not group<=domain.movable:continue
+                        for delta in (other[axis][0]-wall-own[axis][1],other[axis][1]+wall-own[axis][0]):
+                            target,moving=_joint_translation(design,group,opponents,axis,delta,domain,definitions,threads,modifiers)
+                            result=emit(target,dict(nets=[a.route_net,b.route_net],rule='cross_net_wall',drillings=[a.id,b.id],
+                                owners=sorted(moving),axis=axis,delta_mm=delta,contact_location=contact,
+                                joint_motion=len(moving)>1,measured_clearance_mm=wall,requires_route_regeneration=True))
+                            if result:yield result
+                    # A measured separating interval can require more stock,
+                    # and movement of several sources on both circuits. Insert
+                    # that space at actual source events, not a fixed lane pitch.
+                    points=sorted({pose(by_id[o],design.block)[0][axis] for o in oa|ob if o in by_id})
+                    amount=min(abs(rb[axis][0]-wall-ra[axis][1]),abs(rb[axis][1]+wall-ra[axis][0]))
+                    for x,y in zip(points,points[1:]):
+                        target=_dilated(design,axis,(x+y)/2,amount,domain)
+                        result=emit(target,dict(nets=[a.route_net,b.route_net],rule='machining_corridor_space',
+                            drillings=[a.id,b.id],axis=axis,inserted_space_mm=amount,split=(x+y)/2,
+                            contact_location=contact,requires_route_regeneration=True))
                         if result:yield result
                 # Both circuits may use the SAME components. An exclusive-Net
                 # translation then has an empty owner set; ignoring that case
@@ -146,7 +230,9 @@ def measured_actions(design,assessment,definitions,domain,threads,modifiers):
                 # Move/reorient a supporting source, preserving all its actual
                 # window offsets and other Net assignments.
                 for axis in set(range(3))-{FACE_AXES[a.face][2],FACE_AXES[b.face][2]}:
-                    gap=(a.diameter+b.diameter)/2+wall
+                    # Use the actual intersecting complete-cut boundaries,
+                    # including entry/plug cuts, rather than nominal bore pitch.
+                    deltas=(rb[axis][0]-wall-ra[axis][1],rb[axis][1]+wall-ra[axis][0])
                     for owner in sorted((oa|ob)&domain.movable):
                         if (owner,axis) in emitted_owners:continue
                         emitted_owners.add((owner,axis));feature=by_id[owner]
@@ -158,9 +244,67 @@ def measured_actions(design,assessment,definitions,domain,threads,modifiers):
                             margin=radius(probe,definitions)+required_wall(design,probe,definitions=definitions)
                             probe.u=max(margin,min(sizes[u]-margin,probe.u));probe.v=max(margin,min(sizes[v]-margin,probe.v))
                             context=design.model_copy(update=dict(features=[probe if f.id==owner else f for f in design.features]))
-                            for delta in (-gap,gap):
+                            for delta in deltas:
                                 result=emit(_translated(context,{owner},axis,delta,domain,definitions),
                                     dict(nets=[a.route_net,b.route_net],rule='cross_net_wall',drillings=[a.id,b.id],
                                          owners=[owner],axis=axis,delta_mm=delta,from_face=feature.face,to_face=face,
                                          shared_interface=owner in oa&ob,requires_route_regeneration=True))
                                 if result:yield result
+                            # Reorient asymmetric source windows, then align the
+                            # actual window centres with their other terminals.
+                            from .design_space import anchored
+                            for trial in itertools.islice(anchored(design,feature,definitions,domain,threads,modifiers),len(FACE_AXES)*4):
+                                if trial.face==feature.face and trial.rotation==feature.rotation:continue
+                                target=design.model_copy(update=dict(features=[trial if f.id==owner else f for f in design.features]))
+                                result=emit(target,dict(nets=[a.route_net,b.route_net],rule='window_orientation',owners=[owner],
+                                    drillings=[a.id,b.id],from_face=feature.face,to_face=trial.face,
+                                    rotation=trial.rotation,requires_route_regeneration=True))
+                                if result:yield result
+
+
+def _combined_actions(design,witnesses,definitions,domain,threads,modifiers):
+    """Intersect signed separating constraints for an entire moving group."""
+    from ..routing import _manufacturing_cuts
+    from .design_space import source_conflicts,fit_violations
+    nets={n.id:n for n in design.nets};moves={}
+    for witness in witnesses:
+        bores=[Feature.model_validate(f) for f in witness.get('features',[])]
+        for a,b in itertools.combinations(bores,2):
+            if a.route_net==b.route_net or a.route_net not in nets or b.route_net not in nets:continue
+            oa={m.split(':')[0] for m in nets[a.route_net].members};ob={m.split(':')[0] for m in nets[b.route_net].members}
+            wall=required_wall(design,a,b,definitions=definitions)+.01
+            for ca,cb in itertools.product(_manufacturing_cuts(a,definitions,threads,modifiers),_manufacturing_cuts(b,definitions,threads,modifiers)):
+                ra,rb=_box(design,ca),_box(design,cb)
+                if any(min(x[1],y[1])+wall<max(x[0],y[0]) for x,y in zip(ra,rb)):continue
+                for owners,opponents,own,other in ((oa-ob,ob,ra,rb),(ob-oa,oa,rb,ra)):
+                    if not owners or not owners<=domain.movable:continue
+                    for axis in range(3):
+                        for delta in (other[axis][0]-wall-own[axis][1],other[axis][1]+wall-own[axis][0]):
+                            key=(tuple(sorted(owners)),axis,delta>0)
+                            state=moves.setdefault(key,dict(delta=delta,opponents=set(),pairs=set(),nets=set()))
+                            if abs(delta)>abs(state['delta']):state['delta']=delta
+                            state['opponents'].update(opponents);state['pairs'].add((a.id,b.id));state['nets'].update(witness['nets'])
+    for (owners,axis,_),state in sorted(moves.items(),key=lambda r:(-len(r[1]['pairs']),abs(r[1]['delta']))):
+        target,moving=_joint_translation(design,owners,state['opponents'],axis,state['delta'],domain,definitions,threads,modifiers)
+        if target is None or fit_violations(target,definitions,domain) or source_conflicts(target,definitions,threads,modifiers,domain._placement_cache):continue
+        yield 'feedback-machining-separation',target,dict(nets=sorted(state['nets']),rule='combined_machining_constraints',
+            owners=sorted(moving),axis=axis,delta_mm=state['delta'],drilling_pairs=sorted(state['pairs']),
+            joint_motion=len(moving)>1,requires_route_regeneration=True)
+
+
+def measured_actions(design,assessment,definitions,domain,threads,modifiers):
+    """Interleave actual constraint families; one witness cannot starve others."""
+    from .design_space import signature
+    witnesses=assessment.get('coordination_constraints',assessment.get('witnesses',[]))
+    queues=[iter(_combined_actions(design,witnesses,definitions,domain,threads,modifiers))]
+    queues.append(iter(_measured_actions(design,dict(spatial_feedback=assessment.get('spatial_feedback',[])),definitions,domain,threads,modifiers)))
+    queues.extend(iter(_measured_actions(design,dict(coordination_constraints=[w]),definitions,domain,threads,modifiers)) for w in witnesses)
+    seen={signature(design)}
+    while queues:
+        active=[]
+        for queue in queues:
+            try:action=next(queue);active.append(queue)
+            except StopIteration:continue
+            key=signature(action[1])
+            if key not in seen:seen.add(key);yield action
+        queues=active

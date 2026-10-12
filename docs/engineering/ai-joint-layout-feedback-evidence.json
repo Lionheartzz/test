@@ -1,0 +1,32 @@
+{
+  "starting_head": "ba8d3ddf2275168629f35dcf79a137ce4572fbeb",
+  "scope": "NEW_AI_GENERATE_ONLY",
+  "case": "Generic two-network full machining conflict; fixed faces, movable terminal pairs and height",
+  "default_router_candidate_generation": true,
+  "compatible_networks_before": 1,
+  "compatible_networks_after": 2,
+  "required_networks": 2,
+  "dimensions_before_mm": [100, 100, 20],
+  "dimensions_after_mm": [100, 100, 28.01],
+  "elapsed_s": 2.891,
+  "layout_evaluations": 8,
+  "transforms": 31,
+  "exact_attempts": 1,
+  "validation": {"PASS": 93, "WARNING": 0, "FAIL": 0},
+  "brep": {"valid": true, "solids": 1},
+  "step": {"valid": true, "solids": 1, "volume_delta_mm3": 0},
+  "input_unchanged": true,
+  "verification": {
+    "feedback_coordination_and_routing": {"passed": 20},
+    "selected_ownership_boundaries": {"passed": 3},
+    "python_syntax": "PASS",
+    "diff_check": "PASS",
+    "eight_valve_rerun": false,
+    "paid_ai_calls": 0
+  },
+  "active_db_sha256_unchanged": "1e3267bd6a6271cf819b5181ed52eae55ab8b8b54a4a48ce45cc277175d7daa2",
+  "saved_projects_unchanged": 9,
+  "original_eight_valve_sha256_unchanged": "d347a81a002b8f4cd1384359c4c77f71795b22571062940fedb2b1798d41823e",
+  "local_evidence": "output/runtime-checks/joint-feedback-20261012/default-search/",
+  "acceptance_limit": "QA geometry only. No assertion of eight-valve feasibility or vendor certification."
+}

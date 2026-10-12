@@ -155,12 +155,25 @@ class Session:
         from ..engineering_conditions import effective_net
         geometries={(n,geometry_key(o['route'])) for n,o in chosen.items()}
         clear_pairs=[p for p,failures in self.pair_evidence.items() if not failures and all(k in geometries for k in p)]
-        self.combinations.append(dict(source_context=self.context,clear_pairs=clear_pairs,
-            terminals={n:terminal_key(source,effective_net(source,next(k for k in source.nets if k.id==n))) for n in chosen},chosen=chosen))
-        self.combinations=sorted(self.combinations,key=lambda r:-len(r['chosen']))[:max(4,len(source.nets))]
+        terminals={n:terminal_key(source,effective_net(source,next(k for k in source.nets if k.id==n))) for n in chosen}
+        identity=lambda r:(tuple(sorted(r['terminals'].items())),
+                           tuple(sorted((n,geometry_key(o['route'])) for n,o in r['chosen'].items())))
+        record=dict(source_context=self.context,clear_pairs=clear_pairs,terminals=terminals,chosen=chosen)
+        self.combinations=[r for r in self.combinations if identity(r)!=identity(record)]+[record]
+        # Repeatedly remembering one core must not evict all alternative
+        # assignments. Round-robin covered-Net sets, then actual cut geometry.
+        groups=defaultdict(deque)
+        for r in sorted(self.combinations,key=lambda r:-len(r['chosen'])):groups[tuple(sorted(r['chosen']))].append(r)
+        kept=[]
+        while groups and len(kept)<max(4,len(source.nets)):
+            for key in list(groups):
+                kept.append(groups[key].popleft())
+                if not groups[key]:del groups[key]
+                if len(kept)>=max(4,len(source.nets)):break
+        self.combinations=kept
 
     def compatible_core(self,source,nets,pair):
-        best={};discarded=set();checked=0
+        best={};discarded=set();checked=0;valid=[]
         for record in self.combinations:
             kept={}
             for name,old in record['chosen'].items():
@@ -170,6 +183,8 @@ class Session:
                     checked+=len(kept)
                     if all(not pair(name,option,n,p) for n,p in kept.items()):kept[name]=option
             if len(kept)>len(best):best=kept
+            if kept:valid.append(kept)
+        self.validated_cores=valid
         self.core_checks=dict(source_context=self.context,source_changed=self.invalidated,
             checked_pairs=checked,discarded_changed_terminals=sorted(discarded),retained_nets=sorted(best),exact_verified=False)
         return best

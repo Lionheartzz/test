@@ -246,7 +246,8 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         preserved=route_session.compatible_core(source,nets,pair)
         pools={n:c.active(width=len(c.clear)) for n,c in route_session.catalogs.items()}
         work=dict(states=0,limit=1000)
-        partial,joint=coordinate(route_session,source,nets,pools,pair,preserved,work,labels=corridor_labels)
+        partial,joint=coordinate(route_session,source,nets,pools,pair,preserved,work,labels=corridor_labels,
+                                 fragments=bool(corridor_labels))
         joint['core_validation']=route_session.core_checks
         chosen=partial if len(partial)==len(nets) else None
         combination=dict(states=work['states'],state_limit=1000,pair_screens=snapshot.combination_budget['used'],pair_limit=4000,
@@ -278,14 +279,37 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         for name in sorted(nets,key=lambda n:(len(pools[n]),n)):
             chosen[name]=min(pools[name],key=lambda o:(sum(len(pair(name,o,k,p)) for k,p in chosen.items()),
                 route_objective(source,o['route'],definitions=definitions),o['key']))
-    route = [f for o in (chosen or {}).values() for f in o['route']]
+    diagnostic = chosen if not compatible else {}
     if not general_families:partial={}
     if not compatible and not general_families:
         for name in sorted(nets,key=lambda n:(len(pools[n]),n)):
             for option in sorted(pools[name],key=lambda o:route_objective(source,o['route'],definitions=definitions)):
                 if all(not pair(name,option,other,previous) for other,previous in partial.items()):
                     partial[name]=option;break
-    if general_families:route_session.remember(source,chosen if compatible else partial)
+    if compatible:partial=chosen
+    if general_families:route_session.remember(source,partial)
+    route = [f for o in partial.values() for f in o['route']]
+    # Attribute insertion failures against the FINAL compatible core. Earlier
+    # CSP witnesses can describe displaced assignments, not this layout state.
+    constraints=[];deferred_constraints=[]
+    if general_families and not compatible:
+        for name in sorted(set(nets)-set(partial)):
+            arrangements={}
+            for option in pools[name]:
+                blockers={n:sorted(pair(name,option,n,p)) for n,p in partial.items() if pair(name,option,n,p)}
+                if any(f[0]=='search_budget' for rows in blockers.values() for f in rows):
+                    deferred_constraints.append(dict(net=name,candidate=option['key'],reason='PAIR_SCREEN_BUDGET'))
+                    continue
+                implicated={v for rows in blockers.values() for failure in rows for v in failure[1:]}
+                token=(tuple(sorted(blockers)),tuple(sorted((f.face,f.u,f.v,f.depth) for f in option['route'] if f.id in implicated)))
+                if token in arrangements:continue
+                arrangements[token]=True
+                for other,failures in blockers.items():
+                    ids={v for f in failures for v in f[1:]}
+                    constraints.append(dict(nets=[name,other],missing_net=name,candidate=option['key'],
+                        retained_candidate=partial[other]['key'],failures=failures,
+                        features=[f.model_dump(mode='json') for f in option['route']+partial[other]['route'] if f.id in ids],
+                        evidence='CURRENT_COMPATIBLE_CORE_INSERTION',exact_verified=False))
     source_ids={f.id for f in source.features}
     from .route_feedback import obstruction_witnesses
     # Once a Net has clear source approaches, its rejected alternatives are
@@ -299,13 +323,18 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         for name in nets if not pools[name] or not compatible and name not in partial]
     from ..routing import _conflict_objective
     failures=set(fixed)
-    if chosen and not compatible:
-        for a,b in itertools.combinations(chosen,2):failures.update(pair(a,chosen[a],b,chosen[b]))
+    diagnostic_failures=set()
+    if diagnostic:
+        for a,b in itertools.combinations(diagnostic,2):diagnostic_failures.update(pair(a,diagnostic[a],b,diagnostic[b]))
     if not compatible:failures.add(('route_combination',combination['exit_reason']))
-    feasibility = (len(blocked), *_conflict_objective(failures))
+    unresolved=sorted(set(nets)-set(partial))
+    feasibility = (len(unresolved), *_conflict_objective(failures))
     return dict(status='ANALYTIC_UNVALIDATED', score=(*feasibility, *route_objective(source, route, definitions=definitions)),
         feasibility_score=feasibility, blocked_nets=blocked, compatible=compatible, conflicts=sorted(failures),
-        fixed_conflicts=fixed, selected={n: o['key'] for n, o in (chosen or {}).items()}, pools=diagnostics,
+        fixed_conflicts=fixed, selected={n:o['key'] for n,o in partial.items()}, pools=diagnostics,
+        unresolved_nets=unresolved,coordination_constraints=constraints,deferred_constraints=deferred_constraints,
+        diagnostic_combination=dict(status='INCOMPATIBLE_DIAGNOSTIC_ONLY',
+            selected={n:o['key'] for n,o in (diagnostic or {}).items()},conflicts=sorted(diagnostic_failures)),
         combination=combination,joint_coordination=joint,corridor_planning=corridor,witnesses=list(witnesses.values()), drillings=len(route), plugs=sum(f.plugged for f in route),
         layout_feedback=feedback,spatial_feedback=spatial,partial_routing=dict(status='ANALYTIC_PARTIAL_NOT_EXACT',nets=sorted(partial),
             features=[f.model_dump(mode='json') for o in partial.values() for f in o['route']],connection_verified=False),

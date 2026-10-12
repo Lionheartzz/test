@@ -238,13 +238,15 @@ def corridor_alternatives(source,net,bases,reserved,definitions,threads,modifier
         queues=active
 
 
-def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0):
+def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=True):
     """Preserve a compatible core; repair missing Nets, then their blockers."""
     overall=work['limit'];work['limit']=min(overall,work['states']+max(32,overall//3))
     best,events,conflicts=improve(source,nets,pools,pair,seed,work)
     work['limit']=overall
     start=len(seed);samples=0;generation=[];seen=set();pending=deque();core_states={fingerprint(best):best}
-    advanced=bool(labels or len(seed)>=max(1,len(nets)-2))
+    for core in getattr(session,'validated_cores',[]):
+        if len(core)>=len(best)-1 and len(core_states)<max(4,len(nets)):core_states.setdefault(fingerprint(core),core)
+    advanced=bool(fragments and (labels or len(seed)>=max(1,len(nets)-2)))
     if len(best)>start:events.append(dict(action='EXTEND_FROM_EXISTING_POOLS',before=start,after=len(best),nets=sorted(best)))
     def jobs(core):
         for name in sorted(set(nets)-set(core),key=lambda n:(len(pools.get(n,[])),n)):
@@ -282,7 +284,8 @@ def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0):
         if token in core_states or len(core_states)>=max(4,len(nets)):continue
         core_states[token]=core;session.seed_combination(source,core)
         events.append(dict(action='REPLAY_ALTERNATIVE_CORE',inserted=name,released=sorted(blockers),compatible_nets=sorted(core)))
-    for core in sorted(core_states.values(),key=lambda c:-len(c)):pending.extend(jobs(core))
+    if fragments:
+        for core in sorted(core_states.values(),key=lambda c:-len(c)):pending.extend(jobs(core))
     probes=0;duplicates=0;probe_limit=max(1,session.remaining)*4
     while pending and session.remaining and work['states']<work['limit'] and len(best)<len(nets) and probes<probe_limit:
         name,outside,iterator,core=pending.popleft()

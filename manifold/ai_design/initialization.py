@@ -149,6 +149,8 @@ def route_feedback(design,assessment,definitions,domain,threads,modifiers):
     from .route_feedback import measured_actions
     yield from measured_actions(design,assessment,definitions,domain,threads,modifiers)
     failed=set(assessment.get('blocked_nets',[]))
+    failed.update(assessment.get('unresolved_nets',[]))
+    failed.update(n for w in assessment.get('coordination_constraints',[]) for n in w['nets'])
     failed.update(row['net'] for row in assessment.get('layout_feedback',[]))
     owners={m.split(':')[0] for n in design.nets if n.id in failed for m in n.members}
     owners.update(k for row in assessment.get('layout_feedback',[]) for k in row.get('source_blockers',[]))
