@@ -92,6 +92,9 @@ def refresh_conditions(design,net_ids,resize_ids=()):
     tools=None
     for net in result.nets:
         if net.id not in net_ids or net.routing!='automatic' or net.route_state=='unresolved':continue
+        if net.route_state in ('committed','stale'):
+            net.route_state='stale';net.route_issue=f'Route {net.id} retained after condition changes. Explicitly Reroute to change its machining.'
+            continue
         previous=[f for f in result.features if f.route_net==net.id]
         if not previous:continue
         context=resolve_parents(result);current=effective_net(context,net)

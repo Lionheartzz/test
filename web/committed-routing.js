@@ -16,6 +16,10 @@ export function routingEdit(before,after,edit){
   for(const net of after.nets||[]){
     const old=previous.get(net.id);
     if(automatic.has(net.id)&&old&&signature(old.construction_access)!==signature(net.construction_access)){
+      if(['committed','stale'].includes(old.route_state)){
+        net.route_state='stale';net.route_issue=`Route ${net.id} retained. Reroute to apply changed construction accesses.`;
+        return {kind:'none',immediate:true};
+      }
       net.route_state='unresolved';net.route_issue='';net.routing_variant=null;
       return {kind:'global',immediate:true};
     }
@@ -42,7 +46,11 @@ export function routingEdit(before,after,edit){
   for(const f of before.features)if(!after.features.some(row=>row.id===f.id))changed.add(f.id);
   const blockChanged=before.block.length!==after.block.length||before.block.width!==after.block.width||before.block.height!==after.block.height;
   const affected=new Set(blockChanged?[...automatic]:[...featureNetDependencies(before,[...changed]),...featureNetDependencies(after,[...changed])]);
-  for(const n of after.nets||[])if(automatic.has(n.id)&&affected.has(n.id)){n.route_state='unresolved';n.route_issue='';n.routing_variant=null;}
+  for(const n of after.nets||[])if(automatic.has(n.id)&&affected.has(n.id)){
+    if(['committed','stale'].includes(previous.get(n.id)?.route_state)){
+      n.route_state='stale';n.route_issue=`Route ${n.id} retained after geometry edits. Reroute to change its machining.`;
+    }else{n.route_state='unresolved';n.route_issue='';n.routing_variant=null;}
+  }
   return edit.kind==='local'?{...edit,feature_ids:[...changed]}:{kind:'global',immediate:edit.immediate};
 }
 

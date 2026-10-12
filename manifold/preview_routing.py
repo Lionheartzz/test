@@ -62,6 +62,9 @@ def _routing_state(design, moved=()):
 def _seed_routes(request):
     context=request.context;design=request.design
     if context is None or context.edit.kind=='global' or request.scope!=context.scope:return None
+    # Mixed ownership must use the shared fixed-cut path. A pending neighbour
+    # does not release an already committed/stale route for incremental edits.
+    if any(n.routing=='automatic' and n.route_state in ('committed','stale') for n in design.nets):return None
     from .store import revision
     if revision(context.source)!=context.source_revision:return None
     changed=set(context.edit.feature_ids)
@@ -209,7 +212,12 @@ def resolve_preview(request):
                     _verify_route_candidate(target,net,option,snapshot,known_failures=set())
                 options=sorted(sized,key=lambda o:(o['hard_failures'],route_objective(target,o['route'],o['risk'],definitions),o['key']))
             if not options or options[0]['hard_failures'] or not _candidate_admitted(options[0],effective):
-                return None,selected,blockers(options,target,net)
+                from .drilling_planner import plan_net
+                planned,detail=plan_net(target,effective,definitions,threads,modifiers,label_limit=1024,cache=snapshot.obstructions,tools=tools)
+                for item in planned:_verify_route_candidate(target,effective,item,snapshot)
+                clear=[item for item in planned if _candidate_admitted(item,effective)]
+                if clear:options=sorted(clear,key=lambda item:(route_objective(target,item['route'],definitions=definitions),item['key']))
+                else:return None,selected,blockers(options,target,net)
             option=options[0];selected[net.id]=option
             if option.get('tool_sizing'):net.diameter=option['tool_sizing']['diameter_mm']
             target.features.extend(option['route'])
@@ -253,8 +261,9 @@ def resolve_preview(request):
         if net.id not in automatic:continue
         route=[f for f in target.features if f.route_net==net.id]
         option=selected.get(net.id)
-        if option:net.route_state='proposal';net.route_issue='';net.routing_variant=option['key']
-        routes.append(dict(net=net.id,variant=option['key'] if option else 'retained',
+        if option:net.route_state='proposal';net.route_issue='';net.routing_variant=None if option.get('planner')=='corridor3d' else option['key']
+        routes.append(dict(net=net.id,variant=net.routing_variant if option else 'retained',
+            planner=option.get('planner') if option else None,candidate_id=option.get('candidate_id') if option else None,
             drillings=len(route),plugs=sum(f.plugged for f in route),
             objective=route_objective(target,route,definitions=definitions),
             pruned_drillings=option.get('pruned_ids',[]) if option else [],

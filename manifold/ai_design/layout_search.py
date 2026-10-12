@@ -224,6 +224,12 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         progress('conflicts', completed=len(nets), total=len(nets))
     chosen, combination = select_route_combination(source, nets, pools, definitions, pair,
         pair_count=lambda: snapshot.combination_budget['used'])
+    corridor=None
+    if chosen is None and nets:
+        from ..drilling_planner import coordinate_routes
+        planned,corridor=coordinate_routes(source,list(nets.values()),definitions,threads,modifiers,
+            label_limit=128,label_total_limit=1024,state_limit=16,pair_limit=256,exact_connectivity=False)
+        if planned:chosen=planned
     fixed = sorted({('source_wall', *sorted((f.id, other))) for f in source.features if f.kind in ('port', 'cavity')
                     for other in placement_conflicts(source, f, definitions, threads, modifiers)})
     blocked = sorted(name for name in nets if not pools[name])
@@ -245,7 +251,7 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
     return dict(status='ANALYTIC_UNVALIDATED', score=(*feasibility, *route_objective(source, route, definitions=definitions)),
         feasibility_score=feasibility, blocked_nets=blocked, compatible=compatible, conflicts=sorted(failures),
         fixed_conflicts=fixed, selected={n: o['key'] for n, o in (chosen or {}).items()}, pools=diagnostics,
-        combination=combination, witnesses=list(witnesses.values()), drillings=len(route), plugs=sum(f.plugged for f in route))
+        combination=combination,corridor_planning=corridor,witnesses=list(witnesses.values()), drillings=len(route), plugs=sum(f.plugged for f in route))
 
 
 def _scout(entry,definitions,threads,modifiers):

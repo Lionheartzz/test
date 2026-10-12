@@ -46,7 +46,10 @@ export function createPreviewRoutingState(){
     accept(proposal,authored,scope,currentAuthored=authored){
       if(!proposal?.source_revision||!proposal.design)return clear();
       const variants=seed?.scope===scope?{...seed.variants}:{};
-      for(const route of proposal.routes||[])if(route.variant&&route.variant!=='retained')variants[route.net]=route.variant;
+      for(const route of proposal.routes||[]){
+        if(route.planner==='corridor3d')delete variants[route.net];
+        else if(route.variant&&route.variant!=='retained')variants[route.net]=route.variant;
+      }
       seed={scope,source:clone(authored),source_revision:proposal.source_revision,proposal:clone(proposal.design),variants};
       lastSignature=signature(currentAuthored);pending={kind:'none',feature_ids:[]};reason='matching current proposal';
     },

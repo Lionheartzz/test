@@ -38,7 +38,7 @@ test('global rules, project switch, stale display, and unexplained edits invalid
 });
 
 test('streamed proposal starts promptly; only exact work receives idle delay, with immutable context',async()=>{
-  assert.equal(EXACT_PREVIEW_IDLE_MS,1500);assert.equal(EXACT_PREVIEW_CLIENT_TIMEOUT_MS,185000);
+  assert.equal(EXACT_PREVIEW_IDLE_MS,1500);assert.equal(EXACT_PREVIEW_CLIENT_TIMEOUT_MS,null);
   const calls=[],fast=[],status=[];
   const queue=createPreviewQueue({delay:5,exactDelay:100,stream:(d,o)=>new Promise(resolve=>calls.push({d,o,resolve})),
     post:()=>{throw Error('No second route resolution');},onFast:p=>fast.push(p),onExact:()=>{},onStatus:s=>status.push(s),onError:e=>{throw e;},cancelRemote:()=>{}});
