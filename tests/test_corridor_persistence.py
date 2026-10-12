@@ -31,9 +31,11 @@ from pathlib import Path
 from manifold.schema import Design
 from manifold import routing,drilling_planner,store
 from manifold.cad_worker import dispatch
+from manifold.ai_design import joint_layout,generation,initialization
 def forbidden(*a,**k):raise AssertionError('Save/Reload/Validate/Build must not search')
 for name in ('resolve_design','_resolve_proposals','route_options','_complete_route_combination'):setattr(routing,name,forbidden)
 drilling_planner.plan_net=forbidden;drilling_planner.coordinate_routes=forbidden
+joint_layout.optimize=forbidden;generation.candidate=forbidden;initialization.initial_candidates=forbidden
 d=Design.model_validate_json(Path(sys.argv[1]).read_text());before=d.model_dump_json()
 checked=dispatch('validate',d.model_dump())
 assert checked['report']['counts']['FAIL']==0,checked['report']
@@ -106,3 +108,25 @@ def test_pending_neighbour_does_not_release_committed_route(monkeypatch):
     assert [f.model_dump_json() for f in target.features if f.route_net=='P']==saved_cuts
     assert next(n for n in target.nets if n.id=='P').route_state=='stale'
     assert update['recomputed']==['T'] and update['retained']==['P']
+
+
+def test_model_preview_and_route_optimization_never_enter_ai_layout_even_for_ai_origin(monkeypatch,tmp_path):
+    from manifold.ai_design import joint_layout,generation,initialization
+    from manifold.preview_routing import PreviewRequest,resolve_preview
+    from manifold.optimization import search_routes
+    from manifold.schema import Design
+    d=crossing();chosen,detail=coordinate_routes(d,d.nets,{}, {}, {},label_limit=256)
+    current,_=materialized_proposal(d,chosen,detail)
+    current.origin.method='ai-assisted'
+    for n in current.nets:n.route_state='committed'
+    before=current.model_dump_json();roots=[f.model_dump_json() for f in current.features if not f.route_net]
+    def forbidden(*args,**kwargs):raise AssertionError('Normal Model cannot invoke AI layout adaptation')
+    monkeypatch.setattr(joint_layout,'optimize',forbidden);monkeypatch.setattr(generation,'candidate',forbidden)
+    monkeypatch.setattr(initialization,'initial_candidates',forbidden);monkeypatch.setattr(store,'OUTPUT',tmp_path)
+    preview,_,update=resolve_preview(PreviewRequest(design=current))
+    assert preview.block==current.block and [f.model_dump_json() for f in preview.features if not f.route_net]==roots
+    result=search_routes(current,max_attempts=2);target=Design.model_validate(result['design'])
+    assert result['final']['FAIL']==0 and target.block==current.block
+    assert [f.model_dump_json() for f in target.features if not f.route_net]==roots
+    assert current.model_dump_json()==before
+    (tmp_path/'manual-isolation.json').write_text(json.dumps(dict(result=result,preview_update=update,source_unchanged=True),indent=2),encoding='utf-8')

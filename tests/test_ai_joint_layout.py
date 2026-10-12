@@ -111,6 +111,10 @@ def test_rotates_actual_offset_windows_to_separate_two_hydraulic_nets(monkeypatc
         fixed_positions=positions,layout_limit=12,exact_limit=2,evidence_dir=tmp_path)
     selected=accepted(result,tmp_path)
     assert next(f for f in selected.features if f.id=='CV').rotation!=0
+    # Real K scenario: the first layout is Exact-feasible; a later route fails
+    # positive source connectivity. Selection must retain the feasible layout.
+    assert any(a['status']=='EXACT_FEASIBLE' for a in result['attempts'])
+    assert any(a['status'].endswith('REJECTED') for a in result['attempts'])
 
 
 def test_fixed_height_requires_a_different_permitted_cavity_face(monkeypatch,tmp_path):
@@ -166,3 +170,70 @@ def test_real_worker_rejection_retains_connection_evidence_instead_of_transport_
     from manifold.ai_design.generation import _attempt_summary
     summary=_attempt_summary(dict(index=0,layout_index=0,**result),{'connected_interface'})
     assert summary['error'] and summary['counts'] is None and summary['geometry_failures'] is None
+
+
+def test_fixed_mounting_preserves_its_cut_but_allows_unrelated_stock_growth(monkeypatch,tmp_path):
+    local_exact(monkeypatch);d=crossed_layout(small=True);defs=definitions()
+    from manifold.schema import Feature
+    mount=Feature(id='FIXED_MOUNT',kind='mounting',face='top',u=10,v=10,diameter=5,depth=8)
+    d.features.append(mount);before=d.model_dump_json()
+    owned={f.id for f in d.features if f.kind in ('cavity','port')}
+    result=layout_search.plan_new(d,defs,movable_features=owned,growth_axes=(0,),fixed_faces={f.id:f.face for f in d.features},
+        fixed_positions={f.id:dict(u=f.u,v=f.v) for f in d.features if f.kind=='port'},layout_limit=20,exact_limit=2,evidence_dir=tmp_path)
+    target=accepted(result,tmp_path)
+    assert target.block.length>40 and target.block.width==target.block.height==40
+    assert next(f for f in target.features if f.id==mount.id)==mount and d.model_dump_json()==before
+    assert result['domain']['dimension_axes']==[0]
+
+
+def test_explicit_source_positions_faces_and_stock_stay_fixed_in_real_acceptance(monkeypatch,tmp_path):
+    local_exact(monkeypatch)
+    d=Design(name='QA fixed authored intent in new AI candidate',block=dict(length=100,width=80,height=90,material='QA'),
+        rules=dict(minimum_wall=2),features=[dict(id='P'+face,kind='port',face=face,u=30,v=50,diameter=12,depth=16,
+        tip_angle=180,circuit='P',clearance_diameter=14,clearance_height=1) for face in ('left','right')],
+        nets=[dict(id='P',routing='automatic',diameter=8)],constraints=dict(envelope_min=[100,80,90],envelope_max=[100,80,90]))
+    before=d.model_dump_json();owned={f.id for f in d.features}
+    result=layout_search.plan_new(d,{},movable_features=owned,fixed_faces={f.id:f.face for f in d.features},
+        fixed_positions={f.id:dict(u=f.u,v=f.v) for f in d.features},fixed_rotations={f.id:f.rotation for f in d.features},
+        layout_limit=4,exact_limit=2,evidence_dir=tmp_path)
+    target=accepted(result,tmp_path)
+    assert target.block==d.block and all(next(f for f in target.features if f.id==s.id)==s for s in d.features)
+    assert d.model_dump_json()==before
+
+
+def test_three_overlapping_connected_sources_require_coordinated_relocation(monkeypatch,tmp_path):
+    local_exact(monkeypatch);defs=definitions()
+    d=Design(name='QA coordinated three sources',block=dict(length=120,width=80,height=70,material='QA'),rules=dict(minimum_wall=2),
+        features=[dict(id='C'+str(i),kind='cavity',face='top',u=30,v=30,cavity_id='QA_JOINT',interface_nets={'deep':'P'}) for i in range(3)]+
+        [dict(id='P0',kind='port',face='left',u=30,v=52,diameter=12,depth=16,tip_angle=180,circuit='P',clearance_diameter=14,clearance_height=1)],
+        nets=[dict(id='P',routing='automatic',diameter=8)])
+    before=d.model_dump_json();faces={f.id:f.face for f in d.features}
+    result=layout_search.plan_new(d,defs,movable_features=set(faces),growth_axes=(),fixed_faces=faces,
+        fixed_positions={'P0':dict(u=30,v=52)},layout_limit=12,exact_limit=2,evidence_dir=tmp_path)
+    target=accepted(result,tmp_path)
+    moved=[f for f in target.features if f.kind=='cavity' and (f.u,f.v)!=(30,30)]
+    # Moving any single source leaves the other two coincident and source-unsafe.
+    assert len(moved)>=2 and target.block==d.block and d.model_dump_json()==before
+
+
+def test_hard_height_and_required_face_report_the_actual_source_conflict(tmp_path,monkeypatch):
+    c=CavityDefinition(id='QA_CONSTRAINED',label='QA hard source depth',stages=[dict(start=0,end=40,diameter=12)],
+        zones=[dict(id='deep',start=28,end=40,diameter=12)],clearance_diameter=16,clearance_height=4)
+    d=Design(name='QA incompatible hard requirements',block=dict(length=80,width=80,height=30,material='QA'),rules=dict(minimum_wall=2),
+        features=[dict(id='CV',kind='cavity',face='top',u=40,v=40,cavity_id=c.id)],
+        constraints=dict(envelope_min=[80,80,30],envelope_max=[80,80,30]))
+    result=layout_search.plan_new(d,{c.id:c},movable_features={'CV'},fixed_faces={'CV':'top'},layout_limit=3,exact_limit=1,evidence_dir=tmp_path)
+    assert result['outcome_classification']=='PROVEN_HARD_CONSTRAINT_CONFLICT'
+    conflict=result['hard_constraint_conflicts'][0]
+    assert conflict['feature']=='CV' and conflict['permitted_faces'][0]['required'][2]==42 and conflict['maximum'][2]==30
+    assert result['validation'] is None and result['counters']['exact_attempts']==0
+    from types import SimpleNamespace
+    from manifold.ai_design.generation import _plan_generated_layout
+    original=layout_search.plan_new
+    def small(*args,**kwargs):kwargs['layout_limit']=3;return original(*args,**kwargs)
+    monkeypatch.setattr(layout_search,'plan_new',small)
+    settings=dict(dispositions=[],soft_dimensions={},envelope_min_axes=['length','width','height'],
+        envelope_max_axes=['length','width','height'],material_proposal={})
+    output=_plan_generated_layout(d,{c.id:c},settings,SimpleNamespace(project_engineering=None),{'CV':'CV'},fixed_faces={'CV':'top'},exact_limit=1)
+    assert '42 mm > limit 30 mm' in settings['layout_planning']['message']
+    assert any(r.subject=='CV' and r.severity=='blocking' for r in output.review_items)

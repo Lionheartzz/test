@@ -313,7 +313,6 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
     enters this function; linked project geometry is never passed or mutated.
     The returned draft carries assessment evidence, not future resize authority.
     """
-    from ..layout import initial_placement
     from .layout_search import plan_new as layout_plan
     from ..schema import EngineeringReview
     names=('length','width','height')
@@ -321,17 +320,18 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
     # Actual envelope constraints and protected source geometry remain hard.
     axes=tuple(i for i,name in enumerate(names) if not (design.constraints.envelope_min and design.constraints.envelope_max and
              design.constraints.envelope_min[i]==design.constraints.envelope_max[i]))
-    positional={'position','positions','coordinates','location','fixed_position','u','v','x','y','z'}
+    positional={'position','positions','coordinate','coordinates','location','placement','rotation','orientation','u','v','x','y','z'}
     pending=[row for row in settings['dispositions'] if row.get('strength')=='requirement' and
-        row.get('property','').lower() in positional and row.get('status') not in ('applied','resolved')]
+        positional.intersection(re.split(r'[^a-z0-9]+',row.get('property','').lower())) and row.get('status') not in ('applied','resolved')]
     if pending:
         settings['layout_planning']=dict(scope='AI_GENERATION_ONLY',status='POSITION_REQUIREMENT_UNRESOLVED',evaluated_layouts=0,
-            message='Explicit positions need an engineering resolution; automatic rearrangement was not authorized.')
+            pending_requirements=[{k:row.get(k) for k in ('intent_id','targets','property','value','unit')} for row in pending],
+            message='Explicit placement requirements need an engineering resolution; automatic rearrangement was not authorized.')
         design.review_items.append(EngineeringReview(id='AI_LAYOUT_POSITION',kind='dimension',subject='project',severity='blocking',
-            description='Explicit feature coordinates could not be compiled. Resolve the retained position requirements before relying on this scaffold; automatic layout adaptation was skipped.'))
+            description=('Explicit placement requirements could not be compiled: '+', '.join(str(row.get('intent_id'))+' / '+row['property'] for row in pending)+
+                         '. Resolve them before relying on this scaffold; automatic layout adaptation was skipped.')[:2000]))
         if initial:initial(design.model_copy(deep=True))
         return design
-    design=initial_placement(design,definitions,plan_routes=False,screen_source_geometry=True)
     progress_high=5
     def update(stage,**detail):
         nonlocal progress_high
@@ -351,6 +351,9 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
             fixed_faces={**design.constraints.required_feature_faces,**(fixed_faces or {})},soft_faces=soft_faces,
             soft_dimensions=tuple(settings.get('soft_dimensions',{}).get(name,
                 getattr(inputs.project_engineering.block,name) if inputs.project_engineering else None) for name in names),
+            explicit_dimension_axes={kind:[i for i,name in enumerate(names) if name in settings['envelope_'+suffix+'_axes'] or
+                inputs.project_engineering and getattr(inputs.project_engineering.constraints,'envelope_'+suffix)]
+                for kind,suffix in (('minimum','min'),('maximum','max'))},
             progress=update,cancelled=cancelled,layout_limit=48,exact_limit=exact_limit,initial=initial,evidence_dir=evidence_dir)
     except ValueError as exc:
         settings['layout_planning']=dict(scope='AI_GENERATION_ONLY',status='ANALYTIC_UNAVAILABLE',evaluated_layouts=0)
@@ -367,8 +370,21 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
         evaluations=planned.get('evaluations',[]),frontier=planned.get('frontier',[]),domain=planned.get('domain'),
         attempts=planned.get('attempts',[]),validation=planned.get('validation'),counters=planned.get('counters'),
         routing_rejections=planned.get('routing_rejections',[]),
+        family_evaluations=planned.get('family_evaluations'),hard_constraint_conflicts=planned.get('hard_constraint_conflicts'),
+        outcome_classification=planned.get('outcome_classification'),
         deferred_layouts=planned.get('deferred_layouts'),unexpanded_transform_generators=planned.get('unexpanded_transform_generators'),
         reason=selected['reason'] if selected else 'Initial layout retained; bounded samples did not improve engineering screening.')
+    hard_messages=[]
+    for conflict in planned.get('hard_constraint_conflicts',[]):
+        components=result.schematic_intent.components if result.schematic_intent else []
+        label=next((c.label for c in components if c.placement_id==conflict['feature']),conflict['feature'])
+        facts=[]
+        for face in conflict['permitted_faces']:
+            facts.append(face['face']+': '+', '.join(f"{names[i]} needs {face['required'][i]:g} mm > limit {conflict['maximum'][i]:g} mm" for i in face['exceeded_axes']))
+        text=label+' — source machining / wall conflicts with explicit requirements: '+'; '.join(facts)
+        hard_messages.append(text)
+        result.review_items.append(EngineeringReview(id=f'AI_HARD_LAYOUT_{len(hard_messages)}',kind='dimension',subject=conflict['feature'],severity='blocking',description=text[:2000]))
+    if hard_messages:settings['layout_planning']['message']=' '.join(hard_messages)[:3000]
     if not planned.get('validation') and (assessment['blocked_nets'] or assessment['conflicts'] or exact_limit):
         result.review_items.append(EngineeringReview(id='AI_LAYOUT_ROUTING',kind='connection',subject='project',
             description='Joint AI layout/routing search has not established an exact feasible design. '
@@ -428,29 +444,37 @@ def candidate(plan, generation_id, variant,*,progress=None,cancelled=lambda:Fals
         raise ValueError('Explicit and linked-project envelope requirements conflict; resolve them before generating the draft.')
     from ..schema import Rules
     access_gap=(inputs.project_engineering.rules if inputs.project_engineering else Rules()).minimum_access_gap
-    groups,scaffold_components,scaffold_ports=_scaffold_faces(plan,maximum,wall,access_gap)
-    # Temporary source-sized scaffold; the shared material/wall/layout proposal
-    # below chooses the final NEW-project dimensions after nets are compiled.
-    layouts={face:packing(group,face,wall,access_gap,maximum) for face,group in groups.items()}
-    base=[1,1,1];required=[1,1,1]
-    for face,(_,_,width,height,_) in layouts.items():
-        u,v,_,_=FACE_AXES[face];base[u]=max(base[u],width);base[v]=max(base[v],height)
-        required[u]=max(required[u],width);required[v]=max(required[v],height)
+    # Compile engineering identities/Net topology BEFORE deciding feasibility.
+    # Faces and line positions below are provisional seeds, never packing gates.
+    groups={};scaffold_components={};scaffold_ports={}
+    for c in plan['components']:
+        face=settings['hard_component_faces'].get(c['id'],options.component_faces.get(c['id'],
+            settings['component_faces'].get(c['id'],options.preferred_component_face or 'top')))
+        groups.setdefault(face,[]).append(c);scaffold_components[c['id']]=face
+    for i,p in enumerate(plan['external']):
+        scaffold_ports[p['id']]=settings['hard_port_faces'].get(p['id'],options.port_faces.get(p['id'],
+            settings['port_faces'].get(p['id'],options.preferred_port_face or ('left','right','front','back')[i%4])))
+    base=[1,1,1]
+    from ..layout import machining_radius
+    for face,group in groups.items():
+        u,v,_,_=FACE_AXES[face]
+        widths=[2*(machining_radius(c['definition'])+wall) for c in group]
+        base[u]=max(base[u],sum(widths)+access_gap*max(0,len(group)-1))
+        base[v]=max(base[v],max(widths))
     # Non-top mounting consumes depth along its own inward axis.
     for c in plan['components']:
         face = scaffold_components[c['id']]
         axis = FACE_AXES[face][2]
         depth=max([s.end for s in c['definition'].stages]+[p.end for p in c['definition'].cutting_primitives])
-        base[axis]=max(base[axis],depth+wall+2*options.drilling_diameter);required[axis]=max(required[axis],depth+wall)
+        base[axis]=max(base[axis],depth+wall+2*options.drilling_diameter)
     for i,p in enumerate(plan['external']):
         face=scaffold_ports[p['id']]
         axis=FACE_AXES[face][2]
         depth=max([s.end for s in p['definition'].stages]+[cut.end for cut in p['definition'].cutting_primitives]) if p['definition'] else options.port_depth
-        required[axis]=max(required[axis],depth+wall)
         base[axis]=max(base[axis],depth+wall+2*options.drilling_diameter)
-    if any(size>hi for size,hi in zip(required,maximum)):
-        raise ValueError('Source cavity machining depth/footprints exceed the requested block envelope; enlarge the block or revise the mounting faces.')
-    sizes = [max(lo,min(hi,math.ceil(size/5)*5)) for size,lo,hi in zip(base,minimum,maximum)]
+    sizes=[max(lo,min(hi,settings.get('soft_dimensions',{}).get(name,
+        getattr(inputs.project_engineering.block,name) if inputs.project_engineering else math.ceil(size/5)*5)))
+        for size,lo,hi,name in zip(base,minimum,maximum,('length','width','height'))]
     block = dict(zip(('length','width','height'),sizes))
     block['material'] = settings['material']
     if settings.get('material_id'):block['material_id']=settings['material_id']
@@ -489,16 +513,16 @@ def candidate(plan, generation_id, variant,*,progress=None,cancelled=lambda:Fals
         used_nets.add(name)
     for face,group in groups.items():
         u_axis,v_axis,_,_=FACE_AXES[face]
-        from ..layout import circle_layout,machining_radius
-        _,_,_,_,width,height,slots=circle_layout([(c['id'],machining_radius(c['definition'])+wall/2) for c in group],sizes[u_axis]-wall,sizes[v_axis]-wall,design.rules.minimum_access_gap)
+        cursor=wall
         for i,c in enumerate(group):
             key=c['id'];definition=by_definition[aliases[key]]
+            radius=machining_radius(definition)
             f=Feature(id=fid(generation_id,key,'CV'),kind='cavity',face=face,
-                      u=slots[key][0]+(sizes[u_axis]-width)/2,
-                      v=slots[key][1]+(sizes[v_axis]-height)/2,cavity_id=definition.id,
+                      u=cursor+radius,v=radius+wall,cavity_id=definition.id,
                       interface_nets={zone:net_ids[plan['port_net'][port]] for zone,port in c['mapping'].items() if port in plan['port_net']},
                       cartridge_id=c.get('cartridge_id'),schematic_id=key)
             design.features.append(f);feature_map[key]=f.id
+            cursor+=2*radius+max(design.rules.minimum_access_gap,wall)
             for zone,port in c['mapping'].items():terminal_map[port]=f.id+':'+zone
             from ..schema import SchematicComponent
             port_dispositions={zone:next(p.get('disposition','unknown') for p in result['ports'] if p['id']==port) for zone,port in c['mapping'].items()}
@@ -506,7 +530,7 @@ def candidate(plan, generation_id, variant,*,progress=None,cancelled=lambda:Fals
                 cartridge_id=c.get('cartridge_id'),cavity_id=definition.id,placement_id=f.id,
                 expected_interfaces=list(c['mapping']),interface_nets=f.circuits,interface_dispositions=port_dispositions))
             if key in settings['hard_component_faces']:design.constraints.required_feature_faces[f.id]=face
-    points=terminal_points(design)
+    points=terminal_points(design,by_definition)
     default_faces=('left','right','front','back')
     for i,p in enumerate(plan['external']):
         key=p['id'];source_net=plan['port_net'][key]
@@ -549,8 +573,8 @@ def candidate(plan, generation_id, variant,*,progress=None,cancelled=lambda:Fals
                           clearance_diameter=max(20,options.port_diameter+6),clearance_height=20,
                           port_type='Provisional straight bore - no thread specified',size=f'Draft bore {options.port_diameter:g} mm')
         f=Feature(**kwargs)
-        # Shared initial_placement handles port separation on the FINAL block.
-        # A temporary scaffold must not reject a viable final placement.
+        # AI-owned constraint search separates these provisional ports on the
+        # candidate's chosen faces/stock; this seed is not a feasibility gate.
         design.features.append(f);terminal_map[key]=f.id;feature_map[key]=f.id
         if f.thread_only:
             from ..schema import EngineeringReview
@@ -593,7 +617,7 @@ def candidate(plan, generation_id, variant,*,progress=None,cancelled=lambda:Fals
         explicit=settings['material'] if settings['material_source']=='explicit' else None,
         inherited=inputs.project_engineering.block.material_id if inputs.project_engineering and settings['material_source'] is None else None,
         inherited_label=inputs.project_engineering.block.material if inputs.project_engineering and settings['material_source'] is None else None,
-        restrictions=settings['material_restrictions'],preferred_dimensions=preferred,preferred_is_soft=True)
+        restrictions=settings['material_restrictions'],preferred_dimensions=preferred,preferred_is_soft=True,defer_layout=True)
     settings['material_proposal']=selection
     fixed_faces={feature_map[key]:face for key,face in {**options.component_faces,**options.port_faces}.items() if key in feature_map}
     soft_faces={feature_map[row['id']]:settings['component_faces' if row in plan['components'] else 'port_faces'].get(row['id'],
@@ -626,7 +650,7 @@ def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False
         # Exact optimization continues. Opening it never authorizes applying a
         # later result to Model; the two are independent Design values.
         store.atomic_json(folder/'authored-draft.json',design.model_dump())
-        store.atomic_json(folder/'generation.json',dict(id=generation_id,task_id=key,run_id=run['id'],status='draft',
+        store.atomic_json(folder/'generation.json',dict(id=generation_id,task_id=key,run_id=run['id'],status='incomplete_draft',
             design=design.model_dump(),validation=None,attempts=[],route_status='INITIAL_LAYOUT_NOT_VERIFIED',
             message='Initial editable draft retained while AI-owned layout optimization continues. Opening this snapshot makes its geometry user-owned; later results require a separate explicit handoff.',
             layout_planning=dict(scope='AI_GENERATION_ONLY',status='INITIAL_LAYOUT_NOT_VERIFIED')))
@@ -654,14 +678,14 @@ def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False
     planning=plan['settings']['layout_planning'];validation=planning.get('validation')
     geometry_rules={'circuit_intersection','connected_interface','circuit_connectivity','cavity_protected_region','unintended_cut_intersection','feature_wall','external_wall','solid_validity','solid_count','step_round_trip'}
     attempt_rows=[_attempt_summary(a,geometry_rules) for a in planning.get('attempts',[])]
-    packet=dict(id=generation_id,task_id=key,run_id=run['id'],status='draft',design=design.model_dump(),
+    packet=dict(id=generation_id,task_id=key,run_id=run['id'],status='draft' if planning['status']=='EXACT_FEASIBLE' else 'incomplete_draft',design=design.model_dump(),
         validation=validation,attempts=attempt_rows,geometry_failures=(sum(c['status']=='FAIL' and c['rule'] in geometry_rules for c in validation['checks']) if validation else None),
         feature_mapping=feature_map,terminal_mapping=terminal_map,layout_planning=planning,
         dispositions=plan['settings']['dispositions'],engineering_defaults=dict(material=plan['settings']['material_proposal'],
             actual_loads_source='explicit_requirements_or_linked_project',pressure_safety_factor=design.rules.pressure_safety_factor,
             velocity_limit=design.project_defaults.velocity_limit,drilling_mode=design.project_defaults.drilling_mode,priority=design.constraints.priority),route_status=planning['status'],
         message=('Joint AI layout/routing passed the current Exact engineering and STEP checks. Review remaining engineering qualifications; this is not manufacturing approval.' if planning['status']=='EXACT_FEASIBLE' else
-            'Joint AI layout/routing remains unresolved. The editable draft, actual failed checks and unevaluated design-space alternatives are retained; it is not verified.')+
+            'Joint AI layout/routing remains unresolved. The editable draft, actual failed checks and unevaluated design-space alternatives are retained; it is not verified. '+planning.get('message',''))+
             ' Model owns these dimensions and positions after handoff; later layout changes require explicit Review / Apply.')
     packet['elapsed_s']=round(time.monotonic()-started,2)
     packet['resource_limits']=dict(total_features=PROJECT_FEATURES,nets=PROJECT_NETS,

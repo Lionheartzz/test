@@ -15,7 +15,7 @@ def _tokens(value):
     return set(re.findall(r'[a-z0-9]+',text))
 
 
-def propose_material(design,definitions,*,explicit=None,inherited=None,inherited_label=None,restrictions=(),preferred_dimensions=None,preferred_is_soft=False):
+def propose_material(design,definitions,*,explicit=None,inherited=None,inherited_label=None,restrictions=(),preferred_dimensions=None,preferred_is_soft=False,defer_layout=False):
     from .engineering_db import materials
     placeholder={'unspecified','unknown','review','required','material','none','not','selected'}
     linked=bool(inherited or (_tokens(inherited_label)-placeholder)) and not explicit
@@ -53,7 +53,7 @@ def propose_material(design,definitions,*,explicit=None,inherited=None,inherited
             rejected.append(dict(material_id=row['id'],reason='Stated working pressure exceeds or cannot be compared with source design strength.'))
             continue
         try:
-            sizes=propose_dimensions(probe,definitions,preferred_dimensions,preferred_is_soft=preferred_is_soft)
+            sizes=(probe.block.length,probe.block.width,probe.block.height) if defer_layout else propose_dimensions(probe,definitions,preferred_dimensions,preferred_is_soft=preferred_is_soft)
             ligaments=[feature_ligament(probe,f,definitions)['automatic_mm'] for f in probe.features if not f.suppressed]
             if design.rules.allowable_stress_mpa is not None:
                 # Preserve a linked/user legacy rule while reserving enough
@@ -63,7 +63,7 @@ def propose_material(design,definitions,*,explicit=None,inherited=None,inherited
                 actual=material_strength(probe)['design_strength_mpa']
                 if pressure and (actual is None or pressure/10>=actual):
                     rejected.append(dict(material_id=row['id'],reason='Existing explicit stress rule cannot support the stated working pressure.'));continue
-                actual_sizes=propose_dimensions(probe,definitions,preferred_dimensions,preferred_is_soft=preferred_is_soft)
+                actual_sizes=sizes if defer_layout else propose_dimensions(probe,definitions,preferred_dimensions,preferred_is_soft=preferred_is_soft)
                 sizes=tuple(max(a,b) for a,b in zip(sizes,actual_sizes))
                 ligaments.extend(feature_ligament(probe,f,definitions)['automatic_mm'] for f in probe.features if not f.suppressed)
         except ValueError as exc:
@@ -102,17 +102,22 @@ def propose_material(design,definitions,*,explicit=None,inherited=None,inherited
         qualification='Not a pressure rating or manufacturing approval',rejected=rejected[:12])
 
 
-def apply_draft_defaults(design,definitions,*,explicit=None,inherited=None,inherited_label=None,restrictions=(),preferred_dimensions=None,preferred_is_soft=False):
+def apply_draft_defaults(design,definitions,*,explicit=None,inherited=None,inherited_label=None,restrictions=(),preferred_dimensions=None,preferred_is_soft=False,defer_layout=False):
     result=design.model_copy(deep=True)
     row,selection=propose_material(result,definitions,explicit=explicit,inherited=inherited,inherited_label=inherited_label,
-        restrictions=restrictions,preferred_dimensions=preferred_dimensions,preferred_is_soft=preferred_is_soft)
+        restrictions=restrictions,preferred_dimensions=preferred_dimensions,preferred_is_soft=preferred_is_soft,defer_layout=defer_layout)
     if row:
         result.block.material_id=row['id'];result.block.material=row['display_name']
         result.review_items.append(EngineeringReview(id='DRAFT_MATERIAL_PROPOSAL',kind='assumption',subject='block',
             description=('Automatically proposed: ' if selection['automatic'] else 'Selected material: ')+row['display_name']+'. '+selection['reason'],
             proposed_value=row['display_name'],status='resolved' if selection['status']=='PROPOSED' else 'open',
             resolution='Recorded deterministic engineering proposal; material remains editable. This is not engineering or manufacturing approval.' if selection['status']=='PROPOSED' else ''))
-    if selection['status']=='PROPOSED':
+    if defer_layout:
+        selection['layout_status']='DEFERRED_TO_NEW_AI_CONSTRAINT_SEARCH'
+        if not row:
+            result.review_items.append(EngineeringReview(id='DRAFT_MATERIAL_UNRESOLVED',kind='component',subject='block',
+                description=selection['reason']+' Resolve the missing material facts before manufacturing.'))
+    elif selection['status']=='PROPOSED':
         sizes=selection['proposed_dimensions']
         for key,size in zip(('length','width','height'),sizes):setattr(result.block,key,size)
     else:

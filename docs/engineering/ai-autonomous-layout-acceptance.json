@@ -1,0 +1,6198 @@
+{
+  "starting_head": "fdcc881eb10204de1af8618237621b104b5d1d94",
+  "scope": "NEW_AI_CANDIDATES_ONLY",
+  "cases": [
+    {
+      "case": "test_can_reduce_unused_stock_a0",
+      "evidence": "output/runtime-checks/autonomous-ai-20261012/acceptance2/test_can_reduce_unused_stock_a0/result.json",
+      "sha256": "f9e6522ed99f1f10244392603fa66b7b0d969dfb01147710ba100ee702c54c67",
+      "source_scope": "QA physical machining; not vendor approval",
+      "initial_design": {
+        "name": "QA stock reduction",
+        "block": {
+          "length": 140.0,
+          "width": 140.0,
+          "height": 140.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "Pleft",
+            "kind": "port",
+            "face": "left",
+            "u": 30.0,
+            "v": 50.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "Pright",
+            "kind": "port",
+            "face": "right",
+            "u": 30.0,
+            "v": 50.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "initial_revision_verified": true,
+      "selected_design": {
+        "name": "QA stock reduction",
+        "block": {
+          "length": 140.0,
+          "width": 39.0,
+          "height": 59.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "Pleft",
+            "kind": "port",
+            "face": "left",
+            "u": 30.0,
+            "v": 50.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "Pright",
+            "kind": "port",
+            "face": "right",
+            "u": 30.0,
+            "v": 50.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "R-5c62e091-1",
+            "kind": "drilling",
+            "face": "left",
+            "u": 30.0,
+            "v": 50.0,
+            "circuit": "P",
+            "diameter": 8.0,
+            "depth": 128.0,
+            "connects_to": [
+              "Pleft",
+              "Pright"
+            ],
+            "route_net": "P"
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0,
+            "route_state": "proposal"
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "definitions": [],
+      "changes": {
+        "dimensions": [
+          [
+            140.0,
+            140.0,
+            140.0
+          ],
+          [
+            140.0,
+            39.0,
+            59.0
+          ]
+        ],
+        "placements": []
+      },
+      "initial_analytic_drillings": 1,
+      "drilling_count": 1,
+      "plug_count": 0,
+      "total_drilling_depth_mm": 128.0,
+      "maximum_drilling_depth_mm": 128.0,
+      "validation": {
+        "counts": {
+          "PASS": 42,
+          "WARNING": 0,
+          "FAIL": 0
+        },
+        "rule_counts": [
+          {
+            "rule": "circuit_connectivity",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "circuit_intersection",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "connected_interface",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "declared_connection",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "drill_reach",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "drilling_entry_closure",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "expected_connection",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "external_face_entry",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "external_wall",
+            "status": "PASS",
+            "count": 15
+          },
+          {
+            "rule": "installation_access",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "minimum_feature_wall",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "net_intent",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "removed_volume",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_count",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_validity",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "source_tool_available",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "step_round_trip",
+            "status": "PASS",
+            "count": 1
+          }
+        ],
+        "nonpass": []
+      },
+      "topology": {
+        "valid": true,
+        "solids": 1
+      },
+      "step": {
+        "rule": "step_round_trip",
+        "items": [
+          "block"
+        ],
+        "status": "PASS",
+        "actual": 0.0,
+        "required": "Valid single solid; volume Δ < 0.01 mm³",
+        "unit": "mm³",
+        "valid": true,
+        "solids": 1,
+        "volume_delta_mm3": 0.0,
+        "volume_measurement": {
+          "delta": 0.0,
+          "converged": true,
+          "native_mm3": 313092.21315766143,
+          "step_mm3": 313092.21315766143,
+          "convergence_mm3": [
+            0.0,
+            0.0
+          ],
+          "integration_tolerance": 3.104240392375986e-12
+        },
+        "message": "STEP reimport: valid single solid and matching volume."
+      },
+      "manufacturing_ready": true,
+      "exact_attempts": [
+        {
+          "layout_index": 1,
+          "status": "EXACT_FEASIBLE",
+          "failures": []
+        },
+        {
+          "layout_index": 2,
+          "status": "EXACT_FEASIBLE",
+          "failures": []
+        }
+      ],
+      "family_evaluations": {
+        "initial": 1,
+        "size": 7
+      }
+    },
+    {
+      "case": "test_explicit_source_positions0",
+      "evidence": "output/runtime-checks/autonomous-ai-20261012/acceptance2/test_explicit_source_positions0/result.json",
+      "sha256": "9df4a47cc69db30548fe5b538625d8ff58fd75e0b4b5faecc5837318f2cbc5d7",
+      "source_scope": "QA physical machining; not vendor approval",
+      "initial_design": {
+        "name": "QA fixed authored intent in new AI candidate",
+        "block": {
+          "length": 100.0,
+          "width": 80.0,
+          "height": 90.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "Pleft",
+            "kind": "port",
+            "face": "left",
+            "u": 30.0,
+            "v": 50.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "Pright",
+            "kind": "port",
+            "face": "right",
+            "u": 30.0,
+            "v": 50.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "envelope_max": [
+            100.0,
+            80.0,
+            90.0
+          ],
+          "envelope_min": [
+            100.0,
+            80.0,
+            90.0
+          ],
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "initial_revision_verified": true,
+      "selected_design": {
+        "name": "QA fixed authored intent in new AI candidate",
+        "block": {
+          "length": 100.0,
+          "width": 80.0,
+          "height": 90.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "Pleft",
+            "kind": "port",
+            "face": "left",
+            "u": 30.0,
+            "v": 50.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "Pright",
+            "kind": "port",
+            "face": "right",
+            "u": 30.0,
+            "v": 50.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "R-5c62e091-1",
+            "kind": "drilling",
+            "face": "left",
+            "u": 30.0,
+            "v": 50.0,
+            "circuit": "P",
+            "diameter": 8.0,
+            "depth": 88.0,
+            "connects_to": [
+              "Pleft",
+              "Pright"
+            ],
+            "route_net": "P"
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0,
+            "route_state": "proposal"
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "envelope_max": [
+            100.0,
+            80.0,
+            90.0
+          ],
+          "envelope_min": [
+            100.0,
+            80.0,
+            90.0
+          ],
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "definitions": [],
+      "changes": {
+        "dimensions": [
+          [
+            100.0,
+            80.0,
+            90.0
+          ],
+          [
+            100.0,
+            80.0,
+            90.0
+          ]
+        ],
+        "placements": []
+      },
+      "initial_analytic_drillings": 1,
+      "drilling_count": 1,
+      "plug_count": 0,
+      "total_drilling_depth_mm": 88.0,
+      "maximum_drilling_depth_mm": 88.0,
+      "validation": {
+        "counts": {
+          "PASS": 44,
+          "WARNING": 0,
+          "FAIL": 0
+        },
+        "rule_counts": [
+          {
+            "rule": "block_envelope",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "block_minimum_envelope",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "circuit_connectivity",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "circuit_intersection",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "connected_interface",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "declared_connection",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "drill_reach",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "drilling_entry_closure",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "expected_connection",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "external_face_entry",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "external_wall",
+            "status": "PASS",
+            "count": 15
+          },
+          {
+            "rule": "installation_access",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "minimum_feature_wall",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "net_intent",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "removed_volume",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_count",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_validity",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "source_tool_available",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "step_round_trip",
+            "status": "PASS",
+            "count": 1
+          }
+        ],
+        "nonpass": []
+      },
+      "topology": {
+        "valid": true,
+        "solids": 1
+      },
+      "step": {
+        "rule": "step_round_trip",
+        "items": [
+          "block"
+        ],
+        "status": "PASS",
+        "actual": 0.0,
+        "required": "Valid single solid; volume Δ < 0.01 mm³",
+        "unit": "mm³",
+        "valid": true,
+        "solids": 1,
+        "volume_delta_mm3": 0.0,
+        "volume_measurement": {
+          "delta": 0.0,
+          "converged": true,
+          "native_mm3": 712962.8324559587,
+          "step_mm3": 712962.8324559587,
+          "convergence_mm3": [
+            0.0,
+            0.0
+          ],
+          "integration_tolerance": 1.3888888888888889e-12
+        },
+        "message": "STEP reimport: valid single solid and matching volume."
+      },
+      "manufacturing_ready": true,
+      "exact_attempts": [
+        {
+          "layout_index": 0,
+          "status": "EXACT_FEASIBLE",
+          "failures": []
+        }
+      ],
+      "family_evaluations": {
+        "initial": 1
+      }
+    },
+    {
+      "case": "test_fixed_height_requires_a_d0",
+      "evidence": "output/runtime-checks/autonomous-ai-20261012/acceptance2/test_fixed_height_requires_a_d0/result.json",
+      "sha256": "e100b94609f0f8c7dffde886261a5e274f4ebb8e35868a3868c2c093f6f458cf",
+      "source_scope": "QA physical machining; not vendor approval",
+      "initial_design": {
+        "name": "QA constrained face",
+        "block": {
+          "length": 80.0,
+          "width": 80.0,
+          "height": 30.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "CV",
+            "kind": "cavity",
+            "face": "top",
+            "u": 40.0,
+            "v": 40.0,
+            "cavity_id": "QA_DEEP",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "P0",
+            "kind": "port",
+            "face": "right",
+            "u": 40.0,
+            "v": 15.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 12.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "envelope_max": [
+            80.0,
+            80.0,
+            30.0
+          ],
+          "envelope_min": [
+            80.0,
+            80.0,
+            30.0
+          ],
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "initial_revision_verified": true,
+      "selected_design": {
+        "name": "QA constrained face",
+        "block": {
+          "length": 80.0,
+          "width": 80.0,
+          "height": 30.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "CV",
+            "kind": "cavity",
+            "face": "left",
+            "u": 40.0,
+            "v": 15.0,
+            "cavity_id": "QA_DEEP",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "P0",
+            "kind": "port",
+            "face": "right",
+            "u": 40.0,
+            "v": 15.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 12.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "R-5c62e091-AX0",
+            "kind": "drilling",
+            "face": "right",
+            "u": 40.0,
+            "v": 15.0,
+            "circuit": "P",
+            "diameter": 8.0,
+            "depth": 37.922133,
+            "clearance_diameter": 16.0,
+            "clearance_height": 15.0,
+            "connects_to": [
+              "CV:deep",
+              "P0"
+            ],
+            "route_net": "P"
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0,
+            "route_state": "proposal"
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "envelope_max": [
+            80.0,
+            80.0,
+            30.0
+          ],
+          "envelope_min": [
+            80.0,
+            80.0,
+            30.0
+          ],
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "definitions": [
+        {
+          "id": "QA_DEEP",
+          "label": "QA deep source",
+          "stages": [
+            {
+              "start": 0.0,
+              "end": 40.0,
+              "diameter": 12.0
+            }
+          ],
+          "zones": [
+            {
+              "start": 28.0,
+              "end": 40.0,
+              "diameter": 12.0,
+              "id": "deep"
+            }
+          ],
+          "clearance_diameter": 16.0,
+          "clearance_height": 4.0
+        }
+      ],
+      "changes": {
+        "dimensions": [
+          [
+            80.0,
+            80.0,
+            30.0
+          ],
+          [
+            80.0,
+            80.0,
+            30.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "CV",
+            "parameters": {
+              "face": [
+                "top",
+                "left"
+              ],
+              "v": [
+                40.0,
+                15.0
+              ]
+            }
+          }
+        ]
+      },
+      "initial_analytic_drillings": null,
+      "drilling_count": 1,
+      "plug_count": 0,
+      "total_drilling_depth_mm": 37.922133,
+      "maximum_drilling_depth_mm": 37.922133,
+      "validation": {
+        "counts": {
+          "PASS": 43,
+          "WARNING": 0,
+          "FAIL": 0
+        },
+        "rule_counts": [
+          {
+            "rule": "block_envelope",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "block_minimum_envelope",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "cavity_protected_region",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "circuit_connectivity",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "circuit_intersection",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "connected_interface",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "declared_connection",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "drill_reach",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "drilling_entry_closure",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "expected_connection",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "external_face_entry",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "external_wall",
+            "status": "PASS",
+            "count": 15
+          },
+          {
+            "rule": "installation_access",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "minimum_feature_wall",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "net_intent",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "removed_volume",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_count",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_validity",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "source_tool_available",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "step_round_trip",
+            "status": "PASS",
+            "count": 1
+          }
+        ],
+        "nonpass": []
+      },
+      "topology": {
+        "valid": true,
+        "solids": 1
+      },
+      "step": {
+        "rule": "step_round_trip",
+        "items": [
+          "block"
+        ],
+        "status": "PASS",
+        "actual": 0.0,
+        "required": "Valid single solid; volume Δ < 0.01 mm³",
+        "unit": "mm³",
+        "valid": true,
+        "solids": 1,
+        "volume_delta_mm3": 2.9103830456733704e-11,
+        "volume_measurement": {
+          "delta": 2.9103830456733704e-11,
+          "converged": true,
+          "native_mm3": 184775.78006618898,
+          "step_mm3": 184775.780066189,
+          "convergence_mm3": [
+            0.0,
+            0.0
+          ],
+          "integration_tolerance": 5.208333333333333e-12
+        },
+        "message": "STEP reimport: valid single solid and matching volume."
+      },
+      "manufacturing_ready": false,
+      "exact_attempts": [
+        {
+          "layout_index": 1,
+          "status": "EXACT_FEASIBLE",
+          "failures": []
+        }
+      ],
+      "family_evaluations": {
+        "initial": 1,
+        "face": 9,
+        "individual": 2
+      }
+    },
+    {
+      "case": "test_fixed_mounting_preserves_0",
+      "evidence": "output/runtime-checks/autonomous-ai-20261012/acceptance2/test_fixed_mounting_preserves_0/result.json",
+      "sha256": "1b031e436e29bdbb9d1696cc7f2dfc6716bae57c7aa828cffb2bac543a0862cb",
+      "source_scope": "QA physical machining; not vendor approval",
+      "initial_design": {
+        "name": "QA joint layout",
+        "block": {
+          "length": 40.0,
+          "width": 40.0,
+          "height": 40.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "C1",
+            "kind": "cavity",
+            "face": "top",
+            "u": 14.0,
+            "v": 10.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C2",
+            "kind": "cavity",
+            "face": "top",
+            "u": 30.0,
+            "v": 10.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C3",
+            "kind": "cavity",
+            "face": "top",
+            "u": 14.0,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "T"
+            }
+          },
+          {
+            "id": "C4",
+            "kind": "cavity",
+            "face": "top",
+            "u": 30.0,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "T"
+            }
+          },
+          {
+            "id": "P0",
+            "kind": "port",
+            "face": "left",
+            "u": 10.0,
+            "v": 22.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "T0",
+            "kind": "port",
+            "face": "left",
+            "u": 30.0,
+            "v": 22.0,
+            "circuit": "T",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "FIXED_MOUNT",
+            "kind": "mounting",
+            "face": "top",
+            "u": 10.0,
+            "v": 10.0,
+            "diameter": 5.0,
+            "depth": 8.0
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0
+          },
+          {
+            "id": "T",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "initial_revision_verified": true,
+      "selected_design": {
+        "name": "QA joint layout",
+        "block": {
+          "length": 52.269999999999996,
+          "width": 40.0,
+          "height": 40.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "C1",
+            "kind": "cavity",
+            "face": "top",
+            "u": 24.259999999999998,
+            "v": 10.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C2",
+            "kind": "cavity",
+            "face": "top",
+            "u": 42.269999999999996,
+            "v": 10.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C3",
+            "kind": "cavity",
+            "face": "top",
+            "u": 24.259999999999994,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "T"
+            }
+          },
+          {
+            "id": "C4",
+            "kind": "cavity",
+            "face": "top",
+            "u": 42.269999999999996,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "T"
+            }
+          },
+          {
+            "id": "P0",
+            "kind": "port",
+            "face": "left",
+            "u": 10.0,
+            "v": 22.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "T0",
+            "kind": "port",
+            "face": "left",
+            "u": 30.0,
+            "v": 22.0,
+            "circuit": "T",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "FIXED_MOUNT",
+            "kind": "mounting",
+            "face": "top",
+            "u": 10.0,
+            "v": 10.0,
+            "diameter": 5.0,
+            "depth": 8.0
+          },
+          {
+            "id": "R-5c62e091-1",
+            "kind": "drilling",
+            "face": "left",
+            "u": 10.0,
+            "v": 22.0,
+            "circuit": "P",
+            "diameter": 8.0,
+            "depth": 46.269999999999996,
+            "connects_to": [
+              "C1:deep",
+              "C2:deep",
+              "P0"
+            ],
+            "route_net": "P"
+          },
+          {
+            "id": "R-e632b709-1",
+            "kind": "drilling",
+            "face": "left",
+            "u": 30.0,
+            "v": 22.0,
+            "circuit": "T",
+            "diameter": 8.0,
+            "depth": 46.269999999999996,
+            "connects_to": [
+              "C3:deep",
+              "C4:deep",
+              "T0"
+            ],
+            "route_net": "T"
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0,
+            "route_state": "proposal"
+          },
+          {
+            "id": "T",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0,
+            "route_state": "proposal"
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "definitions": [
+        {
+          "id": "QA_JOINT",
+          "label": "QA source window, not vendor approval",
+          "stages": [
+            {
+              "start": 0.0,
+              "end": 24.0,
+              "diameter": 12.0
+            }
+          ],
+          "zones": [
+            {
+              "start": 12.0,
+              "end": 24.0,
+              "diameter": 12.0,
+              "id": "deep"
+            }
+          ],
+          "clearance_diameter": 16.0,
+          "clearance_height": 4.0
+        }
+      ],
+      "changes": {
+        "dimensions": [
+          [
+            40.0,
+            40.0,
+            40.0
+          ],
+          [
+            52.269999999999996,
+            40.0,
+            40.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "C1",
+            "parameters": {
+              "u": [
+                14.0,
+                24.259999999999998
+              ]
+            }
+          },
+          {
+            "feature": "C2",
+            "parameters": {
+              "u": [
+                30.0,
+                42.269999999999996
+              ]
+            }
+          },
+          {
+            "feature": "C3",
+            "parameters": {
+              "u": [
+                14.0,
+                24.259999999999994
+              ]
+            }
+          },
+          {
+            "feature": "C4",
+            "parameters": {
+              "u": [
+                30.0,
+                42.269999999999996
+              ]
+            }
+          }
+        ]
+      },
+      "initial_analytic_drillings": null,
+      "drilling_count": 2,
+      "plug_count": 0,
+      "total_drilling_depth_mm": 92.53999999999999,
+      "maximum_drilling_depth_mm": 46.269999999999996,
+      "validation": {
+        "counts": {
+          "PASS": 155,
+          "WARNING": 0,
+          "FAIL": 0
+        },
+        "rule_counts": [
+          {
+            "rule": "cavity_collision",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "cavity_protected_region",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "circuit_connectivity",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "circuit_intersection",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "connected_interface",
+            "status": "PASS",
+            "count": 8
+          },
+          {
+            "rule": "declared_connection",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "drill_reach",
+            "status": "PASS",
+            "count": 5
+          },
+          {
+            "rule": "drilling_entry_closure",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "expected_connection",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "external_face_entry",
+            "status": "PASS",
+            "count": 9
+          },
+          {
+            "rule": "external_wall",
+            "status": "PASS",
+            "count": 45
+          },
+          {
+            "rule": "installation_access",
+            "status": "PASS",
+            "count": 15
+          },
+          {
+            "rule": "minimum_feature_wall",
+            "status": "PASS",
+            "count": 22
+          },
+          {
+            "rule": "mounting_separation",
+            "status": "PASS",
+            "count": 8
+          },
+          {
+            "rule": "net_intent",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "removed_volume",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_count",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_validity",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "source_tool_available",
+            "status": "PASS",
+            "count": 5
+          },
+          {
+            "rule": "step_round_trip",
+            "status": "PASS",
+            "count": 1
+          }
+        ],
+        "nonpass": []
+      },
+      "topology": {
+        "valid": true,
+        "solids": 1
+      },
+      "step": {
+        "rule": "step_round_trip",
+        "items": [
+          "block"
+        ],
+        "status": "PASS",
+        "actual": 0.0,
+        "required": "Valid single solid; volume Δ < 0.01 mm³",
+        "unit": "mm³",
+        "valid": true,
+        "solids": 1,
+        "volume_delta_mm3": 8.731149137020111e-11,
+        "volume_measurement": {
+          "delta": 8.731149137020111e-11,
+          "converged": true,
+          "native_mm3": 68049.73585488123,
+          "step_mm3": 68049.73585488132,
+          "convergence_mm3": [
+            8.149072527885437e-10,
+            8.149072527885437e-10
+          ],
+          "integration_tolerance": 1.1957145560311844e-11
+        },
+        "message": "STEP reimport: valid single solid and matching volume."
+      },
+      "manufacturing_ready": false,
+      "exact_attempts": [
+        {
+          "layout_index": 1,
+          "status": "EXACT_FEASIBLE",
+          "failures": []
+        },
+        {
+          "layout_index": 3,
+          "status": "EXACT_FEASIBLE",
+          "failures": []
+        }
+      ],
+      "family_evaluations": {
+        "initial": 1,
+        "size": 10,
+        "individual": 9
+      }
+    },
+    {
+      "case": "test_inadequate_space_grows_an0",
+      "evidence": "output/runtime-checks/autonomous-ai-20261012/acceptance2/test_inadequate_space_grows_an0/result.json",
+      "sha256": "2fa1bfa4ae4205867568079569fc68d5411d363f2c92a40298cfc576e90399a2",
+      "source_scope": "QA physical machining; not vendor approval",
+      "initial_design": {
+        "name": "QA joint layout",
+        "block": {
+          "length": 40.0,
+          "width": 40.0,
+          "height": 40.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "C1",
+            "kind": "cavity",
+            "face": "top",
+            "u": 14.0,
+            "v": 10.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C2",
+            "kind": "cavity",
+            "face": "top",
+            "u": 30.0,
+            "v": 10.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C3",
+            "kind": "cavity",
+            "face": "top",
+            "u": 14.0,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "T"
+            }
+          },
+          {
+            "id": "C4",
+            "kind": "cavity",
+            "face": "top",
+            "u": 30.0,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "T"
+            }
+          },
+          {
+            "id": "P0",
+            "kind": "port",
+            "face": "left",
+            "u": 10.0,
+            "v": 22.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "T0",
+            "kind": "port",
+            "face": "left",
+            "u": 30.0,
+            "v": 22.0,
+            "circuit": "T",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0
+          },
+          {
+            "id": "T",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "initial_revision_verified": true,
+      "selected_design": {
+        "name": "QA joint layout",
+        "block": {
+          "length": 54.019999999999996,
+          "width": 40.0,
+          "height": 40.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "C1",
+            "kind": "cavity",
+            "face": "top",
+            "u": 26.009999999999998,
+            "v": 10.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C2",
+            "kind": "cavity",
+            "face": "top",
+            "u": 44.019999999999996,
+            "v": 10.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C3",
+            "kind": "cavity",
+            "face": "top",
+            "u": 26.009999999999994,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "T"
+            }
+          },
+          {
+            "id": "C4",
+            "kind": "cavity",
+            "face": "top",
+            "u": 44.019999999999996,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "T"
+            }
+          },
+          {
+            "id": "P0",
+            "kind": "port",
+            "face": "left",
+            "u": 10.0,
+            "v": 22.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "T0",
+            "kind": "port",
+            "face": "left",
+            "u": 30.0,
+            "v": 22.0,
+            "circuit": "T",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "R-5c62e091-1",
+            "kind": "drilling",
+            "face": "left",
+            "u": 10.0,
+            "v": 22.0,
+            "circuit": "P",
+            "diameter": 8.0,
+            "depth": 48.019999999999996,
+            "connects_to": [
+              "C1:deep",
+              "C2:deep",
+              "P0"
+            ],
+            "route_net": "P"
+          },
+          {
+            "id": "R-e632b709-1",
+            "kind": "drilling",
+            "face": "left",
+            "u": 30.0,
+            "v": 22.0,
+            "circuit": "T",
+            "diameter": 8.0,
+            "depth": 48.019999999999996,
+            "connects_to": [
+              "C3:deep",
+              "C4:deep",
+              "T0"
+            ],
+            "route_net": "T"
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0,
+            "route_state": "proposal"
+          },
+          {
+            "id": "T",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0,
+            "route_state": "proposal"
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "definitions": [
+        {
+          "id": "QA_JOINT",
+          "label": "QA source window, not vendor approval",
+          "stages": [
+            {
+              "start": 0.0,
+              "end": 24.0,
+              "diameter": 12.0
+            }
+          ],
+          "zones": [
+            {
+              "start": 12.0,
+              "end": 24.0,
+              "diameter": 12.0,
+              "id": "deep"
+            }
+          ],
+          "clearance_diameter": 16.0,
+          "clearance_height": 4.0
+        }
+      ],
+      "changes": {
+        "dimensions": [
+          [
+            40.0,
+            40.0,
+            40.0
+          ],
+          [
+            54.019999999999996,
+            40.0,
+            40.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "C1",
+            "parameters": {
+              "u": [
+                14.0,
+                26.009999999999998
+              ]
+            }
+          },
+          {
+            "feature": "C2",
+            "parameters": {
+              "u": [
+                30.0,
+                44.019999999999996
+              ]
+            }
+          },
+          {
+            "feature": "C3",
+            "parameters": {
+              "u": [
+                14.0,
+                26.009999999999994
+              ]
+            }
+          },
+          {
+            "feature": "C4",
+            "parameters": {
+              "u": [
+                30.0,
+                44.019999999999996
+              ]
+            }
+          }
+        ]
+      },
+      "initial_analytic_drillings": null,
+      "drilling_count": 2,
+      "plug_count": 0,
+      "total_drilling_depth_mm": 96.03999999999999,
+      "maximum_drilling_depth_mm": 48.019999999999996,
+      "validation": {
+        "counts": {
+          "PASS": 139,
+          "WARNING": 0,
+          "FAIL": 0
+        },
+        "rule_counts": [
+          {
+            "rule": "cavity_collision",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "cavity_protected_region",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "circuit_connectivity",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "circuit_intersection",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "connected_interface",
+            "status": "PASS",
+            "count": 8
+          },
+          {
+            "rule": "declared_connection",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "drill_reach",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "drilling_entry_closure",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "expected_connection",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "external_face_entry",
+            "status": "PASS",
+            "count": 8
+          },
+          {
+            "rule": "external_wall",
+            "status": "PASS",
+            "count": 40
+          },
+          {
+            "rule": "installation_access",
+            "status": "PASS",
+            "count": 15
+          },
+          {
+            "rule": "minimum_feature_wall",
+            "status": "PASS",
+            "count": 22
+          },
+          {
+            "rule": "net_intent",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "removed_volume",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_count",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_validity",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "source_tool_available",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "step_round_trip",
+            "status": "PASS",
+            "count": 1
+          }
+        ],
+        "nonpass": []
+      },
+      "topology": {
+        "valid": true,
+        "solids": 1
+      },
+      "step": {
+        "rule": "step_round_trip",
+        "items": [
+          "block"
+        ],
+        "status": "PASS",
+        "actual": 0.0,
+        "required": "Valid single solid; volume Δ < 0.01 mm³",
+        "unit": "mm³",
+        "valid": true,
+        "solids": 1,
+        "volume_delta_mm3": 5.820766091346741e-11,
+        "volume_measurement": {
+          "delta": 5.820766091346741e-11,
+          "converged": true,
+          "native_mm3": 70840.7178578883,
+          "step_mm3": 70840.71785788836,
+          "convergence_mm3": [
+            6.402842700481415e-10,
+            6.402842700481415e-10
+          ],
+          "integration_tolerance": 1.156978893812477e-11
+        },
+        "message": "STEP reimport: valid single solid and matching volume."
+      },
+      "manufacturing_ready": false,
+      "exact_attempts": [
+        {
+          "layout_index": 1,
+          "status": "EXACT_FEASIBLE",
+          "failures": []
+        },
+        {
+          "layout_index": 3,
+          "status": "EXACT_FEASIBLE",
+          "failures": []
+        }
+      ],
+      "family_evaluations": {
+        "initial": 1,
+        "size": 12,
+        "individual": 11
+      }
+    },
+    {
+      "case": "test_moves_a_functional_port_t0",
+      "evidence": "output/runtime-checks/autonomous-ai-20261012/acceptance2/test_moves_a_functional_port_t0/result.json",
+      "sha256": "820ecec8616cdd2526baa8b2f033f827b32c30c14c5442f223c2a58aeaaf4b7d",
+      "source_scope": "QA physical machining; not vendor approval",
+      "initial_design": {
+        "name": "QA functional port relocation",
+        "block": {
+          "length": 140.0,
+          "width": 110.0,
+          "height": 90.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "CV",
+            "kind": "cavity",
+            "face": "top",
+            "u": 70.0,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "P0",
+            "kind": "port",
+            "face": "left",
+            "u": 80.0,
+            "v": 40.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "initial_revision_verified": true,
+      "selected_design": {
+        "name": "QA functional port relocation",
+        "block": {
+          "length": 140.0,
+          "width": 110.0,
+          "height": 90.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "CV",
+            "kind": "cavity",
+            "face": "top",
+            "u": 70.0,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "P0",
+            "kind": "port",
+            "face": "front",
+            "u": 70.0,
+            "v": 72.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "R-5c62e091-1",
+            "kind": "drilling",
+            "face": "front",
+            "u": 70.0,
+            "v": 72.0,
+            "circuit": "P",
+            "diameter": 8.0,
+            "depth": 34.0,
+            "connects_to": [
+              "CV:deep",
+              "P0"
+            ],
+            "route_net": "P"
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0,
+            "route_state": "proposal"
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "definitions": [
+        {
+          "id": "QA_JOINT",
+          "label": "QA source window, not vendor approval",
+          "stages": [
+            {
+              "start": 0.0,
+              "end": 24.0,
+              "diameter": 12.0
+            }
+          ],
+          "zones": [
+            {
+              "start": 12.0,
+              "end": 24.0,
+              "diameter": 12.0,
+              "id": "deep"
+            }
+          ],
+          "clearance_diameter": 16.0,
+          "clearance_height": 4.0
+        }
+      ],
+      "changes": {
+        "dimensions": [
+          [
+            140.0,
+            110.0,
+            90.0
+          ],
+          [
+            140.0,
+            110.0,
+            90.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "P0",
+            "parameters": {
+              "face": [
+                "left",
+                "front"
+              ],
+              "u": [
+                80.0,
+                70.0
+              ],
+              "v": [
+                40.0,
+                72.0
+              ]
+            }
+          }
+        ]
+      },
+      "initial_analytic_drillings": 3,
+      "drilling_count": 1,
+      "plug_count": 0,
+      "total_drilling_depth_mm": 34.0,
+      "maximum_drilling_depth_mm": 34.0,
+      "validation": {
+        "counts": {
+          "PASS": 41,
+          "WARNING": 0,
+          "FAIL": 0
+        },
+        "rule_counts": [
+          {
+            "rule": "cavity_protected_region",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "circuit_connectivity",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "circuit_intersection",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "connected_interface",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "declared_connection",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "drill_reach",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "drilling_entry_closure",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "expected_connection",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "external_face_entry",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "external_wall",
+            "status": "PASS",
+            "count": 15
+          },
+          {
+            "rule": "installation_access",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "minimum_feature_wall",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "net_intent",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "removed_volume",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_count",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_validity",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "source_tool_available",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "step_round_trip",
+            "status": "PASS",
+            "count": 1
+          }
+        ],
+        "nonpass": []
+      },
+      "topology": {
+        "valid": true,
+        "solids": 1
+      },
+      "step": {
+        "rule": "step_round_trip",
+        "items": [
+          "block"
+        ],
+        "status": "PASS",
+        "actual": 0.0,
+        "required": "Valid single solid; volume Δ < 0.01 mm³",
+        "unit": "mm³",
+        "valid": true,
+        "solids": 1,
+        "volume_delta_mm3": 0.0,
+        "volume_measurement": {
+          "delta": 0.0,
+          "converged": true,
+          "native_mm3": 1381055.9281680915,
+          "step_mm3": 1381055.9281680915,
+          "convergence_mm3": [
+            2.3283064365386963e-10,
+            4.656612873077393e-10
+          ],
+          "integration_tolerance": 7.215007206990541e-13
+        },
+        "message": "STEP reimport: valid single solid and matching volume."
+      },
+      "manufacturing_ready": false,
+      "exact_attempts": [
+        {
+          "layout_index": 1,
+          "status": "EXACT_FEASIBLE",
+          "failures": []
+        },
+        {
+          "layout_index": 3,
+          "status": "EXACT_FEASIBLE",
+          "failures": []
+        }
+      ],
+      "family_evaluations": {
+        "initial": 1,
+        "face": 6,
+        "individual": 1
+      }
+    },
+    {
+      "case": "test_repositions_components_an0",
+      "evidence": "output/runtime-checks/autonomous-ai-20261012/acceptance2/test_repositions_components_an0/result.json",
+      "sha256": "ea9fc2c5903d77c817c9f80e05454e3033b04eb5ae9cd8efacd522f3cd3915c1",
+      "source_scope": "QA physical machining; not vendor approval",
+      "initial_design": {
+        "name": "QA joint layout",
+        "block": {
+          "length": 140.0,
+          "width": 110.0,
+          "height": 90.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "C1",
+            "kind": "cavity",
+            "face": "top",
+            "u": 25.0,
+            "v": 40.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C2",
+            "kind": "cavity",
+            "face": "top",
+            "u": 115.0,
+            "v": 70.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C3",
+            "kind": "cavity",
+            "face": "top",
+            "u": 25.0,
+            "v": 70.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "T"
+            }
+          },
+          {
+            "id": "C4",
+            "kind": "cavity",
+            "face": "top",
+            "u": 115.0,
+            "v": 40.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "T"
+            }
+          },
+          {
+            "id": "P0",
+            "kind": "port",
+            "face": "left",
+            "u": 40.0,
+            "v": 72.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "T0",
+            "kind": "port",
+            "face": "left",
+            "u": 70.0,
+            "v": 72.0,
+            "circuit": "T",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0
+          },
+          {
+            "id": "T",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "initial_revision_verified": true,
+      "selected_design": {
+        "name": "QA joint layout",
+        "block": {
+          "length": 140.0,
+          "width": 110.0,
+          "height": 90.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "C1",
+            "kind": "cavity",
+            "face": "top",
+            "u": 25.0,
+            "v": 40.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C2",
+            "kind": "cavity",
+            "face": "top",
+            "u": 25.0,
+            "v": 21.99,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C3",
+            "kind": "cavity",
+            "face": "top",
+            "u": 25.0,
+            "v": 70.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "T"
+            }
+          },
+          {
+            "id": "C4",
+            "kind": "cavity",
+            "face": "top",
+            "u": 25.0,
+            "v": 88.01,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "T"
+            }
+          },
+          {
+            "id": "P0",
+            "kind": "port",
+            "face": "left",
+            "u": 40.0,
+            "v": 72.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "T0",
+            "kind": "port",
+            "face": "left",
+            "u": 70.0,
+            "v": 72.0,
+            "circuit": "T",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "R-5c62e091-1",
+            "kind": "drilling",
+            "face": "left",
+            "u": 40.0,
+            "v": 72.0,
+            "circuit": "P",
+            "diameter": 8.0,
+            "depth": 32.0,
+            "clearance_diameter": 16.0,
+            "clearance_height": 15.0,
+            "connects_to": [
+              "C1:deep",
+              "P0",
+              "R-5c62e091-2"
+            ],
+            "route_net": "P"
+          },
+          {
+            "id": "R-5c62e091-2",
+            "kind": "drilling",
+            "face": "front",
+            "u": 25.0,
+            "v": 72.0,
+            "circuit": "P",
+            "diameter": 8.0,
+            "depth": 44.0,
+            "plugged": true,
+            "plug_length": 10.0,
+            "clearance_diameter": 9.1,
+            "clearance_height": 0.0,
+            "connects_to": [
+              "C1:deep",
+              "C2:deep",
+              "R-5c62e091-1"
+            ],
+            "route_net": "P",
+            "closure_definition_id": "closure_22046acec45212c1af3dbd89"
+          },
+          {
+            "id": "R-e632b709-1",
+            "kind": "drilling",
+            "face": "left",
+            "u": 70.0,
+            "v": 72.0,
+            "circuit": "T",
+            "diameter": 8.0,
+            "depth": 29.0,
+            "clearance_diameter": 16.0,
+            "clearance_height": 15.0,
+            "connects_to": [
+              "C3:deep",
+              "R-e632b709-2",
+              "T0"
+            ],
+            "route_net": "T"
+          },
+          {
+            "id": "R-e632b709-2",
+            "kind": "drilling",
+            "face": "back",
+            "u": 25.0,
+            "v": 72.0,
+            "circuit": "T",
+            "diameter": 8.0,
+            "depth": 44.0,
+            "plugged": true,
+            "plug_length": 10.0,
+            "clearance_diameter": 9.1,
+            "clearance_height": 0.0,
+            "connects_to": [
+              "C3:deep",
+              "C4:deep",
+              "R-e632b709-1"
+            ],
+            "route_net": "T",
+            "closure_definition_id": "closure_22046acec45212c1af3dbd89"
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0,
+            "route_state": "proposal"
+          },
+          {
+            "id": "T",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0,
+            "route_state": "proposal"
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "definitions": [
+        {
+          "id": "QA_JOINT",
+          "label": "QA source window, not vendor approval",
+          "stages": [
+            {
+              "start": 0.0,
+              "end": 24.0,
+              "diameter": 12.0
+            }
+          ],
+          "zones": [
+            {
+              "start": 12.0,
+              "end": 24.0,
+              "diameter": 12.0,
+              "id": "deep"
+            }
+          ],
+          "clearance_diameter": 16.0,
+          "clearance_height": 4.0
+        }
+      ],
+      "changes": {
+        "dimensions": [
+          [
+            140.0,
+            110.0,
+            90.0
+          ],
+          [
+            140.0,
+            110.0,
+            90.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "C2",
+            "parameters": {
+              "u": [
+                115.0,
+                25.0
+              ],
+              "v": [
+                70.0,
+                21.99
+              ]
+            }
+          },
+          {
+            "feature": "C4",
+            "parameters": {
+              "u": [
+                115.0,
+                25.0
+              ],
+              "v": [
+                40.0,
+                88.01
+              ]
+            }
+          }
+        ]
+      },
+      "initial_analytic_drillings": 8,
+      "drilling_count": 4,
+      "plug_count": 2,
+      "total_drilling_depth_mm": 149.0,
+      "maximum_drilling_depth_mm": 44.0,
+      "validation": {
+        "counts": {
+          "PASS": 203,
+          "WARNING": 0,
+          "FAIL": 0
+        },
+        "rule_counts": [
+          {
+            "rule": "cavity_collision",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "cavity_protected_region",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "circuit_connectivity",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "circuit_intersection",
+            "status": "PASS",
+            "count": 10
+          },
+          {
+            "rule": "closure_entry_depth",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "connected_interface",
+            "status": "PASS",
+            "count": 10
+          },
+          {
+            "rule": "construction_closure",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "declared_connection",
+            "status": "PASS",
+            "count": 10
+          },
+          {
+            "rule": "drill_reach",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "drilling_entry_closure",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "expected_connection",
+            "status": "PASS",
+            "count": 10
+          },
+          {
+            "rule": "external_face_entry",
+            "status": "PASS",
+            "count": 10
+          },
+          {
+            "rule": "external_wall",
+            "status": "PASS",
+            "count": 50
+          },
+          {
+            "rule": "installation_access",
+            "status": "PASS",
+            "count": 28
+          },
+          {
+            "rule": "minimum_feature_wall",
+            "status": "PASS",
+            "count": 35
+          },
+          {
+            "rule": "net_intent",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "plug_engagement",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "removed_volume",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_count",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_validity",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "source_tool_available",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "step_round_trip",
+            "status": "PASS",
+            "count": 1
+          }
+        ],
+        "nonpass": []
+      },
+      "topology": {
+        "valid": true,
+        "solids": 1
+      },
+      "step": {
+        "rule": "step_round_trip",
+        "items": [
+          "block"
+        ],
+        "status": "PASS",
+        "actual": 0.0,
+        "required": "Valid single solid; volume Δ < 0.01 mm³",
+        "unit": "mm³",
+        "valid": true,
+        "solids": 1,
+        "volume_delta_mm3": 0.0,
+        "volume_measurement": {
+          "delta": 0.0,
+          "converged": true,
+          "native_mm3": 1368493.0035774645,
+          "step_mm3": 1368493.0035774645,
+          "convergence_mm3": [
+            0.0,
+            0.0
+          ],
+          "integration_tolerance": 7.215007206990541e-13
+        },
+        "message": "STEP reimport: valid single solid and matching volume."
+      },
+      "manufacturing_ready": false,
+      "exact_attempts": [
+        {
+          "layout_index": 3,
+          "status": "EXACT_FEASIBLE",
+          "failures": []
+        },
+        {
+          "layout_index": 5,
+          "status": "EXACT_ROUTING_REJECTED",
+          "failures": [
+            [
+              "connectivity",
+              "P"
+            ]
+          ]
+        }
+      ],
+      "family_evaluations": {
+        "initial": 1,
+        "size": 6,
+        "face": 6,
+        "group": 1,
+        "feedback": 2
+      }
+    },
+    {
+      "case": "test_rotates_actual_offset_win0",
+      "evidence": "output/runtime-checks/autonomous-ai-20261012/acceptance2/test_rotates_actual_offset_win0/result.json",
+      "sha256": "0549711f3da569fb7ce98884f93517342a5a771171db8075457d75fdd65eec68",
+      "source_scope": "QA physical machining; not vendor approval",
+      "initial_design": {
+        "name": "QA real window rotation",
+        "block": {
+          "length": 100.0,
+          "width": 100.0,
+          "height": 100.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "CV",
+            "kind": "cavity",
+            "face": "top",
+            "u": 50.0,
+            "v": 50.0,
+            "cavity_id": "QA_PATTERN",
+            "interface_nets": {
+              "P": "P",
+              "T": "T"
+            }
+          },
+          {
+            "id": "P0",
+            "kind": "port",
+            "face": "front",
+            "u": 50.0,
+            "v": 90.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "T0",
+            "kind": "port",
+            "face": "back",
+            "u": 50.0,
+            "v": 90.0,
+            "circuit": "T",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0
+          },
+          {
+            "id": "T",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "initial_revision_verified": true,
+      "selected_design": {
+        "name": "QA real window rotation",
+        "block": {
+          "length": 100.0,
+          "width": 100.0,
+          "height": 100.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "CV",
+            "kind": "cavity",
+            "face": "top",
+            "u": 50.0,
+            "v": 50.0,
+            "cavity_id": "QA_PATTERN",
+            "interface_nets": {
+              "P": "P",
+              "T": "T"
+            },
+            "rotation": 90.0
+          },
+          {
+            "id": "P0",
+            "kind": "port",
+            "face": "front",
+            "u": 50.0,
+            "v": 90.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "T0",
+            "kind": "port",
+            "face": "back",
+            "u": 50.0,
+            "v": 90.0,
+            "circuit": "T",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "R-5c62e091-1",
+            "kind": "drilling",
+            "face": "front",
+            "u": 50.0,
+            "v": 90.0,
+            "circuit": "P",
+            "diameter": 8.0,
+            "depth": 42.0,
+            "connects_to": [
+              "CV:P",
+              "P0"
+            ],
+            "route_net": "P"
+          },
+          {
+            "id": "R-e632b709-1",
+            "kind": "drilling",
+            "face": "back",
+            "u": 50.0,
+            "v": 90.0,
+            "circuit": "T",
+            "diameter": 8.0,
+            "depth": 42.0,
+            "connects_to": [
+              "CV:T",
+              "T0"
+            ],
+            "route_net": "T"
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0,
+            "route_state": "proposal"
+          },
+          {
+            "id": "T",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0,
+            "route_state": "proposal"
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "definitions": [
+        {
+          "id": "QA_PATTERN",
+          "label": "QA two-window machining interface",
+          "stages": [
+            {
+              "start": 0.0,
+              "end": 12.0,
+              "diameter": 1.0
+            }
+          ],
+          "zones": [
+            {
+              "start": 0.0,
+              "end": 12.0,
+              "diameter": 10.0,
+              "id": "P",
+              "offset_u": -12.0
+            },
+            {
+              "start": 0.0,
+              "end": 12.0,
+              "diameter": 10.0,
+              "id": "T",
+              "offset_u": 12.0
+            }
+          ],
+          "clearance_diameter": 40.0,
+          "clearance_height": 4.0,
+          "cutting_primitives": [
+            {
+              "start": 0.0,
+              "end": 12.0,
+              "diameter": 10.0,
+              "offset_u": -12.0
+            },
+            {
+              "start": 0.0,
+              "end": 12.0,
+              "diameter": 10.0,
+              "offset_u": 12.0
+            }
+          ]
+        }
+      ],
+      "changes": {
+        "dimensions": [
+          [
+            100.0,
+            100.0,
+            100.0
+          ],
+          [
+            100.0,
+            100.0,
+            100.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "CV",
+            "parameters": {
+              "rotation": [
+                0.0,
+                90.0
+              ]
+            }
+          }
+        ]
+      },
+      "initial_analytic_drillings": 0,
+      "drilling_count": 2,
+      "plug_count": 0,
+      "total_drilling_depth_mm": 84.0,
+      "maximum_drilling_depth_mm": 42.0,
+      "validation": {
+        "counts": {
+          "PASS": 82,
+          "WARNING": 0,
+          "FAIL": 0
+        },
+        "rule_counts": [
+          {
+            "rule": "cavity_protected_region",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "circuit_connectivity",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "circuit_intersection",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "connected_interface",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "declared_connection",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "drill_reach",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "drilling_entry_closure",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "expected_connection",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "external_face_entry",
+            "status": "PASS",
+            "count": 5
+          },
+          {
+            "rule": "external_wall",
+            "status": "PASS",
+            "count": 25
+          },
+          {
+            "rule": "installation_access",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "mapped_interface_containment",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "mapped_interface_separation",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "mapped_interface_volume",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "minimum_feature_wall",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "net_intent",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "removed_volume",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_count",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_validity",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "source_tool_available",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "step_round_trip",
+            "status": "PASS",
+            "count": 1
+          }
+        ],
+        "nonpass": []
+      },
+      "topology": {
+        "valid": true,
+        "solids": 1
+      },
+      "step": {
+        "rule": "step_round_trip",
+        "items": [
+          "block"
+        ],
+        "status": "PASS",
+        "actual": 0.0,
+        "required": "Valid single solid; volume Δ < 0.01 mm³",
+        "unit": "mm³",
+        "valid": true,
+        "solids": 1,
+        "volume_delta_mm3": 1.1641532182693481e-10,
+        "volume_measurement": {
+          "delta": 1.1641532182693481e-10,
+          "converged": true,
+          "native_mm3": 992526.6278579151,
+          "step_mm3": 992526.627857915,
+          "convergence_mm3": [
+            1.1641532182693481e-10,
+            0.0
+          ],
+          "integration_tolerance": 9.99999999e-13
+        },
+        "message": "STEP reimport: valid single solid and matching volume."
+      },
+      "manufacturing_ready": false,
+      "exact_attempts": [
+        {
+          "layout_index": 2,
+          "status": "EXACT_FEASIBLE",
+          "failures": []
+        },
+        {
+          "layout_index": 6,
+          "status": "EXACT_ROUTING_REJECTED",
+          "failures": [
+            [
+              "connectivity",
+              "P"
+            ],
+            [
+              "connectivity",
+              "T"
+            ]
+          ]
+        }
+      ],
+      "family_evaluations": {
+        "initial": 1,
+        "individual": 9,
+        "group": 2
+      }
+    },
+    {
+      "case": "test_three_overlapping_connect0",
+      "evidence": "output/runtime-checks/autonomous-ai-20261012/acceptance2/test_three_overlapping_connect0/result.json",
+      "sha256": "2d7f67256bf82bd904fb40ca88669dc9b078295879470cce2d11645a026698d5",
+      "source_scope": "QA physical machining; not vendor approval",
+      "initial_design": {
+        "name": "QA coordinated three sources",
+        "block": {
+          "length": 120.0,
+          "width": 80.0,
+          "height": 70.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "C0",
+            "kind": "cavity",
+            "face": "top",
+            "u": 30.0,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C1",
+            "kind": "cavity",
+            "face": "top",
+            "u": 30.0,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C2",
+            "kind": "cavity",
+            "face": "top",
+            "u": 30.0,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "P0",
+            "kind": "port",
+            "face": "left",
+            "u": 30.0,
+            "v": 52.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "initial_revision_verified": true,
+      "selected_design": {
+        "name": "QA coordinated three sources",
+        "block": {
+          "length": 120.0,
+          "width": 80.0,
+          "height": 70.0,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 2.0
+        },
+        "features": [
+          {
+            "id": "C0",
+            "kind": "cavity",
+            "face": "top",
+            "u": 25.333333333333332,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C1",
+            "kind": "cavity",
+            "face": "top",
+            "u": 43.343333333333334,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "C2",
+            "kind": "cavity",
+            "face": "top",
+            "u": 61.35333333333334,
+            "v": 30.0,
+            "cavity_id": "QA_JOINT",
+            "interface_nets": {
+              "deep": "P"
+            }
+          },
+          {
+            "id": "P0",
+            "kind": "port",
+            "face": "left",
+            "u": 30.0,
+            "v": 52.0,
+            "circuit": "P",
+            "diameter": 12.0,
+            "depth": 16.0,
+            "tip_angle": 180.0,
+            "clearance_diameter": 14.0,
+            "clearance_height": 1.0
+          },
+          {
+            "id": "R-5c62e091-1",
+            "kind": "drilling",
+            "face": "left",
+            "u": 30.0,
+            "v": 52.0,
+            "circuit": "P",
+            "diameter": 8.0,
+            "depth": 65.35333333333334,
+            "connects_to": [
+              "C0:deep",
+              "C1:deep",
+              "C2:deep",
+              "P0"
+            ],
+            "route_net": "P"
+          }
+        ],
+        "nets": [
+          {
+            "id": "P",
+            "routing": "automatic",
+            "drilling_mode": "orthogonal",
+            "velocity_limit": 6.0,
+            "route_state": "proposal"
+          }
+        ],
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "preferred_component_faces": [
+            "top"
+          ]
+        },
+        "schema_version": 4
+      },
+      "definitions": [
+        {
+          "id": "QA_JOINT",
+          "label": "QA source window, not vendor approval",
+          "stages": [
+            {
+              "start": 0.0,
+              "end": 24.0,
+              "diameter": 12.0
+            }
+          ],
+          "zones": [
+            {
+              "start": 12.0,
+              "end": 24.0,
+              "diameter": 12.0,
+              "id": "deep"
+            }
+          ],
+          "clearance_diameter": 16.0,
+          "clearance_height": 4.0
+        }
+      ],
+      "changes": {
+        "dimensions": [
+          [
+            120.0,
+            80.0,
+            70.0
+          ],
+          [
+            120.0,
+            80.0,
+            70.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "C0",
+            "parameters": {
+              "u": [
+                30.0,
+                25.333333333333332
+              ]
+            }
+          },
+          {
+            "feature": "C1",
+            "parameters": {
+              "u": [
+                30.0,
+                43.343333333333334
+              ]
+            }
+          },
+          {
+            "feature": "C2",
+            "parameters": {
+              "u": [
+                30.0,
+                61.35333333333334
+              ]
+            }
+          }
+        ]
+      },
+      "initial_analytic_drillings": null,
+      "drilling_count": 1,
+      "plug_count": 0,
+      "total_drilling_depth_mm": 65.35333333333334,
+      "maximum_drilling_depth_mm": 65.35333333333334,
+      "validation": {
+        "counts": {
+          "PASS": 76,
+          "WARNING": 0,
+          "FAIL": 0
+        },
+        "rule_counts": [
+          {
+            "rule": "cavity_collision",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "cavity_protected_region",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "circuit_connectivity",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "circuit_intersection",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "connected_interface",
+            "status": "PASS",
+            "count": 5
+          },
+          {
+            "rule": "declared_connection",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "drill_reach",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "drilling_entry_closure",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "expected_connection",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "external_face_entry",
+            "status": "PASS",
+            "count": 5
+          },
+          {
+            "rule": "external_wall",
+            "status": "PASS",
+            "count": 25
+          },
+          {
+            "rule": "installation_access",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "minimum_feature_wall",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "net_intent",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "removed_volume",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_count",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_validity",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "source_tool_available",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "step_round_trip",
+            "status": "PASS",
+            "count": 1
+          }
+        ],
+        "nonpass": []
+      },
+      "topology": {
+        "valid": true,
+        "solids": 1
+      },
+      "step": {
+        "rule": "step_round_trip",
+        "items": [
+          "block"
+        ],
+        "status": "PASS",
+        "actual": 0.0,
+        "required": "Valid single solid; volume Δ < 0.01 mm³",
+        "unit": "mm³",
+        "valid": true,
+        "solids": 1,
+        "volume_delta_mm3": 1.1641532182693481e-10,
+        "volume_measurement": {
+          "delta": 1.1641532182693481e-10,
+          "converged": true,
+          "native_mm3": 661186.2433916139,
+          "step_mm3": 661186.243391614,
+          "convergence_mm3": [
+            1.1641532182693481e-10,
+            0.0
+          ],
+          "integration_tolerance": 1.4880952359693879e-12
+        },
+        "message": "STEP reimport: valid single solid and matching volume."
+      },
+      "manufacturing_ready": false,
+      "exact_attempts": [
+        {
+          "layout_index": 3,
+          "status": "EXACT_FEASIBLE",
+          "failures": []
+        },
+        {
+          "layout_index": 1,
+          "status": "EXACT_FEASIBLE",
+          "failures": []
+        }
+      ],
+      "family_evaluations": {
+        "initial": 1,
+        "individual": 10,
+        "group": 1
+      }
+    },
+    {
+      "case": "new_generation_bypasses_legacy_gates",
+      "evidence": "output/runtime-checks/autonomous-ai-20261012/acceptance2/test_generation_compiles_befor0/generation-acceptance.json",
+      "sha256": "eab62ab4886560d2512dc59ca01e962fb1b0ca0bb6083d9daf1a95a2a70a2584",
+      "source_scope": "Existing runtime QA fixture; not vendor approval",
+      "initial_dimensions": [
+        10.0,
+        10.0,
+        10.0
+      ],
+      "selected_design": {
+        "name": "Generation QA - AI Draft",
+        "block": {
+          "length": 51.6,
+          "width": 51.6,
+          "height": 62.61,
+          "material": "QA"
+        },
+        "rules": {
+          "minimum_wall": 3.0
+        },
+        "features": [
+          {
+            "id": "CV_0298aa6d6fa30193cca5",
+            "kind": "cavity",
+            "face": "top",
+            "u": 17.8,
+            "v": 17.8,
+            "cavity_id": "cav_003e5a8ca3cca13cf39d",
+            "interface_nets": {
+              "port1": "NET_P",
+              "port2": "NET_T"
+            },
+            "schematic_id": "VALVE_RV1"
+          },
+          {
+            "id": "PORT_91fdb78dbdf77473fb01",
+            "kind": "port",
+            "face": "bottom",
+            "u": 17.8,
+            "v": 17.8,
+            "circuit": "NET_P",
+            "diameter": 12.0,
+            "depth": 12.0,
+            "tip_angle": 180.0,
+            "port_type": "Provisional straight bore - no thread specified",
+            "size": "Draft bore 12 mm",
+            "schematic_id": "P"
+          },
+          {
+            "id": "PORT_0dd96a147e21a221da4b",
+            "kind": "port",
+            "face": "right",
+            "u": 17.8,
+            "v": 40.61,
+            "circuit": "NET_T",
+            "diameter": 12.0,
+            "depth": 12.0,
+            "tip_angle": 180.0,
+            "port_type": "Provisional straight bore - no thread specified",
+            "size": "Draft bore 12 mm",
+            "schematic_id": "T"
+          },
+          {
+            "id": "R-090e6bde-1",
+            "kind": "drilling",
+            "face": "bottom",
+            "u": 17.8,
+            "v": 17.8,
+            "circuit": "NET_P",
+            "diameter": 8.0,
+            "depth": 19.655051,
+            "connects_to": [
+              "CV_0298aa6d6fa30193cca5:port1",
+              "PORT_91fdb78dbdf77473fb01"
+            ],
+            "route_net": "NET_P"
+          },
+          {
+            "id": "R-79a83211-1",
+            "kind": "drilling",
+            "face": "right",
+            "u": 17.8,
+            "v": 40.61,
+            "circuit": "NET_T",
+            "diameter": 8.0,
+            "depth": 37.8,
+            "connects_to": [
+              "CV_0298aa6d6fa30193cca5:port2",
+              "PORT_0dd96a147e21a221da4b"
+            ],
+            "route_net": "NET_T"
+          }
+        ],
+        "nets": [
+          {
+            "id": "NET_P",
+            "label": "NET_P",
+            "routing": "automatic",
+            "route_state": "proposal"
+          },
+          {
+            "id": "NET_T",
+            "label": "NET_T",
+            "routing": "automatic",
+            "route_state": "proposal"
+          }
+        ],
+        "schematic_intent": {
+          "assets": [
+            {
+              "sha256": "2201786bb15d06dd7dadf516eb8f16fee0fc47751265740335b9b536f97aa0f1",
+              "name": "test.png",
+              "media_type": "image/png",
+              "size": 38679
+            }
+          ],
+          "components": [
+            {
+              "id": "VALVE_RV1",
+              "label": "RV1",
+              "cavity_id": "cav_003e5a8ca3cca13cf39d",
+              "expected_interfaces": [
+                "port1",
+                "port2"
+              ],
+              "interface_nets": {
+                "port1": "NET_P",
+                "port2": "NET_T"
+              },
+              "interface_dispositions": {
+                "port1": "connected",
+                "port2": "connected"
+              },
+              "placement_id": "CV_0298aa6d6fa30193cca5"
+            }
+          ]
+        },
+        "constraints": {
+          "preferred_wall_margin": 4.0,
+          "notes": "AI-generated draft from the current normalized schematic intent."
+        },
+        "review_items": [
+          {
+            "id": "DRAFT_MATERIAL_UNRESOLVED",
+            "kind": "component",
+            "subject": "block",
+            "description": "No existing material satisfies the stated identity, source-strength, environment and envelope requirements. Resolve the missing material facts before manufacturing."
+          },
+          {
+            "id": "DRAFT_PRESSURE_BAR",
+            "kind": "dimension",
+            "subject": "project",
+            "description": "Actual working pressure is not specified for NET_P, NET_T. Enter operating conditions in Project Settings / Net overrides. Product ratings were not substituted."
+          },
+          {
+            "id": "DRAFT_FLOW_LPM",
+            "kind": "dimension",
+            "subject": "project",
+            "description": "Actual hydraulic flow is not specified for NET_P, NET_T. Enter operating conditions in Project Settings / Net overrides. Product ratings were not substituted."
+          }
+        ],
+        "schema_version": 4
+      },
+      "definitions": [
+        {
+          "id": "cav_003e5a8ca3cca13cf39d",
+          "label": "CDVN-070",
+          "family": "Atlantic Fluid Tech",
+          "unit_system": "metric",
+          "thread_note": "G 1/2",
+          "stages": [
+            {
+              "start": 0.0,
+              "end": 1.0,
+              "diameter": 29.6
+            },
+            {
+              "start": 1.0,
+              "end": 37.5,
+              "diameter": 21.0
+            },
+            {
+              "start": 37.5,
+              "end": 43.603012166596464,
+              "diameter": 19.0
+            }
+          ],
+          "zones": [
+            {
+              "start": 37.5,
+              "end": 43.603012166596464,
+              "diameter": 29.6,
+              "id": "port1",
+              "clip_to_cut": true
+            },
+            {
+              "start": 16.0,
+              "end": 28.0,
+              "diameter": 29.6,
+              "id": "port2",
+              "clip_to_cut": true
+            }
+          ],
+          "clearance_diameter": 29.6,
+          "clearance_height": 43.603012166596464,
+          "cutting_primitives": [
+            {
+              "source_ref": "main:circle0",
+              "start": 0.0,
+              "end": 1.0,
+              "diameter": 29.6
+            },
+            {
+              "source_ref": "main:circle1",
+              "start": 0.0,
+              "end": 37.5,
+              "diameter": 21.0
+            },
+            {
+              "source_ref": "main:circle2",
+              "start": 37.5,
+              "end": 41.5,
+              "diameter": 19.0
+            },
+            {
+              "source_ref": "main:circle2",
+              "start": 41.5,
+              "end": 43.603012166596464,
+              "diameter": 19.0,
+              "end_diameter": 12.0,
+              "kind": "cone"
+            }
+          ],
+          "machining": [
+            {
+              "operation": "DRILL",
+              "tool": null,
+              "diameter": "$STEP12",
+              "depth": "$STEP12",
+              "tool_type": "drill",
+              "diameter_mm": 12.0,
+              "depth_mm": 55.0,
+              "geometry_role": "pilot_reference"
+            },
+            {
+              "operation": "CDVN-070",
+              "tool": null,
+              "diameter": "$STEP0",
+              "depth": "$STEP0",
+              "tool_type": null,
+              "diameter_mm": 29.6,
+              "depth_mm": 1.0,
+              "geometry_role": "cut"
+            },
+            {
+              "operation": "TAP DRILL",
+              "tool": null,
+              "diameter": "$STEP2",
+              "depth": "$STEP2",
+              "tool_type": "drill",
+              "diameter_mm": 19.0,
+              "depth_mm": 41.5,
+              "geometry_role": "cut"
+            },
+            {
+              "operation": "TAP",
+              "tool": null,
+              "diameter": "G 1/2",
+              "depth": "$STEP1",
+              "tool_type": null,
+              "diameter_mm": null,
+              "depth_mm": 37.5,
+              "geometry_role": "cut"
+            }
+          ]
+        }
+      ],
+      "drilling_count": 2,
+      "plug_count": 0,
+      "total_drilling_depth_mm": 57.455051,
+      "validation": {
+        "counts": {
+          "PASS": 85,
+          "WARNING": 3,
+          "FAIL": 0
+        },
+        "rule_counts": [
+          {
+            "rule": "cavity_protected_region",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "circuit_connectivity",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "circuit_intersection",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "connected_interface",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "declared_connection",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "drill_reach",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "drilling_entry_closure",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "engineering_review",
+            "status": "WARNING",
+            "count": 3
+          },
+          {
+            "rule": "expected_connection",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "external_face_entry",
+            "status": "PASS",
+            "count": 5
+          },
+          {
+            "rule": "external_wall",
+            "status": "PASS",
+            "count": 25
+          },
+          {
+            "rule": "installation_access",
+            "status": "PASS",
+            "count": 3
+          },
+          {
+            "rule": "mapped_interface_containment",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "mapped_interface_separation",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "mapped_interface_volume",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "minimum_feature_wall",
+            "status": "PASS",
+            "count": 6
+          },
+          {
+            "rule": "net_intent",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "removed_volume",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "schematic_conformance",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_count",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "solid_validity",
+            "status": "PASS",
+            "count": 1
+          },
+          {
+            "rule": "source_operation_tool",
+            "status": "PASS",
+            "count": 2
+          },
+          {
+            "rule": "source_tool_available",
+            "status": "PASS",
+            "count": 4
+          },
+          {
+            "rule": "step_round_trip",
+            "status": "PASS",
+            "count": 1
+          }
+        ],
+        "nonpass": [
+          {
+            "rule": "engineering_review",
+            "items": [
+              "DRAFT_MATERIAL_UNRESOLVED",
+              "block"
+            ],
+            "actual": "open",
+            "required": "accepted or resolved",
+            "status": "WARNING",
+            "message": "No existing material satisfies the stated identity, source-strength, environment and envelope requirements. Resolve the missing material facts before manufacturing.",
+            "unit": "",
+            "repair_domain": null
+          },
+          {
+            "rule": "engineering_review",
+            "items": [
+              "DRAFT_PRESSURE_BAR",
+              "project"
+            ],
+            "actual": "open",
+            "required": "accepted or resolved",
+            "status": "WARNING",
+            "message": "Actual working pressure is not specified for NET_P, NET_T. Enter operating conditions in Project Settings / Net overrides. Product ratings were not substituted.",
+            "unit": "",
+            "repair_domain": null
+          },
+          {
+            "rule": "engineering_review",
+            "items": [
+              "DRAFT_FLOW_LPM",
+              "project"
+            ],
+            "actual": "open",
+            "required": "accepted or resolved",
+            "status": "WARNING",
+            "message": "Actual hydraulic flow is not specified for NET_P, NET_T. Enter operating conditions in Project Settings / Net overrides. Product ratings were not substituted.",
+            "unit": "",
+            "repair_domain": null
+          }
+        ]
+      },
+      "topology": {
+        "valid": true,
+        "solids": 1
+      },
+      "step": {
+        "rule": "step_round_trip",
+        "items": [
+          "block"
+        ],
+        "status": "PASS",
+        "actual": 0.0,
+        "required": "Valid single solid; volume Δ < 0.01 mm³",
+        "unit": "mm³",
+        "valid": true,
+        "solids": 1,
+        "volume_delta_mm3": 1.1641532182693481e-10,
+        "volume_measurement": {
+          "delta": 1.1641532182693481e-10,
+          "converged": true,
+          "native_mm3": 148190.60272147713,
+          "step_mm3": 148190.60272147725,
+          "convergence_mm3": [
+            0.0,
+            2.9103830456733704e-11
+          ],
+          "integration_tolerance": 5.99869654562708e-12
+        },
+        "message": "STEP reimport: valid single solid and matching volume."
+      },
+      "manufacturing_ready": false
+    }
+  ],
+  "eight_valve": {
+    "evidence": "output/runtime-checks/autonomous-ai-20261012/eight-valve/result.json",
+    "sha256": "767852ca90908a8252531425ec7ab5b11206fdc32aa11dc4cc59c41e47740d35",
+    "status": "UNRESOLVED_LAYOUT",
+    "classification": "UNRESOLVED_SEARCH_OR_ENGINEERING",
+    "elapsed_s": 654.640000000014,
+    "counters": {
+      "layouts": 48,
+      "transforms": 189,
+      "source_rejected": 5,
+      "duplicate_transforms": 47,
+      "exact_attempts": 0
+    },
+    "family_evaluations": {
+      "initial": 1,
+      "size": 19,
+      "face": 19,
+      "feedback": 9
+    },
+    "action_families": {
+      "initial-scaffold": 1,
+      "measured-envelope": 7,
+      "topology-repack": 11,
+      "connected-group": 11,
+      "face-arrangement": 4,
+      "interface-placement": 5,
+      "feedback-connected-group": 9
+    },
+    "deferred_layouts": 96,
+    "unexpanded_transform_generators": 52,
+    "refinements": [
+      {
+        "layout_index": 0,
+        "family": "initial-scaffold",
+        "changes": {
+          "dimensions": [
+            [
+              310.0,
+              245.0,
+              230.0
+            ],
+            [
+              310.0,
+              245.0,
+              230.0
+            ]
+          ],
+          "placements": []
+        },
+        "partial_nets": [
+          "MA",
+          "P"
+        ],
+        "missing_nets": [
+          "MA",
+          "MB",
+          "A_DC",
+          "B_DC",
+          "P",
+          "T",
+          "T_DC",
+          "SHUTTLE_OUTPUT"
+        ],
+        "feedback": [
+          {
+            "net": "MB",
+            "terminals": [
+              "AI_2f50daf2a73992992467",
+              "AI_3c1607be8ee6b1db11b3:port2",
+              "AI_86f806134591ec82b309:port1",
+              "AI_be3e73603a6a2601b262:port1"
+            ],
+            "source_blockers": [
+              "AI_d12f28ea9de536de20bf"
+            ],
+            "failures": [
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-1d09f6fa-3"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-1d09f6fa-3"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-1d09f6fa-3"
+              ]
+            ]
+          },
+          {
+            "net": "A_DC",
+            "terminals": [
+              "AI_86f806134591ec82b309:port3",
+              "AI_8c3d93dc0111c2a90a99:a_A",
+              "AI_9e42d426a948d6658307:port2",
+              "AI_d12f28ea9de536de20bf:port2"
+            ],
+            "source_blockers": [
+              "AI_3c1607be8ee6b1db11b3",
+              "AI_86f806134591ec82b309",
+              "AI_8c3d93dc0111c2a90a99",
+              "AI_d12f28ea9de536de20bf"
+            ],
+            "failures": [
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-4"
+              ],
+              [
+                "source_protected",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-6"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-6"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-7"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-8"
+              ],
+              [
+                "installation_access",
+                "R-702e7749-7",
+                "R-702e7749-8"
+              ],
+              [
+                "source_protected",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-702e7749-2"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-702e7749-3"
+              ],
+              [
+                "installation_access",
+                "AI_86f806134591ec82b309",
+                "R-702e7749-7"
+              ],
+              [
+                "source_protected",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-702e7749-2"
+              ],
+              [
+                "source_protected",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-6"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-702e7749-3"
+              ]
+            ]
+          },
+          {
+            "net": "B_DC",
+            "terminals": [
+              "AI_86f806134591ec82b309:port2",
+              "AI_8c3d93dc0111c2a90a99:b_B",
+              "AI_9e42d426a948d6658307:port4",
+              "AI_d12f28ea9de536de20bf:port3"
+            ],
+            "source_blockers": [
+              "AI_4bde6acd3ccc1049831f",
+              "AI_86f806134591ec82b309",
+              "AI_8c3d93dc0111c2a90a99",
+              "AI_9e42d426a948d6658307",
+              "AI_d12f28ea9de536de20bf"
+            ],
+            "failures": [
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-4"
+              ],
+              [
+                "installation_access",
+                "AI_9e42d426a948d6658307",
+                "R-309be2fb-5"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-309be2fb-3"
+              ],
+              [
+                "plug_cut",
+                "AI_9e42d426a948d6658307",
+                "R-309be2fb-5"
+              ],
+              [
+                "plug_cut",
+                "AI_d12f28ea9de536de20bf",
+                "R-309be2fb-3"
+              ],
+              [
+                "source_protected",
+                "AI_9e42d426a948d6658307",
+                "R-309be2fb-5"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-309be2fb-3"
+              ],
+              [
+                "installation_access",
+                "AI_86f806134591ec82b309",
+                "R-309be2fb-8"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-6"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-7"
+              ],
+              [
+                "installation_access",
+                "AI_9e42d426a948d6658307",
+                "R-309be2fb-10"
+              ],
+              [
+                "plug_cut",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-6"
+              ],
+              [
+                "source_protected",
+                "AI_4bde6acd3ccc1049831f",
+                "R-309be2fb-3"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-309be2fb-8"
+              ],
+              [
+                "source_protected",
+                "AI_9e42d426a948d6658307",
+                "R-309be2fb-10"
+              ]
+            ]
+          },
+          {
+            "net": "T",
+            "terminals": [
+              "AI_38e70eee292d055c2fa9",
+              "AI_4bde6acd3ccc1049831f:port2",
+              "AI_54f363aa698032173ca9:port2"
+            ],
+            "source_blockers": [
+              "AI_4bde6acd3ccc1049831f",
+              "AI_54f363aa698032173ca9",
+              "AI_9e42d426a948d6658307"
+            ],
+            "failures": [
+              [
+                "installation_access",
+                "AI_54f363aa698032173ca9",
+                "R-e632b709-4"
+              ],
+              [
+                "plug_cut",
+                "AI_54f363aa698032173ca9",
+                "R-e632b709-4"
+              ],
+              [
+                "source_protected",
+                "AI_54f363aa698032173ca9",
+                "R-e632b709-4"
+              ],
+              [
+                "installation_access",
+                "AI_54f363aa698032173ca9",
+                "R-e632b709-6"
+              ],
+              [
+                "plug_cut",
+                "AI_54f363aa698032173ca9",
+                "R-e632b709-6"
+              ],
+              [
+                "source_protected",
+                "AI_54f363aa698032173ca9",
+                "R-e632b709-6"
+              ],
+              [
+                "installation_access",
+                "AI_9e42d426a948d6658307",
+                "R-e632b709-5"
+              ],
+              [
+                "source_protected",
+                "AI_4bde6acd3ccc1049831f",
+                "R-e632b709-2"
+              ],
+              [
+                "source_protected",
+                "AI_9e42d426a948d6658307",
+                "R-e632b709-5"
+              ]
+            ]
+          },
+          {
+            "net": "T_DC",
+            "terminals": [
+              "AI_4bde6acd3ccc1049831f:port3",
+              "AI_8c3d93dc0111c2a90a99:t_T"
+            ],
+            "source_blockers": [
+              "AI_8c3d93dc0111c2a90a99"
+            ],
+            "failures": [
+              [
+                "source_protected",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-8e428e23-1"
+              ],
+              [
+                "source_protected",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-8e428e23-1"
+              ],
+              [
+                "source_protected",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-8e428e23-1"
+              ]
+            ]
+          },
+          {
+            "net": "SHUTTLE_OUTPUT",
+            "terminals": [
+              "AI_54f363aa698032173ca9:port1",
+              "AI_9e42d426a948d6658307:port3"
+            ],
+            "source_blockers": [
+              "AI_4bde6acd3ccc1049831f",
+              "AI_54f363aa698032173ca9",
+              "AI_d12f28ea9de536de20bf"
+            ],
+            "failures": [
+              [
+                "source_protected",
+                "AI_4bde6acd3ccc1049831f",
+                "R-f623208d-1"
+              ],
+              [
+                "source_protected",
+                "AI_4bde6acd3ccc1049831f",
+                "R-f623208d-2"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-f623208d-1"
+              ],
+              [
+                "installation_access",
+                "AI_54f363aa698032173ca9",
+                "R-f623208d-2"
+              ],
+              [
+                "plug_cut",
+                "AI_54f363aa698032173ca9",
+                "R-f623208d-2"
+              ],
+              [
+                "source_protected",
+                "AI_4bde6acd3ccc1049831f",
+                "R-f623208d-1"
+              ],
+              [
+                "source_protected",
+                "AI_54f363aa698032173ca9",
+                "R-f623208d-2"
+              ]
+            ]
+          }
+        ],
+        "pair_witnesses": [
+          {
+            "nets": [
+              "P",
+              "T"
+            ],
+            "failures": [
+              [
+                "cross_net_wall",
+                "R-5c62e091-4",
+                "R-e632b709-5"
+              ]
+            ]
+          }
+        ],
+        "coordination": {
+          "classification": "CANDIDATE_TRUNCATION",
+          "states": 16,
+          "labels": 924,
+          "complete_candidates": 0,
+          "pending_coordination_states": 5,
+          "search_classifications": {
+            "CORRIDOR_GENERATION_LIMIT": 12,
+            "CANDIDATE_ADMISSION_PENDING": 4
+          }
+        },
+        "representative_unexpanded": [
+          {
+            "net": "A_DC",
+            "classification": "CORRIDOR_GENERATION_LIMIT",
+            "unexpanded_coordinate_events": [
+              129,
+              66,
+              139
+            ],
+            "frontier_labels": 512
+          },
+          {
+            "net": "T_DC",
+            "classification": "CANDIDATE_ADMISSION_PENDING",
+            "unexpanded_coordinate_events": [
+              127,
+              66,
+              137
+            ],
+            "frontier_labels": 135
+          },
+          {
+            "net": "T",
+            "classification": "CANDIDATE_ADMISSION_PENDING",
+            "unexpanded_coordinate_events": [
+              145,
+              84,
+              149
+            ],
+            "frontier_labels": 619
+          }
+        ]
+      },
+      {
+        "layout_index": 31,
+        "family": "face-arrangement",
+        "changes": {
+          "dimensions": [
+            [
+              310.0,
+              245.0,
+              230.0
+            ],
+            [
+              116.47,
+              371.66,
+              116.36
+            ]
+          ],
+          "placements": [
+            {
+              "feature": "AI_be3e73603a6a2601b262",
+              "parameters": {
+                "face": [
+                  "top",
+                  "left"
+                ],
+                "u": [
+                  103.375,
+                  114.35625
+                ],
+                "v": [
+                  58.465,
+                  43.08363022669771
+                ]
+              }
+            },
+            {
+              "feature": "AI_3c1607be8ee6b1db11b3",
+              "parameters": {
+                "face": [
+                  "bottom",
+                  "left"
+                ],
+                "u": [
+                  23.875,
+                  72.8375
+                ],
+                "v": [
+                  58.465,
+                  43.08363022669771
+                ]
+              }
+            },
+            {
+              "feature": "AI_d12f28ea9de536de20bf",
+              "parameters": {
+                "face": [
+                  "top",
+                  "front"
+                ],
+                "u": [
+                  63.625,
+                  69.05
+                ],
+                "v": [
+                  58.465,
+                  43.08363022669771
+                ]
+              }
+            },
+            {
+              "feature": "AI_86f806134591ec82b309",
+              "parameters": {
+                "face": [
+                  "bottom",
+                  "left"
+                ],
+                "u": [
+                  143.125,
+                  155.875
+                ],
+                "v": [
+                  58.465,
+                  43.08363022669771
+                ]
+              }
+            },
+            {
+              "feature": "AI_9e42d426a948d6658307",
+              "parameters": {
+                "face": [
+                  "top",
+                  "back"
+                ],
+                "u": [
+                  182.875,
+                  76.99000000000001
+                ],
+                "v": [
+                  58.465,
+                  43.0836302266977
+                ]
+              }
+            },
+            {
+              "feature": "AI_8c3d93dc0111c2a90a99",
+              "parameters": {
+                "face": [
+                  "front",
+                  "right"
+                ],
+                "v": [
+                  169.3913697733023,
+                  58.18363022669771
+                ],
+                "rotation": [
+                  270.0,
+                  0.0
+                ]
+              }
+            },
+            {
+              "feature": "AI_54f363aa698032173ca9",
+              "parameters": {
+                "u": [
+                  225.8,
+                  76.99000000000001
+                ],
+                "v": [
+                  58.465,
+                  314.49
+                ]
+              }
+            },
+            {
+              "feature": "AI_4bde6acd3ccc1049831f",
+              "parameters": {
+                "face": [
+                  "top",
+                  "bottom"
+                ],
+                "u": [
+                  275.075,
+                  47.010000000000005
+                ],
+                "v": [
+                  58.465,
+                  275.075
+                ]
+              }
+            },
+            {
+              "feature": "AI_3cfb5a2fd1422981a4dc",
+              "parameters": {
+                "face": [
+                  "left",
+                  "right"
+                ],
+                "u": [
+                  88.69,
+                  86.67708333333333
+                ],
+                "v": [
+                  104.665,
+                  43.0836302266977
+                ]
+              }
+            },
+            {
+              "feature": "AI_2f50daf2a73992992467",
+              "parameters": {
+                "face": [
+                  "left",
+                  "bottom"
+                ],
+                "u": [
+                  109.74,
+                  72.435
+                ],
+                "v": [
+                  104.665,
+                  109.74
+                ]
+              }
+            },
+            {
+              "feature": "AI_00d4c328726b90276227",
+              "parameters": {
+                "face": [
+                  "left",
+                  "top"
+                ],
+                "u": [
+                  144.615,
+                  74.74000000000001
+                ],
+                "v": [
+                  104.665,
+                  220.625
+                ]
+              }
+            },
+            {
+              "feature": "AI_38e70eee292d055c2fa9",
+              "parameters": {
+                "face": [
+                  "left",
+                  "right"
+                ],
+                "u": [
+                  193.31500000000003,
+                  294.7825
+                ],
+                "v": [
+                  104.665,
+                  76.41499999999999
+                ]
+              }
+            }
+          ]
+        },
+        "partial_nets": [
+          "P",
+          "SHUTTLE_OUTPUT",
+          "T"
+        ],
+        "missing_nets": [
+          "MA",
+          "MB",
+          "A_DC",
+          "B_DC",
+          "P",
+          "T",
+          "T_DC",
+          "SHUTTLE_OUTPUT"
+        ],
+        "feedback": [
+          {
+            "net": "MA",
+            "terminals": [
+              "AI_3c1607be8ee6b1db11b3:port1",
+              "AI_3cfb5a2fd1422981a4dc",
+              "AI_be3e73603a6a2601b262:port2",
+              "AI_d12f28ea9de536de20bf:port1"
+            ],
+            "source_blockers": [
+              "AI_3c1607be8ee6b1db11b3",
+              "AI_3cfb5a2fd1422981a4dc",
+              "AI_d12f28ea9de536de20bf"
+            ],
+            "failures": [
+              [
+                "installation_access",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-f0055891-1"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-f0055891-4"
+              ],
+              [
+                "plug_cut",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-f0055891-1"
+              ],
+              [
+                "source_protected",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-f0055891-1"
+              ],
+              [
+                "source_protected",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-f0055891-3"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-f0055891-3"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-f0055891-4"
+              ],
+              [
+                "plug_cut",
+                "AI_d12f28ea9de536de20bf",
+                "R-f0055891-4"
+              ],
+              [
+                "source_protected",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-f0055891-2"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-f0055891-4"
+              ],
+              [
+                "installation_access",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-f0055891-2"
+              ],
+              [
+                "installation_access",
+                "AI_3cfb5a2fd1422981a4dc",
+                "R-f0055891-1"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-f0055891-5"
+              ],
+              [
+                "plug_cut",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-f0055891-2"
+              ],
+              [
+                "source_protected",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-f0055891-2"
+              ],
+              [
+                "source_protected",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-f0055891-4"
+              ]
+            ]
+          },
+          {
+            "net": "MB",
+            "terminals": [
+              "AI_2f50daf2a73992992467",
+              "AI_3c1607be8ee6b1db11b3:port2",
+              "AI_86f806134591ec82b309:port1",
+              "AI_be3e73603a6a2601b262:port1"
+            ],
+            "source_blockers": [
+              "AI_3c1607be8ee6b1db11b3",
+              "AI_86f806134591ec82b309",
+              "AI_be3e73603a6a2601b262",
+              "AI_d12f28ea9de536de20bf"
+            ],
+            "failures": [
+              [
+                "installation_access",
+                "AI_be3e73603a6a2601b262",
+                "R-1d09f6fa-2"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-1d09f6fa-4"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-1d09f6fa-5"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-1d09f6fa-6"
+              ],
+              [
+                "plug_cut",
+                "AI_d12f28ea9de536de20bf",
+                "R-1d09f6fa-6"
+              ],
+              [
+                "source_protected",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-1d09f6fa-4"
+              ],
+              [
+                "source_protected",
+                "AI_be3e73603a6a2601b262",
+                "R-1d09f6fa-2"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-1d09f6fa-6"
+              ],
+              [
+                "installation_access",
+                "AI_86f806134591ec82b309",
+                "R-1d09f6fa-2"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-1d09f6fa-4"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-1d09f6fa-5"
+              ],
+              [
+                "plug_cut",
+                "AI_86f806134591ec82b309",
+                "R-1d09f6fa-2"
+              ],
+              [
+                "source_protected",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-1d09f6fa-4"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-1d09f6fa-2"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-1d09f6fa-3"
+              ],
+              [
+                "source_protected",
+                "AI_be3e73603a6a2601b262",
+                "R-1d09f6fa-3"
+              ],
+              [
+                "installation_access",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-1d09f6fa-1"
+              ],
+              [
+                "installation_access",
+                "AI_be3e73603a6a2601b262",
+                "R-1d09f6fa-2"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-1d09f6fa-4"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-1d09f6fa-5"
+              ],
+              [
+                "plug_cut",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-1d09f6fa-1"
+              ],
+              [
+                "plug_cut",
+                "AI_d12f28ea9de536de20bf",
+                "R-1d09f6fa-5"
+              ],
+              [
+                "source_protected",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-1d09f6fa-1"
+              ],
+              [
+                "source_protected",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-1d09f6fa-4"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-1d09f6fa-1"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-1d09f6fa-5"
+              ]
+            ]
+          },
+          {
+            "net": "A_DC",
+            "terminals": [
+              "AI_86f806134591ec82b309:port3",
+              "AI_8c3d93dc0111c2a90a99:a_A",
+              "AI_9e42d426a948d6658307:port2",
+              "AI_d12f28ea9de536de20bf:port2"
+            ],
+            "source_blockers": [
+              "AI_86f806134591ec82b309",
+              "AI_8c3d93dc0111c2a90a99",
+              "AI_9e42d426a948d6658307",
+              "AI_d12f28ea9de536de20bf"
+            ],
+            "failures": [
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-2"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-702e7749-4"
+              ],
+              [
+                "plug_cut",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-2"
+              ],
+              [
+                "plug_cut",
+                "AI_d12f28ea9de536de20bf",
+                "R-702e7749-4"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-702e7749-2"
+              ],
+              [
+                "source_protected",
+                "AI_9e42d426a948d6658307",
+                "R-702e7749-4"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-702e7749-4"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-1"
+              ],
+              [
+                "installation_access",
+                "AI_9e42d426a948d6658307",
+                "R-702e7749-3"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-702e7749-2"
+              ],
+              [
+                "plug_cut",
+                "AI_9e42d426a948d6658307",
+                "R-702e7749-3"
+              ],
+              [
+                "plug_cut",
+                "AI_d12f28ea9de536de20bf",
+                "R-702e7749-2"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-702e7749-1"
+              ],
+              [
+                "source_protected",
+                "AI_9e42d426a948d6658307",
+                "R-702e7749-3"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-702e7749-2"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-2"
+              ],
+              [
+                "installation_access",
+                "AI_9e42d426a948d6658307",
+                "R-702e7749-4"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-702e7749-5"
+              ],
+              [
+                "plug_cut",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-2"
+              ],
+              [
+                "plug_cut",
+                "AI_9e42d426a948d6658307",
+                "R-702e7749-4"
+              ],
+              [
+                "plug_cut",
+                "AI_d12f28ea9de536de20bf",
+                "R-702e7749-5"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-702e7749-2"
+              ],
+              [
+                "source_protected",
+                "AI_9e42d426a948d6658307",
+                "R-702e7749-4"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-702e7749-5"
+              ]
+            ]
+          },
+          {
+            "net": "B_DC",
+            "terminals": [
+              "AI_86f806134591ec82b309:port2",
+              "AI_8c3d93dc0111c2a90a99:b_B",
+              "AI_9e42d426a948d6658307:port4",
+              "AI_d12f28ea9de536de20bf:port3"
+            ],
+            "source_blockers": [
+              "AI_86f806134591ec82b309",
+              "AI_8c3d93dc0111c2a90a99",
+              "AI_9e42d426a948d6658307",
+              "AI_d12f28ea9de536de20bf"
+            ],
+            "failures": [
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-2"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-309be2fb-4"
+              ],
+              [
+                "plug_cut",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-2"
+              ],
+              [
+                "plug_cut",
+                "AI_d12f28ea9de536de20bf",
+                "R-309be2fb-4"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-309be2fb-4"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-1"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-2"
+              ],
+              [
+                "installation_access",
+                "AI_9e42d426a948d6658307",
+                "R-309be2fb-4"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-309be2fb-3"
+              ],
+              [
+                "plug_cut",
+                "AI_9e42d426a948d6658307",
+                "R-309be2fb-4"
+              ],
+              [
+                "plug_cut",
+                "AI_d12f28ea9de536de20bf",
+                "R-309be2fb-3"
+              ],
+              [
+                "source_protected",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-5"
+              ],
+              [
+                "source_protected",
+                "AI_9e42d426a948d6658307",
+                "R-309be2fb-4"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-309be2fb-3"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-2"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-3"
+              ],
+              [
+                "installation_access",
+                "AI_9e42d426a948d6658307",
+                "R-309be2fb-5"
+              ],
+              [
+                "plug_cut",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-2"
+              ],
+              [
+                "plug_cut",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-3"
+              ],
+              [
+                "plug_cut",
+                "AI_9e42d426a948d6658307",
+                "R-309be2fb-5"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-309be2fb-2"
+              ],
+              [
+                "source_protected",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-2"
+              ],
+              [
+                "source_protected",
+                "AI_9e42d426a948d6658307",
+                "R-309be2fb-5"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-309be2fb-5"
+              ]
+            ]
+          },
+          {
+            "net": "T_DC",
+            "terminals": [
+              "AI_4bde6acd3ccc1049831f:port3",
+              "AI_8c3d93dc0111c2a90a99:t_T"
+            ],
+            "source_blockers": [
+              "AI_86f806134591ec82b309",
+              "AI_8c3d93dc0111c2a90a99",
+              "AI_9e42d426a948d6658307"
+            ],
+            "failures": [
+              [
+                "source_protected",
+                "AI_9e42d426a948d6658307",
+                "R-8e428e23-1"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-8e428e23-1"
+              ],
+              [
+                "plug_cut",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-8e428e23-1"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-8e428e23-2"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-8e428e23-3"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-8e428e23-1"
+              ],
+              [
+                "installation_access",
+                "AI_9e42d426a948d6658307",
+                "R-8e428e23-3"
+              ],
+              [
+                "plug_cut",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-8e428e23-1"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-8e428e23-3"
+              ],
+              [
+                "source_protected",
+                "AI_9e42d426a948d6658307",
+                "R-8e428e23-3"
+              ]
+            ]
+          }
+        ],
+        "pair_witnesses": [
+          {
+            "nets": [
+              "P",
+              "T_DC"
+            ],
+            "failures": [
+              [
+                "cross_net_wall",
+                "R-5c62e091-6",
+                "R-8e428e23-3"
+              ]
+            ]
+          }
+        ],
+        "coordination": {
+          "classification": "CANDIDATE_TRUNCATION",
+          "states": 16,
+          "labels": 970,
+          "complete_candidates": 0,
+          "pending_coordination_states": 8,
+          "search_classifications": {
+            "CORRIDOR_GENERATION_LIMIT": 11,
+            "CANDIDATE_ADMISSION_PENDING": 5
+          }
+        },
+        "representative_unexpanded": [
+          {
+            "net": "A_DC",
+            "classification": "CORRIDOR_GENERATION_LIMIT",
+            "unexpanded_coordinate_events": [
+              100,
+              152,
+              90
+            ],
+            "frontier_labels": 46
+          },
+          {
+            "net": "T_DC",
+            "classification": "CANDIDATE_ADMISSION_PENDING",
+            "unexpanded_coordinate_events": [
+              109,
+              156,
+              97
+            ],
+            "frontier_labels": 187
+          },
+          {
+            "net": "T",
+            "classification": "CANDIDATE_ADMISSION_PENDING",
+            "unexpanded_coordinate_events": [
+              127,
+              167,
+              111
+            ],
+            "frontier_labels": 371
+          }
+        ]
+      },
+      {
+        "layout_index": 34,
+        "family": "interface-placement",
+        "changes": {
+          "dimensions": [
+            [
+              310.0,
+              245.0,
+              230.0
+            ],
+            [
+              310.0,
+              245.0,
+              230.0
+            ]
+          ],
+          "placements": [
+            {
+              "feature": "AI_be3e73603a6a2601b262",
+              "parameters": {
+                "face": [
+                  "top",
+                  "left"
+                ],
+                "u": [
+                  103.375,
+                  172.1625
+                ],
+                "v": [
+                  58.465,
+                  154.2913697733023
+                ]
+              }
+            },
+            {
+              "feature": "AI_3c1607be8ee6b1db11b3",
+              "parameters": {
+                "face": [
+                  "bottom",
+                  "right"
+                ],
+                "u": [
+                  23.875,
+                  172.1625
+                ],
+                "v": [
+                  58.465,
+                  154.2913697733023
+                ]
+              }
+            },
+            {
+              "feature": "AI_d12f28ea9de536de20bf",
+              "parameters": {
+                "face": [
+                  "top",
+                  "right"
+                ],
+                "u": [
+                  63.625,
+                  64.43537037037038
+                ],
+                "v": [
+                  58.465,
+                  154.2913697733023
+                ]
+              }
+            },
+            {
+              "feature": "AI_86f806134591ec82b309",
+              "parameters": {
+                "face": [
+                  "bottom",
+                  "back"
+                ],
+                "u": [
+                  143.125,
+                  155.875
+                ],
+                "v": [
+                  58.465,
+                  154.2913697733023
+                ]
+              }
+            },
+            {
+              "feature": "AI_9e42d426a948d6658307",
+              "parameters": {
+                "face": [
+                  "top",
+                  "back"
+                ],
+                "u": [
+                  182.875,
+                  202.20000000000002
+                ],
+                "v": [
+                  58.465,
+                  154.2913697733023
+                ]
+              }
+            },
+            {
+              "feature": "AI_8c3d93dc0111c2a90a99",
+              "parameters": {
+                "rotation": [
+                  270.0,
+                  0.0
+                ]
+              }
+            },
+            {
+              "feature": "AI_54f363aa698032173ca9",
+              "parameters": {
+                "face": [
+                  "top",
+                  "back"
+                ],
+                "u": [
+                  225.8,
+                  275.075
+                ],
+                "v": [
+                  58.465,
+                  73.00999999999999
+                ]
+              }
+            },
+            {
+              "feature": "AI_4bde6acd3ccc1049831f",
+              "parameters": {
+                "face": [
+                  "top",
+                  "bottom"
+                ]
+              }
+            },
+            {
+              "feature": "AI_3cfb5a2fd1422981a4dc",
+              "parameters": {
+                "u": [
+                  88.69,
+                  136.25345679012347
+                ],
+                "v": [
+                  104.665,
+                  154.2913697733023
+                ]
+              }
+            },
+            {
+              "feature": "AI_2f50daf2a73992992467",
+              "parameters": {
+                "face": [
+                  "left",
+                  "top"
+                ],
+                "u": [
+                  109.74,
+                  160.51250000000002
+                ],
+                "v": [
+                  104.665,
+                  172.1625
+                ]
+              }
+            },
+            {
+              "feature": "AI_00d4c328726b90276227",
+              "parameters": {
+                "face": [
+                  "left",
+                  "back"
+                ],
+                "u": [
+                  144.615,
+                  238.58999999999997
+                ],
+                "v": [
+                  104.665,
+                  144.615
+                ]
+              }
+            },
+            {
+              "feature": "AI_38e70eee292d055c2fa9",
+              "parameters": {
+                "face": [
+                  "left",
+                  "front"
+                ],
+                "u": [
+                  193.31500000000003,
+                  275.075
+                ],
+                "v": [
+                  104.665,
+                  73.00999999999999
+                ]
+              }
+            }
+          ]
+        },
+        "partial_nets": [
+          "MA",
+          "P",
+          "SHUTTLE_OUTPUT",
+          "T"
+        ],
+        "missing_nets": [
+          "MA",
+          "MB",
+          "A_DC",
+          "B_DC",
+          "P",
+          "T",
+          "T_DC",
+          "SHUTTLE_OUTPUT"
+        ],
+        "feedback": [
+          {
+            "net": "MB",
+            "terminals": [
+              "AI_2f50daf2a73992992467",
+              "AI_3c1607be8ee6b1db11b3:port2",
+              "AI_86f806134591ec82b309:port1",
+              "AI_be3e73603a6a2601b262:port1"
+            ],
+            "source_blockers": [
+              "AI_2f50daf2a73992992467",
+              "AI_be3e73603a6a2601b262"
+            ],
+            "failures": [
+              [
+                "installation_access",
+                "AI_2f50daf2a73992992467",
+                "R-1d09f6fa-3"
+              ],
+              [
+                "plug_cut",
+                "AI_2f50daf2a73992992467",
+                "R-1d09f6fa-3"
+              ],
+              [
+                "plug_cut",
+                "R-1d09f6fa-3",
+                "R-1d09f6fa-4"
+              ],
+              [
+                "installation_access",
+                "AI_be3e73603a6a2601b262",
+                "R-1d09f6fa-1"
+              ],
+              [
+                "plug_cut",
+                "AI_be3e73603a6a2601b262",
+                "R-1d09f6fa-1"
+              ],
+              [
+                "source_protected",
+                "AI_be3e73603a6a2601b262",
+                "R-1d09f6fa-1"
+              ],
+              [
+                "installation_access",
+                "AI_be3e73603a6a2601b262",
+                "R-1d09f6fa-1"
+              ],
+              [
+                "plug_cut",
+                "AI_be3e73603a6a2601b262",
+                "R-1d09f6fa-1"
+              ],
+              [
+                "source_protected",
+                "AI_be3e73603a6a2601b262",
+                "R-1d09f6fa-1"
+              ]
+            ]
+          },
+          {
+            "net": "A_DC",
+            "terminals": [
+              "AI_86f806134591ec82b309:port3",
+              "AI_8c3d93dc0111c2a90a99:a_A",
+              "AI_9e42d426a948d6658307:port2",
+              "AI_d12f28ea9de536de20bf:port2"
+            ],
+            "source_blockers": [
+              "AI_3c1607be8ee6b1db11b3",
+              "AI_86f806134591ec82b309",
+              "AI_8c3d93dc0111c2a90a99",
+              "AI_9e42d426a948d6658307",
+              "AI_d12f28ea9de536de20bf"
+            ],
+            "failures": [
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-2"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-3"
+              ],
+              [
+                "plug_cut",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-2"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-702e7749-2"
+              ],
+              [
+                "source_protected",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-1"
+              ],
+              [
+                "source_protected",
+                "AI_9e42d426a948d6658307",
+                "R-702e7749-3"
+              ],
+              [
+                "installation_access",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-702e7749-1"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-2"
+              ],
+              [
+                "plug_cut",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-702e7749-1"
+              ],
+              [
+                "plug_cut",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-2"
+              ],
+              [
+                "source_protected",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-702e7749-1"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-702e7749-1"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-702e7749-2"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-2"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-3"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-702e7749-1"
+              ],
+              [
+                "plug_cut",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-702e7749-2"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-702e7749-2"
+              ],
+              [
+                "source_protected",
+                "AI_9e42d426a948d6658307",
+                "R-702e7749-3"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-702e7749-1"
+              ]
+            ]
+          },
+          {
+            "net": "B_DC",
+            "terminals": [
+              "AI_86f806134591ec82b309:port2",
+              "AI_8c3d93dc0111c2a90a99:b_B",
+              "AI_9e42d426a948d6658307:port4",
+              "AI_d12f28ea9de536de20bf:port3"
+            ],
+            "source_blockers": [
+              "AI_2f50daf2a73992992467",
+              "AI_3c1607be8ee6b1db11b3",
+              "AI_86f806134591ec82b309",
+              "AI_8c3d93dc0111c2a90a99",
+              "AI_9e42d426a948d6658307",
+              "AI_d12f28ea9de536de20bf"
+            ],
+            "failures": [
+              [
+                "installation_access",
+                "AI_2f50daf2a73992992467",
+                "R-309be2fb-6"
+              ],
+              [
+                "installation_access",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-309be2fb-2"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-3"
+              ],
+              [
+                "installation_access",
+                "AI_9e42d426a948d6658307",
+                "R-309be2fb-4"
+              ],
+              [
+                "plug_cut",
+                "AI_9e42d426a948d6658307",
+                "R-309be2fb-4"
+              ],
+              [
+                "source_protected",
+                "AI_9e42d426a948d6658307",
+                "R-309be2fb-4"
+              ],
+              [
+                "installation_access",
+                "AI_86f806134591ec82b309",
+                "R-309be2fb-2"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-3"
+              ],
+              [
+                "plug_cut",
+                "AI_86f806134591ec82b309",
+                "R-309be2fb-2"
+              ],
+              [
+                "plug_cut",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-3"
+              ],
+              [
+                "source_protected",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-309be2fb-4"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-309be2fb-1"
+              ],
+              [
+                "source_protected",
+                "AI_86f806134591ec82b309",
+                "R-309be2fb-2"
+              ],
+              [
+                "installation_access",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-309be2fb-3"
+              ],
+              [
+                "installation_access",
+                "AI_8c3d93dc0111c2a90a99",
+                "R-309be2fb-5"
+              ],
+              [
+                "installation_access",
+                "AI_d12f28ea9de536de20bf",
+                "R-309be2fb-2"
+              ],
+              [
+                "plug_cut",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-309be2fb-3"
+              ],
+              [
+                "plug_cut",
+                "AI_d12f28ea9de536de20bf",
+                "R-309be2fb-2"
+              ],
+              [
+                "source_protected",
+                "AI_3c1607be8ee6b1db11b3",
+                "R-309be2fb-3"
+              ],
+              [
+                "source_protected",
+                "AI_9e42d426a948d6658307",
+                "R-309be2fb-3"
+              ],
+              [
+                "source_protected",
+                "AI_d12f28ea9de536de20bf",
+                "R-309be2fb-2"
+              ]
+            ]
+          },
+          {
+            "net": "T_DC",
+            "terminals": [
+              "AI_4bde6acd3ccc1049831f:port3",
+              "AI_8c3d93dc0111c2a90a99:t_T"
+            ],
+            "source_blockers": [],
+            "failures": []
+          }
+        ],
+        "pair_witnesses": [
+          {
+            "nets": [
+              "P",
+              "T_DC"
+            ],
+            "failures": [
+              [
+                "cross_net_wall",
+                "R-5c62e091-5",
+                "R-8e428e23-1"
+              ]
+            ]
+          }
+        ],
+        "coordination": {
+          "classification": null,
+          "states": null,
+          "labels": null,
+          "complete_candidates": null,
+          "pending_coordination_states": null,
+          "search_classifications": null
+        },
+        "representative_unexpanded": []
+      }
+    ],
+    "terminal_demands": {
+      "MA": [
+        "AI_3c1607be8ee6b1db11b3:port1",
+        "AI_3cfb5a2fd1422981a4dc",
+        "AI_be3e73603a6a2601b262:port2",
+        "AI_d12f28ea9de536de20bf:port1"
+      ],
+      "MB": [
+        "AI_2f50daf2a73992992467",
+        "AI_3c1607be8ee6b1db11b3:port2",
+        "AI_86f806134591ec82b309:port1",
+        "AI_be3e73603a6a2601b262:port1"
+      ],
+      "A_DC": [
+        "AI_86f806134591ec82b309:port3",
+        "AI_8c3d93dc0111c2a90a99:a_A",
+        "AI_9e42d426a948d6658307:port2",
+        "AI_d12f28ea9de536de20bf:port2"
+      ],
+      "B_DC": [
+        "AI_86f806134591ec82b309:port2",
+        "AI_8c3d93dc0111c2a90a99:b_B",
+        "AI_9e42d426a948d6658307:port4",
+        "AI_d12f28ea9de536de20bf:port3"
+      ],
+      "P": [
+        "AI_00d4c328726b90276227",
+        "AI_4bde6acd3ccc1049831f:port1",
+        "AI_8c3d93dc0111c2a90a99:P"
+      ],
+      "T": [
+        "AI_38e70eee292d055c2fa9",
+        "AI_4bde6acd3ccc1049831f:port2",
+        "AI_54f363aa698032173ca9:port2"
+      ],
+      "T_DC": [
+        "AI_4bde6acd3ccc1049831f:port3",
+        "AI_8c3d93dc0111c2a90a99:t_T"
+      ],
+      "SHUTTLE_OUTPUT": [
+        "AI_54f363aa698032173ca9:port1",
+        "AI_9e42d426a948d6658307:port3"
+      ]
+    },
+    "identities": {
+      "AI_be3e73603a6a2601b262": {
+        "schematic_id": "C1",
+        "definition": "cav_550b3810cce6a57d70c0"
+      },
+      "AI_3c1607be8ee6b1db11b3": {
+        "schematic_id": "C2",
+        "definition": "cav_550b3810cce6a57d70c0"
+      },
+      "AI_d12f28ea9de536de20bf": {
+        "schematic_id": "C3",
+        "definition": "cav_000ea3efc223ffbed29f"
+      },
+      "AI_86f806134591ec82b309": {
+        "schematic_id": "C4",
+        "definition": "cav_000ea3efc223ffbed29f"
+      },
+      "AI_9e42d426a948d6658307": {
+        "schematic_id": "C5",
+        "definition": "cav_192c583a473796d26ad2"
+      },
+      "AI_8c3d93dc0111c2a90a99": {
+        "schematic_id": "C6",
+        "definition": "cav_a08f4330aff58e1eb597"
+      },
+      "AI_54f363aa698032173ca9": {
+        "schematic_id": "C7",
+        "definition": "cav_35103581d8ebe3acc3eb"
+      },
+      "AI_4bde6acd3ccc1049831f": {
+        "schematic_id": "C8",
+        "definition": "cav_e9e2685d975ff0b5836b"
+      },
+      "AI_3cfb5a2fd1422981a4dc": {
+        "schematic_id": "MA-PORT",
+        "definition": null
+      },
+      "AI_2f50daf2a73992992467": {
+        "schematic_id": "MB-PORT",
+        "definition": null
+      },
+      "AI_00d4c328726b90276227": {
+        "schematic_id": "P-PORT",
+        "definition": null
+      },
+      "AI_38e70eee292d055c2fa9": {
+        "schematic_id": "T-PORT",
+        "definition": null
+      }
+    },
+    "production_cad_evaluated": false,
+    "validation": null,
+    "protected_unchanged": true,
+    "protected_hashes": {
+      "D:\\Project\\Manifold\\output\\runtime-checks\\corridor3d-20261012\\eight-valve-final\\source.json": "394197644138ed39fc63f16f2710bad1361322a0d11e1fbbd9b9588c6a73bed9",
+      "D:\\Project\\Manifold\\data\\pmc_engineering.db": "1e3267bd6a6271cf819b5181ed52eae55ab8b8b54a4a48ce45cc277175d7daa2",
+      "D:\\Project\\Manifold\\projects\\saved\\063b619795b843b8bf9d263ef5070771.json": "69735e2b416250a0ae79f4d4395db1d74265f83f8e6b68403458f9b8cc5a95b1",
+      "D:\\Project\\Manifold\\projects\\saved\\28775064c6c547159f3985bb402f114b.json": "67b05bf1550518ccc63c790234a5a56019464db371b63377c79e469578ee98a1",
+      "D:\\Project\\Manifold\\projects\\saved\\2b93c6c68df24d5ebe543215e8e91c99.json": "d347a81a002b8f4cd1384359c4c77f71795b22571062940fedb2b1798d41823e",
+      "D:\\Project\\Manifold\\projects\\saved\\481fff0805a24befa9b83b7569527052.json": "92f73d51986364f35671fd0e548912bb91885aafba84abd3f73abfe9a849bb21",
+      "D:\\Project\\Manifold\\projects\\saved\\610cf82b4a20414aa00ae964c1240a2a.json": "8bd7969d2de58920ce3810a2d9bc173cb68d977f8a13bb8109e791f2f5a2aa03",
+      "D:\\Project\\Manifold\\projects\\saved\\6e57fdcccb174b87a72c32f3069bb285.json": "825a04756db7f967997f7409084c706fb562de1c27252a0a7ba808ee9d99d888",
+      "D:\\Project\\Manifold\\projects\\saved\\85a5799c71764a59abfc95ffb0d162a9.json": "fe20986acfced8c899a89dd033ff4e3f1d88c06e1880a8bafe3f4018947d7aac",
+      "D:\\Project\\Manifold\\projects\\saved\\9e8a8be7b31e4ccd8994de3481845435.json": "b615374475714becf065f14803690c11337ec6a731f229a4e9abcc8dc32b0f12",
+      "D:\\Project\\Manifold\\projects\\saved\\f24a44ae30394c268bfadd60fe6a56e7.json": "2505bcc065fdb346f171d5bd467eac7f42584cd98245fe07a5f1f1e23caab2f9"
+    }
+  },
+  "verification": {
+    "layout_store_api": "34 passed in acceptance2; source test-input issue corrected",
+    "isolation_priorities_t10a": "19 passed; extra boundary test corrected and rerun",
+    "generation_final": "19 passed",
+    "authority_final": "3 passed",
+    "js": "3 passed",
+    "prove": {
+      "invalid": {
+        "PASS": 295,
+        "WARNING": 2,
+        "FAIL": 6
+      },
+      "corrected": {
+        "PASS": 268,
+        "WARNING": 1,
+        "FAIL": 0
+      }
+    },
+    "no_paid_ai": true,
+    "no_browser_or_vite": true,
+    "delivery_api": "20 passed",
+    "manual_preview_optimize": "1 passed with AI layout entrypoints forbidden",
+    "static_syntax": "passed",
+    "diff_check": "passed"
+  },
+  "manual_model": {
+    "evidence": "output/runtime-checks/autonomous-ai-20261012/manual-preview-optimize/test_model_preview_and_route_o0/manual-isolation.json",
+    "sha256": "91633563ed6d102448bd7616e9f610bc3ccf0d41735aedaca566d4ad99724eab",
+    "source_unchanged": true,
+    "counts": {
+      "PASS": 151,
+      "WARNING": 0,
+      "FAIL": 0
+    }
+  }
+}

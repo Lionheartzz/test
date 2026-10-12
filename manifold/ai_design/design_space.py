@@ -28,11 +28,20 @@ class LayoutDomain:
 
     @classmethod
     def new_generation(cls,design,owned,*,dimension_axes=(0,1,2),fixed_faces=None,
-                       fixed_positions=None,fixed_rotations=None,soft_faces=None,soft_dimensions=()):
-        movable,resize=_permissions(design)
+                       fixed_positions=None,fixed_rotations=None,soft_faces=None,soft_dimensions=(),explicit_dimension_axes=None):
+        movable,_=_permissions(design)
         # Passing AI-origin metadata cannot release authored cuts or parents.
         allowed=movable&set(owned)
-        resize=resize and movable<=allowed
+        # Shared Model permissions remain conservative. Only this NEW AI value
+        # computes axis-specific freedom around fixed machining: growing X/Y
+        # does not move a blind top mounting hole, whereas growing Z would.
+        protected=[f for f in design.features if f.id not in allowed and not f.suppressed]
+        resize=not design.block.stock_id and not design.engravings and not design.block_modifiers
+        locked=set()
+        for f in protected:
+            if f.parent_id or f.direction:locked.update(range(3));continue
+            axis,sign=FACE_AXES[f.face][2:]
+            if sign<0 or f.through:locked.add(axis)
         positions=dict(fixed_positions or {})
         if set(positions)-{f.id for f in design.features}:raise ValueError('Fixed position refers to a missing feature')
         if any(k not in ('u','v','x','y','z') or not isinstance(v,(int,float)) or isinstance(v,bool) or not math.isfinite(v)
@@ -43,14 +52,17 @@ class LayoutDomain:
         # Only an explicit WORLD coordinate on a fixed opposite face implies
         # a fixed normal dimension. Protected/unowned geometry still disables
         # resizing above, independently of any AI-origin metadata.
-        axes=tuple(i for i in dimension_axes if resize and not any(f.id in faces and
+        axes=tuple(i for i in dimension_axes if resize and i not in locked and not any(f.id in faces and
             FACE_AXES[faces[f.id]][2]==i and FACE_AXES[faces[f.id]][3]<0 and
             ('x','y','z')[i] in positions.get(f.id,{}) for f in design.features) and not (
             design.constraints.envelope_min and design.constraints.envelope_max and
             design.constraints.envelope_min[i]==design.constraints.envelope_max[i]))
         return cls(allowed,axes,faces,
             dict(fixed_rotations or {}),positions,dict(soft_faces or {}),tuple(soft_dimensions),
-            dict(minimum=design.constraints.envelope_min,maximum=design.constraints.envelope_max),
+            dict(minimum=design.constraints.envelope_min,maximum=design.constraints.envelope_max,
+                 explicit_axes=explicit_dimension_axes if explicit_dimension_axes is not None else dict(
+                     minimum=list(range(3)) if design.constraints.envelope_min else [],maximum=list(range(3)) if design.constraints.envelope_max else []),
+                 supported_maximum=[2000]*3),
             {f.id for f in design.features}-allowed)
 
     def faces(self,feature):
@@ -65,6 +77,7 @@ class LayoutDomain:
         for f in candidate.features:
             old=previous[f.id]
             if f.id not in self.movable and f!=old:return False
+            if f.id not in self.movable and pose(f,candidate.block)!=pose(old,original.block):return False
             # Only these four placement parameters are owned by this search.
             if f.model_dump(exclude={'face','u','v','rotation'})!=old.model_dump(exclude={'face','u','v','rotation'}):return False
             if f.id in self.fixed_faces and f.face!=self.fixed_faces[f.id]:return False
@@ -105,19 +118,34 @@ def topology_cost(design,definitions):
     return cost
 
 
+def window_alignment_cost(design,definitions):
+    """Schedule straight source-window chains before short zig-zag packing.
+
+    This is a placement heuristic only. Router/Exact gates still establish all
+    actual drillings and openings across the complete set of hydraulic Nets.
+    """
+    from ..routing import terminal_points
+    points=terminal_points(design,definitions);cost=0
+    for net in design.nets:
+        members=[points[m] for m in net.members if m in points]
+        if len(members)>1:cost+=max(0,sum(max(p[i] for p in members)-min(p[i] for p in members)>1e-6 for i in range(3))-1)
+    return cost
+
+
 def source_conflicts(design,definitions,threads,modifiers,cache=None):
     return sorted({tuple(sorted((f.id,other))) for f in design.features if not f.suppressed and f.kind in ('cavity','port')
         for other in placement_conflicts(design,f,definitions,threads,modifiers,cache=cache)})
 
 
-def fit_violations(design,definitions):
+def fit_violations(design,definitions,domain=None):
     """Actual offending source/envelope facts, not a generic 'no space' label."""
     sizes=dimensions(design.block);violations=[]
     for axis,size in enumerate(sizes):
         if design.constraints.envelope_min and size<design.constraints.envelope_min[axis]:
             violations.append(['explicit_envelope_min',('X','Y','Z')[axis],size,design.constraints.envelope_min[axis]])
         if design.constraints.envelope_max and size>design.constraints.envelope_max[axis]:
-            violations.append(['explicit_envelope_max',('X','Y','Z')[axis],size,design.constraints.envelope_max[axis]])
+            kind='explicit_envelope_max' if domain is None or axis in domain.hard_dimensions['explicit_axes']['maximum'] else 'supported_dimension_max'
+            violations.append([kind,('X','Y','Z')[axis],size,design.constraints.envelope_max[axis]])
     sources=[f for f in design.features if not f.suppressed and f.kind in ('cavity','port')]
     for f in sources:
         u,v,axis,_=FACE_AXES[f.face];wall=required_wall(design,f,definitions=definitions);margin=radius(f,definitions)+wall
@@ -184,7 +212,11 @@ def anchored(design,feature,definitions,domain,threads,modifiers):
     for face in sorted(domain.faces(feature),key=lambda f:(f!=(domain.soft_faces.get(feature.id) or feature.face),f)):
         item=projected(feature,face,design);u,v,_,_=FACE_AXES[face]
         rotations=[domain.fixed_rotations[feature.id]] if feature.id in domain.fixed_rotations else [feature.rotation]
-        if feature.definition and feature.id not in domain.fixed_rotations:
+        definition=definitions.get(feature.definition)
+        asymmetric=definition and (any(abs(z.offset_u)+abs(z.offset_v)>1e-7 for z in definition.zones) or
+            any(abs(getattr(p,'offset_u',0))+abs(getattr(p,'offset_v',0))>1e-7 for p in definition.cutting_primitives) or
+            any(b.points or b.circle and (b.circle[0] or b.circle[1]) for b in definition.boundaries))
+        if asymmetric and feature.id not in domain.fixed_rotations:
             rotations.extend((feature.rotation+angle)%360 for angle in (90,180,270))
             for zone,target in itertools.product(definitions[feature.definition].zones,targets):
                 if math.hypot(zone.offset_u,zone.offset_v)>1e-7:
@@ -232,7 +264,7 @@ def pack_topology(design,definitions,domain,threads,modifiers):
         for trial in itertools.islice(anchored(context,feature,definitions,domain,threads,modifiers),512):
             target=context.model_copy(update=dict(features=[*placed,trial]))
             if not _fits(target,definitions) or placement_conflicts(target,trial,definitions,threads,modifiers,cache=domain._placement_cache):continue
-            choices.append((topology_cost(target,definitions),trial.face!=(domain.soft_faces.get(feature.id) or feature.face),
+            choices.append((window_alignment_cost(target,definitions),topology_cost(target,definitions),trial.face!=(domain.soft_faces.get(feature.id) or feature.face),
                 math.dist((feature.u,feature.v),(trial.u,trial.v)),trial.face,trial.rotation,trial.u,trial.v,trial))
         if not choices:return None
         selected=min(choices,key=lambda row:row[:-1])[-1];placed.append(selected)
@@ -276,6 +308,9 @@ def actions(design,definitions,domain,threads,modifiers,focus=()):
             packed=pack_topology(target,definitions,domain,threads,modifiers)
             if packed:yield 'connected-group',packed
     def sizing():
+        from .initialization import dimension_proposals
+        for family,target,_ in dimension_proposals(design,definitions,domain,threads,modifiers):
+            yield family,target
         sizes=dimensions(design.block);upper=design.constraints.envelope_max or (2000,)*3
         lower=design.constraints.envelope_min or (1,)*3
         bore=max((effective_net(design,n).diameter for n in design.nets),default=0)

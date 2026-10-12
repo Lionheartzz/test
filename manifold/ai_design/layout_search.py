@@ -168,7 +168,9 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
             progress('access', net=name, completed=index, total=len(nets))
         if general_families:
             pools[name]=[o for o in general_pools[name] if not o['failures']]
-            diagnostics[name]=general_diagnostics[name]
+            diagnostics[name]={**general_diagnostics[name], 'rejected_samples':[
+                dict(variant=o['key'],failures=sorted(o['failures']),cut_ids=[f.id for f in o['route']])
+                for o in general_pools[name] if o['failures']][:3]}
             continue
         eligible = cavity_terminal_candidates(source, net, definitions, threads, modifiers)
         mask = sum(1 << i for i, member in enumerate(sorted(net.members))
@@ -251,6 +253,18 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
             chosen[name]=min(pools[name],key=lambda o:(sum(len(pair(name,o,k,p)) for k,p in chosen.items()),
                 route_objective(source,o['route'],definitions=definitions),o['key']))
     route = [f for o in (chosen or {}).values() for f in o['route']]
+    partial={}
+    if not compatible:
+        for name in sorted(nets,key=lambda n:(len(pools[n]),n)):
+            for option in sorted(pools[name],key=lambda o:route_objective(source,o['route'],definitions=definitions)):
+                if all(not pair(name,option,other,previous) for other,previous in partial.items()):
+                    partial[name]=option;break
+    source_ids={f.id for f in source.features}
+    feedback=[dict(net=name,terminals=list(nets[name].members),source_blockers=sorted({str(key).split(':')[0]
+        for sample in diagnostics[name].get('rejected_samples',[]) for failure in sample['failures'] for key in failure[1:]
+        if str(key).split(':')[0] in source_ids}),
+        failures=[failure for sample in diagnostics[name].get('rejected_samples',[]) for failure in sample['failures']])
+        for name in nets if not pools[name] or not compatible and name not in partial]
     from ..routing import _conflict_objective
     failures=set(fixed)
     if chosen and not compatible:
@@ -261,6 +275,8 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         feasibility_score=feasibility, blocked_nets=blocked, compatible=compatible, conflicts=sorted(failures),
         fixed_conflicts=fixed, selected={n: o['key'] for n, o in (chosen or {}).items()}, pools=diagnostics,
         combination=combination,corridor_planning=corridor,witnesses=list(witnesses.values()), drillings=len(route), plugs=sum(f.plugged for f in route),
+        layout_feedback=feedback,partial_routing=dict(status='ANALYTIC_PARTIAL_NOT_EXACT',nets=sorted(partial),
+            features=[f.model_dump(mode='json') for o in partial.values() for f in o['route']],connection_verified=False),
         **(dict(route_features=[f.model_dump(mode='json') for f in route]) if include_routes else {}))
 
 
@@ -428,7 +444,7 @@ def plan_legacy_analytic(design, definitions, *, movable_features, growth_axes, 
 
 def plan_new(design,definitions,*,movable_features,growth_axes=(0,1,2),fixed_faces=None,
              fixed_positions=None,fixed_rotations=None,soft_faces=None,soft_dimensions=(),
-             progress=None,cancelled=lambda:False,layout_limit=48,exact_limit=0,initial=None,evidence_dir=None):
+             progress=None,cancelled=lambda:False,layout_limit=48,exact_limit=0,initial=None,evidence_dir=None,explicit_dimension_axes=None):
     """New AI-owned joint design-space search; no Model call path."""
     from .design_space import LayoutDomain
     from .joint_layout import optimize
@@ -440,6 +456,7 @@ def plan_new(design,definitions,*,movable_features,growth_axes=(0,1,2),fixed_fac
             proposals=[],evaluated_layouts=0,layout_limit=layout_limit,evaluations=[],attempts=[],validation=None,
             reason='Existing route choices or authored machining were not released by a new AI compilation.')
     domain=LayoutDomain.new_generation(design,movable_features,dimension_axes=growth_axes,fixed_faces=fixed_faces,
-        fixed_positions=fixed_positions,fixed_rotations=fixed_rotations,soft_faces=soft_faces,soft_dimensions=soft_dimensions)
+        fixed_positions=fixed_positions,fixed_rotations=fixed_rotations,soft_faces=soft_faces,soft_dimensions=soft_dimensions,
+        explicit_dimension_axes=explicit_dimension_axes)
     return optimize(design,definitions,domain,layout_limit=layout_limit,exact_limit=exact_limit,
         progress=progress,cancelled=cancelled,initial=initial,evidence_dir=evidence_dir)
