@@ -140,12 +140,55 @@ class Catalog:
 
 class Session:
     """Small operation-owned pool reuse; every copied route is re-screened."""
-    def __init__(self):self.previous={};self.catalogs={};self.cache={};self.remaining=0
+    def __init__(self):
+        self.previous={};self.catalogs={};self.cache={};self.remaining=0
+        self.combinations=[];self.pair_evidence={};self.context=None;self.invalidated=False
+        self._prepared_once=False
+
+    def source_context(self,source,definitions,threads,modifiers):
+        import hashlib,json
+        return hashlib.sha256((source.model_dump_json()+json.dumps(
+            [sorted((k,d.model_dump_json()) for k,d in definitions.items()),threads,modifiers],sort_keys=True,default=str)).encode()).hexdigest()
+
+    def seed_combination(self,source,chosen):
+        # Restored diagnostics supply real cuts, not a compatibility approval.
+        from ..engineering_conditions import effective_net
+        geometries={(n,geometry_key(o['route'])) for n,o in chosen.items()}
+        clear_pairs=[p for p,failures in self.pair_evidence.items() if not failures and all(k in geometries for k in p)]
+        self.combinations.append(dict(source_context=self.context,clear_pairs=clear_pairs,
+            terminals={n:terminal_key(source,effective_net(source,next(k for k in source.nets if k.id==n))) for n in chosen},chosen=chosen))
+        self.combinations=sorted(self.combinations,key=lambda r:-len(r['chosen']))[:max(4,len(source.nets))]
+
+    def compatible_core(self,source,nets,pair):
+        best={};discarded=set();checked=0
+        for record in self.combinations:
+            kept={}
+            for name,old in record['chosen'].items():
+                if name not in nets or record['terminals'][name]!=terminal_key(source,nets[name]):discarded.add(name);continue
+                option=next((o for o in self.catalogs[name].clear if geometry_key(o['route'])==geometry_key(old['route'])),None)
+                if option is not None:
+                    checked+=len(kept)
+                    if all(not pair(name,option,n,p) for n,p in kept.items()):kept[name]=option
+            if len(kept)>len(best):best=kept
+        self.core_checks=dict(source_context=self.context,source_changed=self.invalidated,
+            checked_pairs=checked,discarded_changed_terminals=sorted(discarded),retained_nets=sorted(best),exact_verified=False)
+        return best
 
     def prepare(self, source, nets, definitions, threads, modifiers, tools, progress=None):
+        context=self.source_context(source,definitions,threads,modifiers)
+        if self._prepared_once and context==self.context:
+            self._prepared_once=False
+            return {n:c.active(width=len(c.clear)) for n,c in self.catalogs.items()}
+        self._prepared_once=False
+        self.invalidated=self.context is not None and self.context!=context
+        if context!=self.context:self.pair_evidence={}
+        self.context=context
         self.cache={};self.catalogs={}
         for name,net in nets.items():
-            seeds=self.previous.get(terminal_key(source,net),())
+            seeds=[]
+            for record in self.combinations:
+                if name in record['chosen'] and record['terminals'][name]==terminal_key(source,net):seeds.append(record['chosen'][name])
+            seeds.extend(self.previous.get(terminal_key(source,net),()))
             self.catalogs[name]=Catalog(source,net,definitions,threads,modifiers,tools,self.cache,seeds)
         # SAME total sample allocation as 32 per Net. Cheap Nets stop after
         # first diverse choices; missing/complex Nets receive unused tokens.
@@ -218,6 +261,7 @@ class Session:
         return dict(samples=used,pending=sum(map(len,groups.values())),unspent=self.remaining)
 
     def remember(self, source, selected=None):
+        if selected:self.seed_combination(source,selected)
         for catalog in self.catalogs.values():
             kept=[]
             if selected and catalog.net.id in selected:kept.append(selected[catalog.net.id])

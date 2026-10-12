@@ -222,7 +222,15 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
             rejected=[dict(variant=o['key'], failures=sorted(o['failures'])) for o in rejected[:3]])
     witnesses = {}
     def pair(a, ao, b, bo):
-        failures = _route_pair_failures(source, nets[a], ao, nets[b], bo, snapshot, snapshot.combination_budget)
+        if general_families:
+            from .route_catalog import geometry_key
+            token=tuple(sorted(((a,geometry_key(ao['route'])),(b,geometry_key(bo['route'])))))
+            cached=route_session.pair_evidence.get(token)
+        else:cached=None
+        failures=set(cached) if cached is not None else _route_pair_failures(source, nets[a], ao, nets[b], bo, snapshot, snapshot.combination_budget)
+        if general_families and cached is None and not any(f[0]=='search_budget' for f in failures):
+            route_session.pair_evidence[token]=frozenset(failures)
+            if len(route_session.pair_evidence)>4096:route_session.pair_evidence.pop(next(iter(route_session.pair_evidence)))
         if failures and not any(f[0] == 'search_budget' for f in failures):
             key = tuple(sorted((a, b)))
             if key not in witnesses or len(failures) < len(witnesses[key]['failures']):
@@ -232,38 +240,29 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         return failures
     if progress:
         progress('conflicts', completed=len(nets), total=len(nets))
-    chosen, combination = select_route_combination(source, nets, pools, definitions, pair,
-        pair_count=lambda: snapshot.combination_budget['used'])
-    if chosen is None and general_families:
-        coordination=route_session.coordinate(source,list(witnesses.values()))
-        pools={name:catalog.active() for name,catalog in route_session.catalogs.items()}
-        remaining=max(0,1000-combination['states'])
-        if remaining:
-            chosen,retry=select_route_combination(source,nets,pools,definitions,pair,state_limit=remaining,
-                pair_count=lambda:snapshot.combination_budget['used'])
-            retry['states']+=combination['states'];combination=retry
-        combination['coordination_sampling']=coordination
-    # Eight is an active batch, not a permanent geometric cutoff. If retained
-    # entries clash, expose already screened distinct arrangements from the
-    # deferred pool under the SAME aggregate state/pair allowance.
-    promotions=[]
-    if chosen is None and general_families and all(pools.values()):
-        for name,catalog in route_session.catalogs.items():
-            keys={o['key'] for o in pools[name]}
-            extra=[o for o in catalog.clear if o['key'] not in keys]
-            if extra:
-                pools[name]=catalog.active(width=len(catalog.clear))
-                promotions.append(dict(net=name,count=len(extra)))
-        remaining=max(0,1000-combination['states'])
-        if promotions and remaining:
-            chosen,retry=select_route_combination(source,nets,pools,definitions,pair,state_limit=remaining,
-                pair_count=lambda:snapshot.combination_budget['used'])
-            retry['states']+=combination['states'];combination=retry
+    joint=None;preserved={}
+    if general_families:
+        from .joint_routes import coordinate
+        preserved=route_session.compatible_core(source,nets,pair)
+        pools={n:c.active(width=len(c.clear)) for n,c in route_session.catalogs.items()}
+        work=dict(states=0,limit=1000)
+        partial,joint=coordinate(route_session,source,nets,pools,pair,preserved,work,labels=corridor_labels)
+        joint['core_validation']=route_session.core_checks
+        chosen=partial if len(partial)==len(nets) else None
+        combination=dict(states=work['states'],state_limit=1000,pair_screens=snapshot.combination_budget['used'],pair_limit=4000,
+            exit_reason='clear_combination' if chosen else 'compatible_core_incomplete',pools={n:len(p) for n,p in pools.items()},
+            preserved_core=sorted(preserved),best_partial=sorted(partial),empty_nets=sorted(n for n,p in pools.items() if not p))
+    else:
+        chosen, combination = select_route_combination(source, nets, pools, definitions, pair,
+            pair_count=lambda: snapshot.combination_budget['used'])
+    # AI joint insertion consumes all already screened alternatives; eight is
+    # only the initial catalog batch. Manual/legacy selection remains unchanged.
+    promotions=[dict(net=n,count=len(pool)-8) for n,pool in pools.items() if general_families and len(pool)>8]
     combination['deferred_promotions']=promotions
     if general_families:
         for name,catalog in route_session.catalogs.items():diagnostics[name]=catalog.diagnostics(pools[name])
     corridor=None
-    if chosen is None and nets and corridor_labels:
+    if chosen is None and nets and corridor_labels and not general_families:
         from ..drilling_planner import coordinate_routes
         planned,corridor=coordinate_routes(source,list(nets.values()),definitions,threads,modifiers,
             label_limit=min(128,corridor_labels),label_total_limit=corridor_labels,state_limit=16,pair_limit=256,exact_connectivity=False)
@@ -280,8 +279,8 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
             chosen[name]=min(pools[name],key=lambda o:(sum(len(pair(name,o,k,p)) for k,p in chosen.items()),
                 route_objective(source,o['route'],definitions=definitions),o['key']))
     route = [f for o in (chosen or {}).values() for f in o['route']]
-    partial={}
-    if not compatible:
+    if not general_families:partial={}
+    if not compatible and not general_families:
         for name in sorted(nets,key=lambda n:(len(pools[n]),n)):
             for option in sorted(pools[name],key=lambda o:route_objective(source,o['route'],definitions=definitions)):
                 if all(not pair(name,option,other,previous) for other,previous in partial.items()):
@@ -307,7 +306,7 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
     return dict(status='ANALYTIC_UNVALIDATED', score=(*feasibility, *route_objective(source, route, definitions=definitions)),
         feasibility_score=feasibility, blocked_nets=blocked, compatible=compatible, conflicts=sorted(failures),
         fixed_conflicts=fixed, selected={n: o['key'] for n, o in (chosen or {}).items()}, pools=diagnostics,
-        combination=combination,corridor_planning=corridor,witnesses=list(witnesses.values()), drillings=len(route), plugs=sum(f.plugged for f in route),
+        combination=combination,joint_coordination=joint,corridor_planning=corridor,witnesses=list(witnesses.values()), drillings=len(route), plugs=sum(f.plugged for f in route),
         layout_feedback=feedback,spatial_feedback=spatial,partial_routing=dict(status='ANALYTIC_PARTIAL_NOT_EXACT',nets=sorted(partial),
             features=[f.model_dump(mode='json') for o in partial.values() for f in o['route']],connection_verified=False),
         **(dict(route_features=[f.model_dump(mode='json') for f in route]) if include_routes else {}))

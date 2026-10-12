@@ -1,0 +1,106 @@
+{
+  "starting_head": "b526cc21aa4d5df208701105e0707fcafb565f8b",
+  "progress": {
+    "before": 6,
+    "best": 7,
+    "nets": [
+      "A_DC",
+      "B_DC",
+      "MA",
+      "P",
+      "SHUTTLE_OUTPUT",
+      "T",
+      "T_DC"
+    ],
+    "missing": [
+      "MB"
+    ],
+    "drillings": 44,
+    "exact_verified": false,
+    "elapsed_s": 314.89099999994505,
+    "states": 781,
+    "pairs": 2459
+  },
+  "reuse": {
+    "restored": 7,
+    "retained": 7,
+    "elapsed_s": 346.98499999998603,
+    "states": 1000,
+    "pairs": 2557,
+    "samples": 60,
+    "pending": 70,
+    "core_validation": {
+      "source_context": "c9a9a882d43fb53dc6ae04e9e2565abb0225b2677d5cd0427a4dd27db0e320ae",
+      "source_changed": false,
+      "checked_pairs": 21,
+      "discarded_changed_terminals": [],
+      "retained_nets": [
+        "A_DC",
+        "B_DC",
+        "MA",
+        "P",
+        "SHUTTLE_OUTPUT",
+        "T",
+        "T_DC"
+      ],
+      "exact_verified": false
+    }
+  },
+  "insertion_check": {
+    "tested": 20,
+    "clear_insertions": 0,
+    "closest": {
+      "net": "MB",
+      "candidate": "branch_12_97.000000_109.740000_104.665000:zxy:nearest",
+      "blockers": {
+        "MA": [
+          [
+            "cross_net_wall",
+            "R-1d09f6fa-1",
+            "R-f0055891-3"
+          ],
+          [
+            "cross_net_wall",
+            "R-1d09f6fa-1",
+            "R-f0055891-AX3"
+          ],
+          [
+            "cross_net_wall",
+            "R-1d09f6fa-3",
+            "R-f0055891-1"
+          ],
+          [
+            "cross_net_wall",
+            "R-1d09f6fa-3",
+            "R-f0055891-6"
+          ]
+        ],
+        "T_DC": [
+          [
+            "cross_net_wall",
+            "R-1d09f6fa-AX2",
+            "R-8e428e23-2"
+          ]
+        ]
+      }
+    }
+  },
+  "complete": false,
+  "exact_status": null,
+  "production_brep_step_evaluated": false,
+  "source_geometry_unchanged": true,
+  "protected_hashes": {
+    "D:\\Project\\Manifold\\output\\runtime-checks\\ai-routing-core-20261012\\eight-valve-corrected\\layouts\\007.json": "39ca4288ef54641ff2743b701a4c19db8d86f2f7e08f93c2b47797d167af9861",
+    "D:\\Project\\Manifold\\data\\pmc_engineering.db": "1e3267bd6a6271cf819b5181ed52eae55ab8b8b54a4a48ce45cc277175d7daa2",
+    "D:\\Project\\Manifold\\projects\\saved\\063b619795b843b8bf9d263ef5070771.json": "69735e2b416250a0ae79f4d4395db1d74265f83f8e6b68403458f9b8cc5a95b1",
+    "D:\\Project\\Manifold\\projects\\saved\\28775064c6c547159f3985bb402f114b.json": "67b05bf1550518ccc63c790234a5a56019464db371b63377c79e469578ee98a1",
+    "D:\\Project\\Manifold\\projects\\saved\\2b93c6c68df24d5ebe543215e8e91c99.json": "d347a81a002b8f4cd1384359c4c77f71795b22571062940fedb2b1798d41823e",
+    "D:\\Project\\Manifold\\projects\\saved\\481fff0805a24befa9b83b7569527052.json": "92f73d51986364f35671fd0e548912bb91885aafba84abd3f73abfe9a849bb21",
+    "D:\\Project\\Manifold\\projects\\saved\\610cf82b4a20414aa00ae964c1240a2a.json": "8bd7969d2de58920ce3810a2d9bc173cb68d977f8a13bb8109e791f2f5a2aa03",
+    "D:\\Project\\Manifold\\projects\\saved\\6e57fdcccb174b87a72c32f3069bb285.json": "825a04756db7f967997f7409084c706fb562de1c27252a0a7ba808ee9d99d888",
+    "D:\\Project\\Manifold\\projects\\saved\\85a5799c71764a59abfc95ffb0d162a9.json": "fe20986acfced8c899a89dd033ff4e3f1d88c06e1880a8bafe3f4018947d7aac",
+    "D:\\Project\\Manifold\\projects\\saved\\9e8a8be7b31e4ccd8994de3481845435.json": "b615374475714becf065f14803690c11337ec6a731f229a4e9abcc8dc32b0f12",
+    "D:\\Project\\Manifold\\projects\\saved\\f24a44ae30394c268bfadd60fe6a56e7.json": "2505bcc065fdb346f171d5bd467eac7f42584cd98245fe07a5f1f1e23caab2f9"
+  },
+  "focused_tests": 4
+}
