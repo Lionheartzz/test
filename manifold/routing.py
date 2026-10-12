@@ -512,7 +512,7 @@ def _source_safe_coaxial_stops(design,net,routes,definitions):
             if not route_obstructions(design,net,[revised],threads,definitions,modifiers,cache):yield [revised]
 
 
-def simple_routes(design,net,definitions=None):
+def simple_routes(design,net,definitions=None,*,include_detours=True):
     net=effective_net(design,net)
     """Single-entry proposals may exploit offset intersection; exact checks decide adequacy."""
     if definitions is None:
@@ -555,7 +555,7 @@ def simple_routes(design,net,definitions=None):
                     t,face,p=min(entries);u,v,_,_=FACE_AXES[face]
                     routes.append([Feature(id=f'R-{digest}-1',kind='drilling',face=face,u=p[u],v=p[v],direction=direction,
                                            circuit=net.id,diameter=net.diameter,depth=t+length+net.diameter/2,plugged=True,route_net=net.id)])
-    if net.drilling_mode == 'orthogonal':
+    if net.drilling_mode == 'orthogonal' and include_detours:
         # These bounded two-plane candidates use only authored machining bounds,
         # so a persisted simple_N variant regenerates identically after other
         # automatic routes are rebuilt in a different order.

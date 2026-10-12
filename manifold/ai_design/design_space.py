@@ -25,6 +25,7 @@ class LayoutDomain:
     hard_dimensions: dict=field(default_factory=dict)
     protected: set=field(default_factory=set)
     _placement_cache: dict=field(default_factory=dict,repr=False)
+    _packing_diagnostics: dict=field(default_factory=dict,repr=False)
 
     @classmethod
     def new_generation(cls,design,owned,*,dimension_axes=(0,1,2),fixed_faces=None,
@@ -107,9 +108,14 @@ def signature(design):
 
 
 def topology_cost(design,definitions):
+    return topology_cost_for(design,definitions,{n.id for n in design.nets})
+
+
+def topology_cost_for(design,definitions,net_ids):
     from ..routing import terminal_points
     points=terminal_points(design,definitions);cost=0
     for net in design.nets:
+        if net.id not in net_ids:continue
         members=[points[m] for m in net.members if m in points]
         if len(members)<2:continue
         # Hyperedge spread schedules layout candidates only; it is NOT routing
@@ -246,30 +252,56 @@ def anchored(design,feature,definitions,domain,threads,modifiers):
 
 
 def pack_topology(design,definitions,domain,threads,modifiers):
-    """Repack by real Net adjacency; existing/fixed geometry is an obstacle."""
+    """Bounded joint placement beam; a later source can undo earlier choices.
+
+    The old 512 probes per feature become a shared probe allowance. Keep
+    different earlier arrangements until later Port/cross-face cuts are placed.
+    """
     weights=defaultdict(int)
     for net in design.nets:
         owners={m.split(':')[0] for m in net.members}
         for owner in owners:weights[owner]+=len(owners)-1
-    anchored_ids=set(domain.fixed_positions)
+    anchored_ids={f.id for f in design.features if {'u','v'}<=domain.fixed_positions.get(f.id,{}).keys() or
+                  {'x','y','z'}<=domain.fixed_positions.get(f.id,{}).keys()}
     order=sorted((f for f in design.features if f.id in domain.movable and f.id not in anchored_ids),key=lambda f:(
         f.id not in domain.fixed_faces,-weights[f.id],-radius(f,definitions),f.id))
-    result=design.model_copy(deep=True)
-    placed=[f for f in result.features if f.id not in domain.movable or f.id in anchored_ids]
+    fixed=[f for f in design.features if f.id not in domain.movable or f.id in anchored_ids]
+    beam=[fixed];width=min(4,max(1,len(order)));limit=512*len(order);used=0;dead=0;forks=0
     for feature in order:
-        context=result.model_copy(update=dict(features=[*placed,feature]))
-        choices=[]
-        # Count-bound placement probes are distinct from the outer search. All
-        # missed actions remain eligible through its resumable action generators.
-        for trial in itertools.islice(anchored(context,feature,definitions,domain,threads,modifiers),512):
-            target=context.model_copy(update=dict(features=[*placed,trial]))
-            if not _fits(target,definitions) or placement_conflicts(target,trial,definitions,threads,modifiers,cache=domain._placement_cache):continue
-            choices.append((window_alignment_cost(target,definitions),topology_cost(target,definitions),trial.face!=(domain.soft_faces.get(feature.id) or feature.face),
-                math.dist((feature.u,feature.v),(trial.u,trial.v)),trial.face,trial.rotation,trial.u,trial.v,trial))
-        if not choices:return None
-        selected=min(choices,key=lambda row:row[:-1])[-1];placed.append(selected)
-        result.features=[selected if f.id==selected.id else f for f in result.features]
-    return result
+        choices=[];quota=max(1,min(512//len(beam),limit-used))
+        for parent_index,placed in enumerate(beam):
+            context=design.model_copy(update=dict(features=[*placed,feature]));found=False
+            for trial in itertools.islice(anchored(context,feature,definitions,domain,threads,modifiers),quota):
+                used+=1
+                target=context.model_copy(update=dict(features=[*placed,trial]))
+                if not _fits(target,definitions) or placement_conflicts(target,trial,definitions,threads,modifiers,cache=domain._placement_cache):continue
+                found=True
+                choices.append(((window_alignment_cost(target,definitions),topology_cost(target,definitions),
+                    trial.face!=(domain.soft_faces.get(feature.id) or feature.face),math.dist((feature.u,feature.v),(trial.u,trial.v)),
+                    trial.face,trial.rotation,trial.u,trial.v),parent_index,[*placed,trial]))
+            if not found:dead+=1
+        if not choices:
+            domain._packing_diagnostics=dict(probes=used,probe_limit=limit,dead_ends=dead,forks=forks,
+                blocked_feature=feature.id,status='BOUNDED_PLACEMENT_UNRESOLVED',physical_infeasibility_proven=False)
+            return None
+        choices.sort(key=lambda row:(row[0],row[1]));selected=[];arrangements=set();parents=set()
+        for row in choices:
+            if row[1] not in parents:selected.append(row);parents.add(row[1])
+        rest=[]
+        for row in choices:
+            if row in selected:continue
+            # Retain different parent choices and source-window alignments,
+            # not only four nearly coincident points on the preferred face.
+            f=row[2][-1];key=(row[1],f.face,f.rotation,row[0][0],
+                (f.u>feature.u)-(f.u<feature.u),(f.v>feature.v)-(f.v<feature.v))
+            if key in arrangements:rest.append(row)
+            else:selected.append(row);arrangements.add(key)
+            if len(selected)>=width:break
+        selected=(selected+rest)[:width]
+        beam=[row[2] for row in selected];forks+=max(0,len(beam)-1)
+    domain._packing_diagnostics=dict(probes=used,probe_limit=limit,dead_ends=dead,forks=forks,status='SOURCE_PLACEMENT_ONLY')
+    placed={f.id:f for f in beam[0]}
+    return design.model_copy(update=dict(features=[placed.get(f.id,f) for f in design.features]))
 
 
 def actions(design,definitions,domain,threads,modifiers,focus=()):

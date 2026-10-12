@@ -86,12 +86,14 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
     from ..store import revision,atomic_json
     from .layout_search import screen,_columns
     from .initialization import initial_candidates,route_feedback,constraint_conflicts
+    from .route_catalog import Session
     if not 1<=layout_limit<=128 or not 0<=exact_limit<=8:raise ValueError('Invalid AI layout calculation budget')
     original=design.model_copy(deep=True);source_revision=revision(original)
     threads=thread_definitions_for_design(original);modifiers=modifier_definitions_for_design(original) if any(f.machining_modifiers for f in original.features) else {}
     tools=tool_definitions('drill');serial=itertools.count();queue=[];frames=[];seen=set();records=[];attempts=[]
     counters=dict(layouts=0,transforms=0,source_rejected=0,duplicate_transforms=0,exact_attempts=0)
     inspected=set();routing_rejections=[];hypotheses={};family_counts={};schedule=itertools.cycle(('size','face','group','individual','feedback'))
+    route_session=Session();assessments={};feedback_queued=set();feedback_streak=0
     transform_limit=layout_limit*64
     def emit(stage,**detail):
         if cancelled():
@@ -107,7 +109,15 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
         hypotheses[key]=reason
         fits=_fits(target,definitions)
         conflicts=source_conflicts(target,definitions,threads,modifiers,domain._placement_cache) if fits else []
-        cheap=(family!='initial-scaffold',not fits,len(conflicts),topology_cost(target,definitions),math.prod(dimensions(target.block)))
+        previous=assessments.get(signature(parent)) if parent is not None else None
+        blocked=set((previous or {}).get('blocked_nets',[]))
+        from .design_space import topology_cost_for
+        cheap=(family!='initial-scaffold',not fits,len(conflicts),
+            not bool(reason and reason.get('requires_route_regeneration')),
+            len(blocked) if previous else len(target.nets),
+            -len((previous or {}).get('partial_routing',{}).get('nets',[])),
+            topology_cost_for(target,definitions,blocked) if blocked else topology_cost(target,definitions),
+            math.prod(dimensions(target.block)))
         heapq.heappush(queue,(cheap,next(serial),target,family,parent,conflicts,fits))
     enqueue(original,'initial-scaffold')
     if initial:initial(original.model_copy(deep=True))
@@ -137,8 +147,13 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
         if any(f.face!=g.face for f,g in zip(target.features,original.features)):return 'face'
         return 'group' if family in ('source-columns','connected-group','topology-repack') else 'individual'
     def pop_diverse():
+        nonlocal feedback_streak
         available={bucket(row) for row in queue}
-        category='initial' if 'initial' in available else next(c for c in schedule if c in available)
+        measured=any(bucket(row)=='feedback' and hypotheses.get(signature(row[2]),{} ) and
+            hypotheses[signature(row[2])].get('requires_route_regeneration') for row in queue)
+        category=('initial' if 'initial' in available else 'feedback' if measured and feedback_streak<2
+                  else next(c for c in schedule if c in available))
+        feedback_streak=feedback_streak+1 if category=='feedback' else 0
         index=min((i for i,row in enumerate(queue) if bucket(row)==category),key=lambda i:queue[i][:2])
         row=queue.pop(index);heapq.heapify(queue);family_counts[category]=family_counts.get(category,0)+1
         return row
@@ -162,7 +177,7 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
                     if not members:continue
                     lanes[net.id]=sum(p[1] for p in members)/len(members);planes[net.id]=sum(p[2] for p in members)/len(members)
                 detail=screen(target,definitions,threads,modifiers,tools,lanes,planes,
-                    lambda stage,**d:emit(stage,**d),include_routes=True,corridor_labels=0,general_families=True)
+                    lambda stage,**d:emit(stage,**d),include_routes=True,corridor_labels=0,general_families=True,route_session=route_session)
             old={f.id:f for f in original.features}
             changes=[dict(feature=f.id,parameters={k:[getattr(old[f.id],k),getattr(f,k)] for k in ('face','u','v','rotation')
                 if getattr(old[f.id],k)!=getattr(f,k)}) for f in target.features if f!=old[f.id]]
@@ -170,19 +185,29 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
                 hypothesis=hypotheses.get(signature(target)),
                 geometry_changes=dict(dimensions=[list(dimensions(original.block)),list(dimensions(target.block))],placements=changes))
             records.append(row)
+            if evidence_dir:
+                atomic_json(Path(evidence_dir)/'layouts'/f'{row["index"]:03}.json',row)
+            assessments[signature(target)]=detail
             focus=_focus(target,detail.get('conflicts',[]))
             if counters['transforms']<transform_limit:
-                frames.append((target,iter(actions(target,definitions,domain,threads,modifiers,focus))))
+                if detail['status']=='SOURCE_LAYOUT_REJECTED':
+                    frames.append((target,iter(actions(target,definitions,domain,threads,modifiers,focus))))
+                elif not detail.get('compatible'):
+                    frames.insert(0,(target,iter(route_feedback(target,detail,definitions,domain,threads,modifiers))))
+                    feedback_queued.add(row['index'])
     def analytic_rank(row):
         a=row['assessment'];objective=a['score'][len(a['feasibility_score']):]
         # Across different stock sizes, material use precedes marginal extra
         # wall ABOVE the engineering minimum. Fixed-geometry Router priorities
         # are untouched; their plug/drill/depth/envelope order stays intact.
         return (a['status']=='SOURCE_LAYOUT_REJECTED',not a.get('compatible',False),tuple(a['feasibility_score']),
+            -len(a.get('partial_routing',{}).get('nets',[])),
             tuple(objective[:-1]),math.prod(dimensions(Design.model_validate(row['design']).block)),objective[-1:] ,row['index'])
     # Spend cheap layout work before CAD, then revise layout after Exact failure
     # instead of exhausting increasingly elaborate fixed-geometry drillings.
-    rounds=max(1,exact_limit+1);refinement_remaining=exact_limit*1024
+    # React after a small layout batch, not after sixteen unrelated layouts.
+    # This does not increase layouts, transforms, labels or Exact attempts.
+    rounds=max(1,(layout_limit+3)//4);refinement_remaining=exact_limit*1024
     for turn in range(rounds):
         scan(max(1,layout_limit*(turn+1)//rounds))
         if not exact_limit or len(attempts)>=exact_limit:continue
@@ -190,13 +215,14 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
         if not eligible:continue
         chosen=min(eligible,key=analytic_rank);target=Design.model_validate(chosen['design'])
         inspected.add(chosen['index'])
-        if not chosen['assessment'].get('compatible') and refinement_remaining:
+        if not chosen['assessment'].get('compatible') and refinement_remaining and (
+                not chosen['assessment'].get('blocked_nets') or not chosen['assessment'].get('spatial_feedback')):
             points=terminal_points(target,definitions)
             lanes={n.id:sum(points[m][1] for m in n.members)/len(n.members) for n in target.nets if len(n.members)>=2}
             planes={n.id:sum(points[m][2] for m in n.members)/len(n.members) for n in target.nets if len(n.members)>=2}
             labels=min(1024,refinement_remaining);refinement_remaining-=labels
             chosen['assessment']=screen(target,definitions,threads,modifiers,tools,lanes,planes,
-                lambda stage,**d:emit(stage,**d),include_routes=True,corridor_labels=labels,general_families=True)
+                lambda stage,**d:emit(stage,**d),include_routes=True,corridor_labels=labels,general_families=True,route_session=route_session)
             chosen['assessment']['routing_refinement']='SHARED_3D_PLANNER_BOUNDED_BEFORE_NEXT_LAYOUT_REVISION'
         route=[Feature.model_validate(f) for f in chosen['assessment']['route_features']]
         missing=[n.id for n in target.nets if n.routing=='automatic' and n.route_state in ('unresolved','proposal') and
@@ -207,7 +233,14 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
             # and leave the full CAD budget available rather than testing air.
             routing_rejections.append(dict(layout_index=chosen['index'],status='INCOMPLETE_ROUTING_PROPOSAL',missing_nets=missing,
                 partial_routing=chosen['assessment'].get('partial_routing'),feedback=chosen['assessment'].get('layout_feedback')))
-            frames.insert(0,(target,iter(route_feedback(target,chosen['assessment'],definitions,domain,threads,modifiers))))
+            if chosen['index'] not in feedback_queued:
+                frames.insert(0,(target,iter(route_feedback(target,chosen['assessment'],definitions,domain,threads,modifiers))))
+                feedback_queued.add(chosen['index'])
+            continue
+        if not chosen['assessment'].get('compatible'):
+            routing_rejections.append(dict(layout_index=chosen['index'],status='INCOMPATIBLE_ROUTING_PROPOSAL',
+                conflicts=chosen['assessment'].get('conflicts'),partial_routing=chosen['assessment'].get('partial_routing'),
+                witnesses=chosen['assessment'].get('witnesses')))
             continue
         target.features.extend(route)
         for net in target.nets:
@@ -257,6 +290,7 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
         transform_limit=transform_limit,physical_infeasibility_proven=False,routing_rejections=routing_rejections,
         evaluations=[{k:v for k,v in r.items() if k!='design'} for r in records],frontier=[],manufacturing_ready=bool(accepted and best.get('manufacturing_ready')))
     result['family_evaluations']=family_counts
+    result['packing_diagnostics']=domain._packing_diagnostics
     result['hard_constraint_conflicts']=constraint_conflicts(original,definitions,domain,threads,modifiers)
     result['outcome_classification']='EXACT_FEASIBLE' if accepted else 'PROVEN_HARD_CONSTRAINT_CONFLICT' if result['hard_constraint_conflicts'] else 'UNRESOLVED_SEARCH_OR_ENGINEERING'
     if evidence_dir:atomic_json(Path(evidence_dir)/'layout-search.json',result)

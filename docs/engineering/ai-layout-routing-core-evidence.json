@@ -1,0 +1,1827 @@
+{
+  "starting_head": "a55aa0de8ddde931aa0afc69b087232fa2617106",
+  "same_source_geometry_verified": true,
+  "baseline": {
+    "A_DC_source_clear": 0,
+    "B_DC_source_clear": 0,
+    "partial_nets": [
+      "MA",
+      "P"
+    ]
+  },
+  "initial_corrected": {
+    "blocked_nets": [],
+    "combination": {
+      "states": 10,
+      "state_limit": 996,
+      "pair_screens": 107,
+      "pair_limit": 4000,
+      "dead_ends": 5,
+      "exit_reason": "retained_pools_incompatible",
+      "empty_nets": [],
+      "pools": {
+        "MA": 5,
+        "MB": 5,
+        "A_DC": 7,
+        "B_DC": 8,
+        "P": 5,
+        "T": 5,
+        "T_DC": 5,
+        "SHUTTLE_OUTPUT": 5
+      },
+      "selected": {},
+      "coordination_sampling": {
+        "samples": 64,
+        "pending": 0,
+        "unspent": 0
+      },
+      "deferred_promotions": []
+    }
+  },
+  "initial_pools": {
+    "MA": {
+      "source_clear": 5,
+      "attempted": 25,
+      "families": {
+        "branch": 3,
+        "direct": 3,
+        "safe-entry": 9,
+        "axial": 3,
+        "tree": 3,
+        "port": 2,
+        "detour": 2
+      }
+    },
+    "MB": {
+      "source_clear": 5,
+      "attempted": 49,
+      "families": {
+        "branch": 6,
+        "direct": 5,
+        "safe-entry": 21,
+        "axial": 5,
+        "tree": 5,
+        "port": 2,
+        "detour": 5
+      }
+    },
+    "A_DC": {
+      "source_clear": 7,
+      "attempted": 53,
+      "families": {
+        "branch": 7,
+        "direct": 7,
+        "safe-entry": 20,
+        "tree": 7,
+        "detour": 6,
+        "conflict-plane": 6
+      }
+    },
+    "B_DC": {
+      "source_clear": 8,
+      "attempted": 30,
+      "families": {
+        "branch": 4,
+        "direct": 3,
+        "safe-entry": 9,
+        "tree": 3,
+        "detour": 3,
+        "conflict-plane": 8
+      }
+    },
+    "P": {
+      "source_clear": 5,
+      "attempted": 26,
+      "families": {
+        "branch": 3,
+        "direct": 3,
+        "safe-entry": 11,
+        "axial": 3,
+        "tree": 2,
+        "port": 2,
+        "detour": 2
+      }
+    },
+    "T": {
+      "source_clear": 5,
+      "attempted": 24,
+      "families": {
+        "branch": 4,
+        "direct": 4,
+        "safe-entry": 8,
+        "tree": 3,
+        "port": 2,
+        "detour": 3
+      }
+    },
+    "T_DC": {
+      "source_clear": 5,
+      "attempted": 24,
+      "families": {
+        "branch": 5,
+        "direct": 5,
+        "safe-entry": 9,
+        "detour": 5
+      }
+    },
+    "SHUTTLE_OUTPUT": {
+      "source_clear": 5,
+      "attempted": 25,
+      "families": {
+        "branch": 5,
+        "direct": 5,
+        "safe-entry": 7,
+        "axial": 4,
+        "detour": 4
+      }
+    }
+  },
+  "complex_case": {
+    "status": "UNRESOLVED_LAYOUT",
+    "elapsed_s": 359.6720000000205,
+    "counters": {
+      "layouts": 12,
+      "transforms": 48,
+      "source_rejected": 2,
+      "duplicate_transforms": 5,
+      "exact_attempts": 0
+    },
+    "family_evaluations": {
+      "initial": 1,
+      "feedback": 8,
+      "size": 2,
+      "face": 1
+    },
+    "deferred_layouts": 33,
+    "unexpanded_generators": 14,
+    "validation": null,
+    "physical_infeasibility_proven": false
+  },
+  "selected": {
+    "partial_nets": [
+      "A_DC",
+      "MA",
+      "P",
+      "SHUTTLE_OUTPUT",
+      "T",
+      "T_DC"
+    ],
+    "conflicts": [
+      [
+        "cross_net_wall",
+        "R-1d09f6fa-2",
+        "R-f0055891-1"
+      ],
+      [
+        "cross_net_wall",
+        "R-1d09f6fa-AX2",
+        "R-8e428e23-3"
+      ],
+      [
+        "cross_net_wall",
+        "R-309be2fb-2",
+        "R-f0055891-3"
+      ],
+      [
+        "cross_net_wall",
+        "R-309be2fb-5",
+        "R-8e428e23-2"
+      ],
+      [
+        "cross_net_wall",
+        "R-309be2fb-9",
+        "R-702e7749-8"
+      ],
+      [
+        "cross_net_wall",
+        "R-309be2fb-9",
+        "R-f623208d-3"
+      ],
+      [
+        "route_combination",
+        "retained_pools_incompatible"
+      ]
+    ],
+    "combination": {
+      "states": 31,
+      "state_limit": 982,
+      "pair_screens": 679,
+      "pair_limit": 4000,
+      "dead_ends": 10,
+      "exit_reason": "retained_pools_incompatible",
+      "empty_nets": [],
+      "pools": {
+        "MA": 12,
+        "MB": 11,
+        "A_DC": 13,
+        "B_DC": 13,
+        "P": 19,
+        "T": 9,
+        "T_DC": 9,
+        "SHUTTLE_OUTPUT": 13
+      },
+      "selected": {},
+      "deferred_promotions": [
+        {
+          "net": "MA",
+          "count": 4
+        },
+        {
+          "net": "MB",
+          "count": 3
+        },
+        {
+          "net": "A_DC",
+          "count": 5
+        },
+        {
+          "net": "B_DC",
+          "count": 5
+        },
+        {
+          "net": "P",
+          "count": 11
+        },
+        {
+          "net": "T",
+          "count": 1
+        },
+        {
+          "net": "T_DC",
+          "count": 1
+        },
+        {
+          "net": "SHUTTLE_OUTPUT",
+          "count": 5
+        }
+      ]
+    },
+    "witnesses": [
+      {
+        "nets": [
+          "A_DC",
+          "B_DC"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-309be2fb-6",
+            "R-702e7749-6"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-702e7749-6",
+            "face": "bottom",
+            "u": 135.115,
+            "v": 14.12,
+            "depth": 183.6913697733023,
+            "diameter": 8.0,
+            "route_net": "A_DC",
+            "plugged": true
+          },
+          {
+            "id": "R-309be2fb-6",
+            "face": "front",
+            "u": 135.115,
+            "v": 59.57000000000001,
+            "depth": 178.515,
+            "diameter": 8.0,
+            "route_net": "B_DC",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "A_DC",
+          "MA"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-702e7749-5",
+            "R-f0055891-7"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-702e7749-5",
+            "face": "front",
+            "u": 63.625,
+            "v": 170.43,
+            "depth": 167.415,
+            "diameter": 8.0,
+            "route_net": "A_DC",
+            "plugged": true
+          },
+          {
+            "id": "R-f0055891-7",
+            "face": "bottom",
+            "u": 56.805625,
+            "v": 88.69,
+            "depth": 201.44,
+            "diameter": 8.0,
+            "route_net": "MA",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "A_DC",
+          "MB"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-1d09f6fa-8",
+            "R-702e7749-6"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-702e7749-6",
+            "face": "front",
+            "u": 135.115,
+            "v": 35.75,
+            "depth": 167.415,
+            "diameter": 8.0,
+            "route_net": "A_DC",
+            "plugged": true
+          },
+          {
+            "id": "R-1d09f6fa-8",
+            "face": "bottom",
+            "u": 135.115,
+            "v": 109.74,
+            "depth": 86.507867,
+            "diameter": 8.0,
+            "route_net": "MB",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "A_DC",
+          "P"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-5c62e091-3",
+            "R-702e7749-3"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-702e7749-3",
+            "face": "left",
+            "u": 163.415,
+            "v": 170.43,
+            "depth": 153.1925,
+            "diameter": 8.0,
+            "route_net": "A_DC",
+            "plugged": true
+          },
+          {
+            "id": "R-5c62e091-3",
+            "face": "back",
+            "u": 159.093333,
+            "v": 169.3913697733023,
+            "depth": 225.1,
+            "diameter": 8.0,
+            "route_net": "P",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "A_DC",
+          "SHUTTLE_OUTPUT"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-702e7749-5",
+            "R-f623208d-1"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-702e7749-5",
+            "face": "front",
+            "u": 63.625,
+            "v": 170.43,
+            "depth": 167.415,
+            "diameter": 8.0,
+            "route_net": "A_DC",
+            "plugged": true
+          },
+          {
+            "id": "R-f623208d-1",
+            "face": "left",
+            "u": 125.815,
+            "v": 165.46125,
+            "depth": 229.8,
+            "diameter": 8.0,
+            "route_net": "SHUTTLE_OUTPUT",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "T",
+          "T_DC"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-8e428e23-1",
+            "R-e632b709-3"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-e632b709-3",
+            "face": "front",
+            "u": 225.8,
+            "v": 193.46,
+            "depth": 197.315,
+            "diameter": 8.0,
+            "route_net": "T",
+            "plugged": true
+          },
+          {
+            "id": "R-8e428e23-1",
+            "face": "right",
+            "u": 24.139999999999997,
+            "v": 193.1913697733023,
+            "depth": 174.02499999999998,
+            "diameter": 8.0,
+            "route_net": "T_DC",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "A_DC",
+          "T"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-702e7749-3",
+            "R-e632b709-4"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-e632b709-4",
+            "face": "front",
+            "u": 275.075,
+            "v": 156.99,
+            "depth": 197.315,
+            "diameter": 8.0,
+            "route_net": "T",
+            "plugged": true
+          },
+          {
+            "id": "R-702e7749-3",
+            "face": "right",
+            "u": 163.415,
+            "v": 149.79000000000002,
+            "depth": 180.8275,
+            "diameter": 8.0,
+            "route_net": "A_DC",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "B_DC",
+          "T"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-309be2fb-4",
+            "R-e632b709-3"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-e632b709-3",
+            "face": "front",
+            "u": 225.8,
+            "v": 193.46,
+            "depth": 197.315,
+            "diameter": 8.0,
+            "route_net": "T",
+            "plugged": true
+          },
+          {
+            "id": "R-309be2fb-4",
+            "face": "right",
+            "u": 174.515,
+            "v": 196.63,
+            "depth": 180.8275,
+            "diameter": 8.0,
+            "route_net": "B_DC",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "P",
+          "T"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-5c62e091-6",
+            "R-e632b709-4"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-e632b709-4",
+            "face": "front",
+            "u": 275.075,
+            "v": 156.99,
+            "depth": 197.315,
+            "diameter": 8.0,
+            "route_net": "T",
+            "plugged": true
+          },
+          {
+            "id": "R-5c62e091-6",
+            "face": "top",
+            "u": 275.075,
+            "v": 14.0,
+            "depth": 93.60499999999999,
+            "diameter": 8.0,
+            "route_net": "P",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "MB",
+          "T_DC"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-1d09f6fa-AX2",
+            "R-8e428e23-3"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-8e428e23-3",
+            "face": "back",
+            "u": 139.97500000000002,
+            "v": 193.1913697733023,
+            "depth": 234.88,
+            "diameter": 8.0,
+            "route_net": "T_DC",
+            "plugged": true
+          },
+          {
+            "id": "R-1d09f6fa-AX2",
+            "face": "top",
+            "u": 135.115,
+            "v": 58.465,
+            "depth": 151.492133,
+            "diameter": 8.0,
+            "route_net": "MB",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "B_DC",
+          "T_DC"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-309be2fb-5",
+            "R-8e428e23-2"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-309be2fb-5",
+            "face": "back",
+            "u": 182.875,
+            "v": 196.63,
+            "depth": 190.535,
+            "diameter": 8.0,
+            "route_net": "B_DC",
+            "plugged": true
+          },
+          {
+            "id": "R-8e428e23-2",
+            "face": "left",
+            "u": 204.105,
+            "v": 193.1913697733023,
+            "depth": 211.525,
+            "diameter": 8.0,
+            "route_net": "T_DC",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "SHUTTLE_OUTPUT",
+          "T"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-e632b709-1",
+            "R-f623208d-2"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-e632b709-1",
+            "face": "left",
+            "u": 193.315,
+            "v": 167.725,
+            "depth": 279.075,
+            "diameter": 8.0,
+            "route_net": "T",
+            "plugged": true
+          },
+          {
+            "id": "R-f623208d-2",
+            "face": "back",
+            "u": 182.875,
+            "v": 172.83,
+            "depth": 207.335,
+            "diameter": 8.0,
+            "route_net": "SHUTTLE_OUTPUT",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "MA",
+          "MB"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-1d09f6fa-2",
+            "R-f0055891-1"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-f0055891-1",
+            "face": "left",
+            "u": 88.69,
+            "v": 23.884999999999998,
+            "depth": 52.2225,
+            "diameter": 8.0,
+            "route_net": "MA",
+            "plugged": true
+          },
+          {
+            "id": "R-1d09f6fa-2",
+            "face": "front",
+            "u": 32.56,
+            "v": 23.884999999999998,
+            "depth": 113.74,
+            "diameter": 8.0,
+            "route_net": "MB",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "A_DC",
+          "T_DC"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-702e7749-7",
+            "R-8e428e23-3"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-702e7749-7",
+            "face": "top",
+            "u": 135.115,
+            "v": 41.665,
+            "depth": 198.25,
+            "diameter": 8.0,
+            "route_net": "A_DC",
+            "plugged": true
+          },
+          {
+            "id": "R-8e428e23-3",
+            "face": "back",
+            "u": 139.97500000000002,
+            "v": 193.1913697733023,
+            "depth": 234.88,
+            "diameter": 8.0,
+            "route_net": "T_DC",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "B_DC",
+          "MB"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-1d09f6fa-AX2",
+            "R-309be2fb-6"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-309be2fb-6",
+            "face": "back",
+            "u": 133.1725,
+            "v": 159.0913697733023,
+            "depth": 224.86,
+            "diameter": 8.0,
+            "route_net": "B_DC",
+            "plugged": true
+          },
+          {
+            "id": "R-1d09f6fa-AX2",
+            "face": "top",
+            "u": 135.115,
+            "v": 58.465,
+            "depth": 151.492133,
+            "diameter": 8.0,
+            "route_net": "MB",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "B_DC",
+          "MA"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-309be2fb-5",
+            "R-f0055891-3"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-309be2fb-5",
+            "face": "front",
+            "u": 63.625,
+            "v": 194.25,
+            "depth": 178.515,
+            "diameter": 8.0,
+            "route_net": "B_DC",
+            "plugged": true
+          },
+          {
+            "id": "R-f0055891-3",
+            "face": "left",
+            "u": 88.69,
+            "v": 197.44,
+            "depth": 107.375,
+            "diameter": 8.0,
+            "route_net": "MA",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "B_DC",
+          "SHUTTLE_OUTPUT"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-309be2fb-9",
+            "R-f623208d-2"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-f623208d-2",
+            "face": "back",
+            "u": 182.875,
+            "v": 172.83,
+            "depth": 207.335,
+            "diameter": 8.0,
+            "route_net": "SHUTTLE_OUTPUT",
+            "plugged": true
+          },
+          {
+            "id": "R-309be2fb-9",
+            "face": "bottom",
+            "u": 182.875,
+            "v": 174.515,
+            "depth": 200.63,
+            "diameter": 8.0,
+            "route_net": "B_DC",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "P",
+          "SHUTTLE_OUTPUT"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-5c62e091-3",
+            "R-f623208d-1"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-5c62e091-3",
+            "face": "front",
+            "u": 275.075,
+            "v": 104.665,
+            "depth": 148.615,
+            "diameter": 8.0,
+            "route_net": "P",
+            "plugged": true
+          },
+          {
+            "id": "R-f623208d-1",
+            "face": "right",
+            "u": 125.815,
+            "v": 104.665,
+            "depth": 109.6625,
+            "diameter": 8.0,
+            "route_net": "SHUTTLE_OUTPUT",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "B_DC",
+          "P"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-309be2fb-4",
+            "R-5c62e091-1"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-5c62e091-1",
+            "face": "right",
+            "u": 144.615,
+            "v": 96.655,
+            "depth": 154.906667,
+            "diameter": 8.0,
+            "route_net": "P",
+            "plugged": true
+          },
+          {
+            "id": "R-309be2fb-4",
+            "face": "front",
+            "u": 151.07500000000002,
+            "v": 96.655,
+            "depth": 178.515,
+            "diameter": 8.0,
+            "route_net": "B_DC",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "P",
+          "T_DC"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-5c62e091-5",
+            "R-8e428e23-3"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-5c62e091-5",
+            "face": "top",
+            "u": 143.073333,
+            "v": 144.615,
+            "depth": 129.33499999999998,
+            "diameter": 8.0,
+            "route_net": "P",
+            "plugged": true
+          },
+          {
+            "id": "R-8e428e23-3",
+            "face": "back",
+            "u": 139.97500000000002,
+            "v": 193.1913697733023,
+            "depth": 234.88,
+            "diameter": 8.0,
+            "route_net": "T_DC",
+            "plugged": true
+          }
+        ]
+      },
+      {
+        "nets": [
+          "MB",
+          "P"
+        ],
+        "failures": [
+          [
+            "cross_net_wall",
+            "R-1d09f6fa-AX2",
+            "R-5c62e091-3"
+          ]
+        ],
+        "features": [
+          {
+            "id": "R-5c62e091-3",
+            "face": "back",
+            "u": 143.073333,
+            "v": 169.3913697733023,
+            "depth": 225.1,
+            "diameter": 8.0,
+            "route_net": "P",
+            "plugged": true
+          },
+          {
+            "id": "R-1d09f6fa-AX2",
+            "face": "top",
+            "u": 135.115,
+            "v": 58.465,
+            "depth": 151.492133,
+            "diameter": 8.0,
+            "route_net": "MB",
+            "plugged": true
+          }
+        ]
+      }
+    ]
+  },
+  "layouts": [
+    {
+      "index": 0,
+      "family": "initial-scaffold",
+      "hypothesis": {},
+      "geometry_changes": {
+        "dimensions": [
+          [
+            310.0,
+            245.0,
+            230.0
+          ],
+          [
+            310.0,
+            245.0,
+            230.0
+          ]
+        ],
+        "placements": []
+      },
+      "blocked_nets": [],
+      "partial_nets": [
+        "MA",
+        "P",
+        "SHUTTLE_OUTPUT",
+        "T",
+        "T_DC"
+      ],
+      "reused": 0
+    },
+    {
+      "index": 1,
+      "family": "feedback-machining-separation",
+      "hypothesis": {
+        "nets": [
+          "A_DC",
+          "B_DC"
+        ],
+        "rule": "cross_net_wall",
+        "drillings": [
+          "R-702e7749-7",
+          "R-309be2fb-7"
+        ],
+        "owners": [
+          "AI_86f806134591ec82b309"
+        ],
+        "axis": 0,
+        "delta_mm": -8.01,
+        "from_face": "bottom",
+        "to_face": "bottom",
+        "requires_route_regeneration": true
+      },
+      "geometry_changes": {
+        "dimensions": [
+          [
+            310.0,
+            245.0,
+            230.0
+          ],
+          [
+            310.0,
+            245.0,
+            230.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "AI_86f806134591ec82b309",
+            "parameters": {
+              "u": [
+                143.125,
+                135.115
+              ]
+            }
+          }
+        ]
+      },
+      "blocked_nets": [],
+      "partial_nets": [
+        "MA",
+        "MB",
+        "P",
+        "SHUTTLE_OUTPUT",
+        "T"
+      ],
+      "reused": 62
+    },
+    {
+      "index": 2,
+      "family": "feedback-machining-separation",
+      "hypothesis": {
+        "nets": [
+          "A_DC",
+          "B_DC"
+        ],
+        "rule": "cross_net_wall",
+        "drillings": [
+          "R-702e7749-7",
+          "R-309be2fb-7"
+        ],
+        "owners": [
+          "AI_86f806134591ec82b309"
+        ],
+        "axis": 0,
+        "delta_mm": 8.01,
+        "from_face": "bottom",
+        "to_face": "bottom",
+        "requires_route_regeneration": true
+      },
+      "geometry_changes": {
+        "dimensions": [
+          [
+            310.0,
+            245.0,
+            230.0
+          ],
+          [
+            310.0,
+            245.0,
+            230.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "AI_86f806134591ec82b309",
+            "parameters": {
+              "u": [
+                143.125,
+                151.135
+              ]
+            }
+          }
+        ]
+      },
+      "blocked_nets": [],
+      "partial_nets": [
+        "MA",
+        "P",
+        "SHUTTLE_OUTPUT",
+        "T",
+        "T_DC"
+      ],
+      "reused": 40
+    },
+    {
+      "index": 3,
+      "family": "measured-envelope",
+      "hypothesis": {},
+      "geometry_changes": {
+        "dimensions": [
+          [
+            310.0,
+            245.0,
+            230.0
+          ],
+          [
+            185.8,
+            93.1,
+            173.53
+          ]
+        ],
+        "placements": []
+      },
+      "blocked_nets": [],
+      "partial_nets": [],
+      "reused": 0
+    },
+    {
+      "index": 4,
+      "family": "feedback-machining-separation",
+      "hypothesis": {
+        "nets": [
+          "A_DC",
+          "B_DC"
+        ],
+        "rule": "cross_net_wall",
+        "drillings": [
+          "R-702e7749-7",
+          "R-309be2fb-7"
+        ],
+        "owners": [
+          "AI_86f806134591ec82b309"
+        ],
+        "axis": 0,
+        "delta_mm": -8.01,
+        "from_face": "bottom",
+        "to_face": "top",
+        "requires_route_regeneration": true
+      },
+      "geometry_changes": {
+        "dimensions": [
+          [
+            310.0,
+            245.0,
+            230.0
+          ],
+          [
+            310.0,
+            245.0,
+            230.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "AI_86f806134591ec82b309",
+            "parameters": {
+              "face": [
+                "bottom",
+                "top"
+              ]
+            }
+          }
+        ]
+      },
+      "blocked_nets": [
+        "A_DC"
+      ],
+      "partial_nets": [
+        "B_DC",
+        "MA",
+        "T_DC"
+      ],
+      "reused": 40
+    },
+    {
+      "index": 5,
+      "family": "feedback-machining-separation",
+      "hypothesis": {
+        "nets": [
+          "A_DC",
+          "B_DC"
+        ],
+        "rule": "cross_net_wall",
+        "drillings": [
+          "R-702e7749-7",
+          "R-309be2fb-7"
+        ],
+        "owners": [
+          "AI_86f806134591ec82b309"
+        ],
+        "axis": 0,
+        "delta_mm": 8.01,
+        "from_face": "bottom",
+        "to_face": "bottom",
+        "requires_route_regeneration": true
+      },
+      "geometry_changes": {
+        "dimensions": [
+          [
+            310.0,
+            245.0,
+            230.0
+          ],
+          [
+            310.0,
+            245.0,
+            230.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "AI_86f806134591ec82b309",
+            "parameters": {
+              "u": [
+                143.125,
+                159.14499999999998
+              ]
+            }
+          }
+        ]
+      },
+      "blocked_nets": [],
+      "partial_nets": [
+        "B_DC",
+        "MA",
+        "T_DC"
+      ],
+      "reused": 34
+    },
+    {
+      "index": 6,
+      "family": "topology-repack",
+      "hypothesis": {},
+      "geometry_changes": {
+        "dimensions": [
+          [
+            310.0,
+            245.0,
+            230.0
+          ],
+          [
+            310.0,
+            245.0,
+            230.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "AI_be3e73603a6a2601b262",
+            "parameters": {
+              "face": [
+                "top",
+                "bottom"
+              ],
+              "u": [
+                103.375,
+                181.275
+              ],
+              "v": [
+                58.465,
+                172.1625
+              ]
+            }
+          },
+          {
+            "feature": "AI_3c1607be8ee6b1db11b3",
+            "parameters": {
+              "face": [
+                "bottom",
+                "top"
+              ],
+              "u": [
+                23.875,
+                181.275
+              ],
+              "v": [
+                58.465,
+                172.1625
+              ]
+            }
+          },
+          {
+            "feature": "AI_d12f28ea9de536de20bf",
+            "parameters": {
+              "u": [
+                63.625,
+                181.275
+              ],
+              "v": [
+                58.465,
+                99.775
+              ]
+            }
+          },
+          {
+            "feature": "AI_86f806134591ec82b309",
+            "parameters": {
+              "face": [
+                "bottom",
+                "back"
+              ],
+              "u": [
+                143.125,
+                181.275
+              ],
+              "v": [
+                58.465,
+                159.0913697733023
+              ]
+            }
+          },
+          {
+            "feature": "AI_9e42d426a948d6658307",
+            "parameters": {
+              "face": [
+                "top",
+                "bottom"
+              ],
+              "u": [
+                182.875,
+                181.275
+              ],
+              "v": [
+                58.465,
+                99.77500000000002
+              ]
+            }
+          },
+          {
+            "feature": "AI_8c3d93dc0111c2a90a99",
+            "parameters": {
+              "rotation": [
+                270.0,
+                90.0
+              ]
+            }
+          },
+          {
+            "feature": "AI_54f363aa698032173ca9",
+            "parameters": {
+              "face": [
+                "top",
+                "right"
+              ],
+              "u": [
+                225.8,
+                99.77500000000002
+              ],
+              "v": [
+                58.465,
+                57.16999999999999
+              ]
+            }
+          },
+          {
+            "feature": "AI_3cfb5a2fd1422981a4dc",
+            "parameters": {
+              "face": [
+                "left",
+                "back"
+              ],
+              "u": [
+                88.69,
+                181.275
+              ],
+              "v": [
+                104.665,
+                123.83333333333333
+              ]
+            }
+          },
+          {
+            "feature": "AI_2f50daf2a73992992467",
+            "parameters": {
+              "face": [
+                "left",
+                "right"
+              ],
+              "u": [
+                109.74,
+                172.1625
+              ],
+              "v": [
+                104.665,
+                134.91795659110076
+              ]
+            }
+          },
+          {
+            "feature": "AI_00d4c328726b90276227",
+            "parameters": {
+              "face": [
+                "left",
+                "right"
+              ],
+              "u": [
+                144.615,
+                40.5
+              ],
+              "v": [
+                104.665,
+                144.615
+              ]
+            }
+          },
+          {
+            "feature": "AI_38e70eee292d055c2fa9",
+            "parameters": {
+              "face": [
+                "left",
+                "right"
+              ],
+              "u": [
+                193.31500000000003,
+                79.12
+              ],
+              "v": [
+                104.665,
+                107.08
+              ]
+            }
+          }
+        ]
+      },
+      "blocked_nets": [
+        "A_DC",
+        "B_DC",
+        "MA",
+        "P",
+        "T_DC"
+      ],
+      "partial_nets": [
+        "MB",
+        "SHUTTLE_OUTPUT",
+        "T"
+      ],
+      "reused": 0
+    },
+    {
+      "index": 7,
+      "family": "feedback-machining-separation",
+      "hypothesis": {
+        "nets": [
+          "B_DC",
+          "MA"
+        ],
+        "rule": "cross_net_wall",
+        "drillings": [
+          "R-309be2fb-1",
+          "R-f0055891-3"
+        ],
+        "owners": [
+          "AI_3c1607be8ee6b1db11b3"
+        ],
+        "axis": 2,
+        "delta_mm": 8.01,
+        "from_face": "bottom",
+        "to_face": "left",
+        "requires_route_regeneration": true
+      },
+      "geometry_changes": {
+        "dimensions": [
+          [
+            310.0,
+            245.0,
+            230.0
+          ],
+          [
+            310.0,
+            245.0,
+            230.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "AI_3c1607be8ee6b1db11b3",
+            "parameters": {
+              "face": [
+                "bottom",
+                "left"
+              ],
+              "u": [
+                23.875,
+                58.465
+              ],
+              "v": [
+                58.465,
+                23.884999999999998
+              ]
+            }
+          },
+          {
+            "feature": "AI_86f806134591ec82b309",
+            "parameters": {
+              "u": [
+                143.125,
+                135.115
+              ]
+            }
+          }
+        ]
+      },
+      "blocked_nets": [],
+      "partial_nets": [
+        "A_DC",
+        "MA",
+        "P",
+        "SHUTTLE_OUTPUT",
+        "T",
+        "T_DC"
+      ],
+      "reused": 64
+    },
+    {
+      "index": 8,
+      "family": "feedback-machining-separation",
+      "hypothesis": {
+        "nets": [
+          "A_DC",
+          "B_DC"
+        ],
+        "rule": "cross_net_wall",
+        "drillings": [
+          "R-702e7749-6",
+          "R-309be2fb-6"
+        ],
+        "owners": [
+          "AI_86f806134591ec82b309"
+        ],
+        "axis": 0,
+        "delta_mm": 8.01,
+        "from_face": "bottom",
+        "to_face": "top",
+        "requires_route_regeneration": true
+      },
+      "geometry_changes": {
+        "dimensions": [
+          [
+            310.0,
+            245.0,
+            230.0
+          ],
+          [
+            310.0,
+            245.0,
+            230.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "AI_3c1607be8ee6b1db11b3",
+            "parameters": {
+              "face": [
+                "bottom",
+                "left"
+              ],
+              "u": [
+                23.875,
+                58.465
+              ],
+              "v": [
+                58.465,
+                23.884999999999998
+              ]
+            }
+          },
+          {
+            "feature": "AI_86f806134591ec82b309",
+            "parameters": {
+              "face": [
+                "bottom",
+                "top"
+              ]
+            }
+          }
+        ]
+      },
+      "blocked_nets": [
+        "A_DC"
+      ],
+      "partial_nets": [
+        "B_DC",
+        "MA",
+        "T_DC"
+      ],
+      "reused": 41
+    },
+    {
+      "index": 9,
+      "family": "feedback-machining-separation",
+      "hypothesis": {
+        "nets": [
+          "A_DC",
+          "B_DC"
+        ],
+        "rule": "cross_net_wall",
+        "drillings": [
+          "R-702e7749-6",
+          "R-309be2fb-6"
+        ],
+        "owners": [
+          "AI_86f806134591ec82b309"
+        ],
+        "axis": 0,
+        "delta_mm": -8.01,
+        "from_face": "bottom",
+        "to_face": "bottom",
+        "requires_route_regeneration": true
+      },
+      "geometry_changes": {
+        "dimensions": [
+          [
+            310.0,
+            245.0,
+            230.0
+          ],
+          [
+            310.0,
+            245.0,
+            230.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "AI_3c1607be8ee6b1db11b3",
+            "parameters": {
+              "face": [
+                "bottom",
+                "left"
+              ],
+              "u": [
+                23.875,
+                58.465
+              ],
+              "v": [
+                58.465,
+                23.884999999999998
+              ]
+            }
+          },
+          {
+            "feature": "AI_86f806134591ec82b309",
+            "parameters": {
+              "u": [
+                143.125,
+                127.105
+              ]
+            }
+          }
+        ]
+      },
+      "blocked_nets": [],
+      "partial_nets": [
+        "MB",
+        "P",
+        "SHUTTLE_OUTPUT",
+        "T"
+      ],
+      "reused": 38
+    },
+    {
+      "index": 10,
+      "family": "measured-envelope",
+      "hypothesis": {},
+      "geometry_changes": {
+        "dimensions": [
+          [
+            310.0,
+            245.0,
+            230.0
+          ],
+          [
+            116.36,
+            185.8,
+            173.53
+          ]
+        ],
+        "placements": []
+      },
+      "blocked_nets": [],
+      "partial_nets": [],
+      "reused": 0
+    },
+    {
+      "index": 11,
+      "family": "feedback-machining-separation",
+      "hypothesis": {
+        "nets": [
+          "A_DC",
+          "B_DC"
+        ],
+        "rule": "cross_net_wall",
+        "drillings": [
+          "R-702e7749-6",
+          "R-309be2fb-6"
+        ],
+        "owners": [
+          "AI_86f806134591ec82b309"
+        ],
+        "axis": 0,
+        "delta_mm": 8.01,
+        "from_face": "bottom",
+        "to_face": "bottom",
+        "requires_route_regeneration": true
+      },
+      "geometry_changes": {
+        "dimensions": [
+          [
+            310.0,
+            245.0,
+            230.0
+          ],
+          [
+            310.0,
+            245.0,
+            230.0
+          ]
+        ],
+        "placements": [
+          {
+            "feature": "AI_3c1607be8ee6b1db11b3",
+            "parameters": {
+              "face": [
+                "bottom",
+                "left"
+              ],
+              "u": [
+                23.875,
+                58.465
+              ],
+              "v": [
+                58.465,
+                23.884999999999998
+              ]
+            }
+          }
+        ]
+      },
+      "blocked_nets": [],
+      "partial_nets": [
+        "A_DC",
+        "MA",
+        "P",
+        "T"
+      ],
+      "reused": 55
+    }
+  ],
+  "protected_hashes": {
+    "D:\\Project\\Manifold\\output\\runtime-checks\\corridor3d-20261012\\eight-valve-final\\source.json": "394197644138ed39fc63f16f2710bad1361322a0d11e1fbbd9b9588c6a73bed9",
+    "D:\\Project\\Manifold\\data\\pmc_engineering.db": "1e3267bd6a6271cf819b5181ed52eae55ab8b8b54a4a48ce45cc277175d7daa2",
+    "D:\\Project\\Manifold\\projects\\saved\\063b619795b843b8bf9d263ef5070771.json": "69735e2b416250a0ae79f4d4395db1d74265f83f8e6b68403458f9b8cc5a95b1",
+    "D:\\Project\\Manifold\\projects\\saved\\28775064c6c547159f3985bb402f114b.json": "67b05bf1550518ccc63c790234a5a56019464db371b63377c79e469578ee98a1",
+    "D:\\Project\\Manifold\\projects\\saved\\2b93c6c68df24d5ebe543215e8e91c99.json": "d347a81a002b8f4cd1384359c4c77f71795b22571062940fedb2b1798d41823e",
+    "D:\\Project\\Manifold\\projects\\saved\\481fff0805a24befa9b83b7569527052.json": "92f73d51986364f35671fd0e548912bb91885aafba84abd3f73abfe9a849bb21",
+    "D:\\Project\\Manifold\\projects\\saved\\610cf82b4a20414aa00ae964c1240a2a.json": "8bd7969d2de58920ce3810a2d9bc173cb68d977f8a13bb8109e791f2f5a2aa03",
+    "D:\\Project\\Manifold\\projects\\saved\\6e57fdcccb174b87a72c32f3069bb285.json": "825a04756db7f967997f7409084c706fb562de1c27252a0a7ba808ee9d99d888",
+    "D:\\Project\\Manifold\\projects\\saved\\85a5799c71764a59abfc95ffb0d162a9.json": "fe20986acfced8c899a89dd033ff4e3f1d88c06e1880a8bafe3f4018947d7aac",
+    "D:\\Project\\Manifold\\projects\\saved\\9e8a8be7b31e4ccd8994de3481845435.json": "b615374475714becf065f14803690c11337ec6a731f229a4e9abcc8dc32b0f12",
+    "D:\\Project\\Manifold\\projects\\saved\\f24a44ae30394c268bfadd60fe6a56e7.json": "2505bcc065fdb346f171d5bd467eac7f42584cd98245fe07a5f1f1e23caab2f9"
+  },
+  "protected_unchanged": true,
+  "qualification": "Analytic route/placement diagnostics only. No complete eight-valve Exact/BRep/STEP acceptance.",
+  "evidence_directory": "output\\runtime-checks\\ai-routing-core-20261012\\eight-valve-corrected",
+  "focused_checks": "tests/test_ai_routing_core.py; 9 passed; late promoted-cache retention checked separately; no second full complex search",
+  "final_code_same_source_diagnostic": {
+    "elapsed_s": 16.45299999997951,
+    "source_clear": {
+      "MA": 5,
+      "MB": 5,
+      "A_DC": 7,
+      "B_DC": 8,
+      "P": 5,
+      "T": 5,
+      "T_DC": 5,
+      "SHUTTLE_OUTPUT": 5
+    },
+    "samples": 256,
+    "compatible": false
+  }
+}

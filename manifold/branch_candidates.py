@@ -121,7 +121,7 @@ def junction_sites(design,net,definitions,threads,modifiers):
     return result
 
 
-def terminal_branch_candidates(design,net,definitions,threads,modifiers,cache=None):
+def terminal_branch_candidates(design,net,definitions,threads,modifiers,cache=None,*,diverse=False):
     from .routing import _fixed_strategy_source,route_from_variant
     source=_fixed_strategy_source(design)
     # Preserve the established small external-port/cavity routing shortlist.
@@ -147,8 +147,19 @@ def terminal_branch_candidates(design,net,definitions,threads,modifiers,cache=No
     windows=face_window_points(source,net,definitions,threads,modifiers)
     modes=([False,True] if windows else [False])
     samples=[(window,point,order) for window in modes for point,order in itertools.product(primary[:3] if windows else primary[:6],orders)]
+    if diverse:
+        # AI-only scheduling within the caller's aggregate sample allocation.
+        # The legacy prefix above
+        # repeats a common port height; its source-derived second height was
+        # appended beyond primary[:3] and never sampled for face-window Nets.
+        # Expose different actual source-height events before repeated anchors.
+        height_events=[sum(station)/len(station),max(station)+margin,min(station)-margin]
+        heights=[tuple(p if i!=v else h for i,p in enumerate(sites[0])) for h in height_events
+                 if margin<h<dimensions(source.block)[v]-margin]
+        anchors=list(dict.fromkeys([sites[0],*heights,*primary]))
+        samples=[(window,point,order) for point in anchors for window in reversed(modes) for order in orders]
     seen=set()
-    for window,point,order in samples[:12]:
+    for window,point,order in (samples if diverse else samples[:12]):
         entry=net.entry_preference
         if entry=='nearest' and order==orders[-1]:entry='negative'
         key=('window:' if window else '')+f'branch_{mask}_'+ '_'.join(f'{x:.6f}' for x in point)+':'+''.join('xyz'[i] for i in order)+':'+entry

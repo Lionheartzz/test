@@ -147,7 +147,7 @@ def _columns(design, definitions, movable, growth_axes, fixed_faces):
     return target, lanes, junction_z
 
 
-def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, progress=None,*,include_routes=False,corridor_labels=1024,general_families=False):
+def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, progress=None,*,include_routes=False,corridor_labels=1024,general_families=False,route_session=None):
     from ..routing import (route_from_variant, route_obstructions, terminal_points, segment_depth,
         route_objective, select_route_combination, _ProposalSnapshot, _route_pair_failures)
     from ..cavity_access import cavity_terminal_candidates
@@ -161,16 +161,15 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
     if general_families:
         # Reuse shared simple/direct/axial/detour/port/tree generation, rather
         # than requiring every layout to fit the old branch-column template.
-        from ..layout_planning import _catalogs
-        _,general_pools,general_diagnostics,_=_catalogs(source,definitions,threads,modifiers,tools,progress)
+        from .route_catalog import Session
+        route_session=route_session or Session()
+        general_pools=route_session.prepare(source,nets,definitions,threads,modifiers,tools,progress)
     for index, (name, net) in enumerate(nets.items()):
         if progress:
             progress('access', net=name, completed=index, total=len(nets))
         if general_families:
-            pools[name]=[o for o in general_pools[name] if not o['failures']]
-            diagnostics[name]={**general_diagnostics[name], 'rejected_samples':[
-                dict(variant=o['key'],failures=sorted(o['failures']),cut_ids=[f.id for f in o['route']])
-                for o in general_pools[name] if o['failures']][:3]}
+            pools[name]=general_pools[name]
+            diagnostics[name]=route_session.catalogs[name].diagnostics(pools[name])
             continue
         eligible = cavity_terminal_candidates(source, net, definitions, threads, modifiers)
         mask = sum(1 << i for i, member in enumerate(sorted(net.members))
@@ -235,6 +234,34 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         progress('conflicts', completed=len(nets), total=len(nets))
     chosen, combination = select_route_combination(source, nets, pools, definitions, pair,
         pair_count=lambda: snapshot.combination_budget['used'])
+    if chosen is None and general_families:
+        coordination=route_session.coordinate(source,list(witnesses.values()))
+        pools={name:catalog.active() for name,catalog in route_session.catalogs.items()}
+        remaining=max(0,1000-combination['states'])
+        if remaining:
+            chosen,retry=select_route_combination(source,nets,pools,definitions,pair,state_limit=remaining,
+                pair_count=lambda:snapshot.combination_budget['used'])
+            retry['states']+=combination['states'];combination=retry
+        combination['coordination_sampling']=coordination
+    # Eight is an active batch, not a permanent geometric cutoff. If retained
+    # entries clash, expose already screened distinct arrangements from the
+    # deferred pool under the SAME aggregate state/pair allowance.
+    promotions=[]
+    if chosen is None and general_families and all(pools.values()):
+        for name,catalog in route_session.catalogs.items():
+            keys={o['key'] for o in pools[name]}
+            extra=[o for o in catalog.clear if o['key'] not in keys]
+            if extra:
+                pools[name]=catalog.active(width=len(catalog.clear))
+                promotions.append(dict(net=name,count=len(extra)))
+        remaining=max(0,1000-combination['states'])
+        if promotions and remaining:
+            chosen,retry=select_route_combination(source,nets,pools,definitions,pair,state_limit=remaining,
+                pair_count=lambda:snapshot.combination_budget['used'])
+            retry['states']+=combination['states'];combination=retry
+    combination['deferred_promotions']=promotions
+    if general_families:
+        for name,catalog in route_session.catalogs.items():diagnostics[name]=catalog.diagnostics(pools[name])
     corridor=None
     if chosen is None and nets and corridor_labels:
         from ..drilling_planner import coordinate_routes
@@ -259,7 +286,13 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
             for option in sorted(pools[name],key=lambda o:route_objective(source,o['route'],definitions=definitions)):
                 if all(not pair(name,option,other,previous) for other,previous in partial.items()):
                     partial[name]=option;break
+    if general_families:route_session.remember(source,chosen if compatible else partial)
     source_ids={f.id for f in source.features}
+    from .route_feedback import obstruction_witnesses
+    # Once a Net has clear source approaches, its rejected alternatives are
+    # not the reason the global combination fails. Drive placement from the
+    # actual cross-Net cuts, not obsolete rejected single-Net strategies.
+    spatial=obstruction_witnesses(source,nets,{n:d for n,d in diagnostics.items() if not pools[n]},definitions,threads,modifiers)
     feedback=[dict(net=name,terminals=list(nets[name].members),source_blockers=sorted({str(key).split(':')[0]
         for sample in diagnostics[name].get('rejected_samples',[]) for failure in sample['failures'] for key in failure[1:]
         if str(key).split(':')[0] in source_ids}),
@@ -275,7 +308,7 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         feasibility_score=feasibility, blocked_nets=blocked, compatible=compatible, conflicts=sorted(failures),
         fixed_conflicts=fixed, selected={n: o['key'] for n, o in (chosen or {}).items()}, pools=diagnostics,
         combination=combination,corridor_planning=corridor,witnesses=list(witnesses.values()), drillings=len(route), plugs=sum(f.plugged for f in route),
-        layout_feedback=feedback,partial_routing=dict(status='ANALYTIC_PARTIAL_NOT_EXACT',nets=sorted(partial),
+        layout_feedback=feedback,spatial_feedback=spatial,partial_routing=dict(status='ANALYTIC_PARTIAL_NOT_EXACT',nets=sorted(partial),
             features=[f.model_dump(mode='json') for o in partial.values() for f in o['route']],connection_verified=False),
         **(dict(route_features=[f.model_dump(mode='json') for f in route]) if include_routes else {}))
 
