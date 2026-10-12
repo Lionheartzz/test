@@ -197,7 +197,7 @@ def interpret(result, options, project=None):
                     hard_port_faces={}, hard_component_faces={}, forbidden=[], material='Unspecified - review required',
                     priority=project.constraints.priority if project else DesignConstraints().priority,
                     material_source=None,material_restrictions=[],envelope_axes=[],envelope_min_axes=[],envelope_max_axes=[],
-                    rule_overrides={},default_overrides={},
+                    rule_overrides={},default_overrides={},soft_dimensions={},
                     flows={}, pressures={}, mounting_requirements=[], dispositions=[], conflicts=[])
     port_labels = {p['id']: str(value(result, p['id'], 'label') or p['id']) for p in result['ports'] if p['component_id'] is None}
     component_labels = {c['id']: str(value(result, c['id'], 'label') or c['id']) for c in result['components']}
@@ -278,6 +278,10 @@ def interpret(result, options, project=None):
                 row.update(status='conflict', message='Requested dimension is outside the supported 1–2000 mm range.')
                 settings['conflicts'].append(row['message'])
                 continue
+            if intent['strength']!='requirement':
+                settings['soft_dimensions'][prop]=number
+                row.update(status='preference',message='Soft initial dimension preference; AI-owned layout search may revise it within explicit constraints.')
+                continue
             settings['envelope_axes'].append(prop)
             i = ('length', 'width', 'height').index(prop)
             if op in ('equal', 'maximum'):
@@ -296,7 +300,9 @@ def interpret(result, options, project=None):
             if intent['strength'] == 'requirement':
                 assign('hard_port_faces', keys, val, intent, row)
             if row['status'] != 'conflict':
-                row.update(status='applied', message='External-port face controls placement; all generated candidates keep this face.')
+                row.update(status='applied' if intent['strength']=='requirement' else 'preference',
+                    message='Required external-port face is preserved.' if intent['strength']=='requirement' else
+                            'Preferred external-port face seeds placement; AI-owned layout search may revise it.')
         elif category == 'serviceability' and prop == 'component_face' and val in FACES:
             keys = targets(component_labels, intent['target_labels'])
             if not keys:
@@ -343,8 +349,6 @@ def interpret(result, options, project=None):
         settings['conflicts'].append('Minimum/exact block dimensions conflict with maximum dimensions.')
     settings['forbidden'] = sorted(set(settings['forbidden']))
     if options.port_faces or options.component_faces:
-        if not options.placement_decision.strip():
-            raise ValueError('Changing proposed mounting faces needs an engineer decision')
         for table, choices in [('port_faces', options.port_faces), ('component_faces', options.component_faces)]:
             known = port_labels if table == 'port_faces' else component_labels
             if not set(choices) <= set(known):

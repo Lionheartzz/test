@@ -95,8 +95,10 @@ def test_generation_preferences_stay_request_only_and_hard_faces_win(client):
     plan['settings']['port_faces']['EXT_P']='right';plan['settings']['hard_port_faces']['EXT_P']='right'
     design,features,terminals=generation.candidate(plan,'0'*32,0)
     by_id={f.id:f for f in design.features}
-    assert by_id[features['VALVE_RV1']].face=='front'
-    assert by_id[features['EXT_P']].face=='right' and by_id[features['EXT_T']].face=='left'
+    assert by_id[features['EXT_P']].face=='right'
+    domain=plan['settings']['layout_planning']['domain']
+    assert domain['soft_faces'][features['VALVE_RV1']]=='front' and domain['soft_faces'][features['EXT_T']]=='left'
+    assert features['VALVE_RV1'] not in domain['fixed_faces'] and features['EXT_T'] not in domain['fixed_faces']
     assert design.constraints.required_feature_faces[features['EXT_P']]=='right'
     assert design.constraints.preferred_component_faces==[] and design.constraints.preferred_port_faces=={}
     p,t=design.nets

@@ -16,6 +16,15 @@ def dispatch(operation,payload,engineering_complete=None,proposal_ready=None,*,e
     from .geometry import build_geometry,review_model,review_layer
     from .validation import validate
     from . import store
+    if operation=='ai-layout-exact':
+        from .engineering_db import definitions_for_design,thread_definitions_for_design,modifier_definitions_for_design
+        from .ai_design.joint_layout import exact_candidate
+        design=Design.model_validate(payload['design']);subdir=payload.get('evidence_subdir')
+        folder=(store.OUTPUT/subdir).resolve() if subdir else None
+        if folder and not folder.is_relative_to(store.OUTPUT.resolve()):raise ValueError('Invalid AI candidate evidence location')
+        if folder:folder.mkdir(parents=True,exist_ok=True)
+        return exact_candidate(design,definitions_for_design(design),thread_definitions_for_design(design),
+            modifier_definitions_for_design(design) if any(f.machining_modifiers for f in design.features) else {},folder=folder)
     if operation in ('preview','preview-solid'):
         _preview_state=None
         from .preview_routing import PreviewRequest,resolve_preview

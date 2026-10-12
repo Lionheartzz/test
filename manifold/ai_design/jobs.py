@@ -98,7 +98,11 @@ def _execute(record):
             record.update(status='completed',message='Operation completed',result=result)
     except service.Conflict:
         record.update(status='conflict',message='Analysis changed while the operation ran. The newer inputs were preserved; reopen the analysis.')
-    except (ValueError,FileNotFoundError):
+    except ValueError as exc:
+        message='Inputs, source files or selected engineering definitions need review. Reopen the analysis and run the generation preflight.'
+        if record['operation']=='generate':message='Draft generation needs review: '+' '.join(str(exc).split())[:1000]
+        record.update(status='failed',message=message)
+    except FileNotFoundError:
         record.update(status='failed',message='Inputs, source files or selected engineering definitions need review. Reopen the analysis and run the generation preflight.')
     except CalculationError as exc:
         record.update(status='failed',message=str(exc))

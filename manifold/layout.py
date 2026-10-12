@@ -15,7 +15,7 @@ def machining_radius(definition):
         for p in definition.cutting_primitives or definition.stages])
 
 
-def placement_conflicts(design, feature, definitions, threads, modifiers):
+def placement_conflicts(design, feature, definitions, threads, modifiers,*,cache=None):
     """Conservative 3D machining separation for a proposed NEW interface.
 
     Reuse the router's source profiles (offsets, cones, threads and modifiers),
@@ -32,14 +32,27 @@ def placement_conflicts(design, feature, definitions, threads, modifiers):
         if height>0 and radius>0:
             return [dict(feature=f,start=-height,end=0,radius_start=radius,radius_end=radius,inner_radius=0)]
         return []  # Unknown installation height is not invented.
-    cuts=list(_manufacturing_cuts(feature,definitions,threads,modifiers))
-    installed=envelope(feature)
+    # Optional operation-owned profile cache. No acceptance result is cached:
+    # new positions, stock size and current wall/access rules are still tested.
+    # Normal Model callers retain the default per-call lifetime.
+    cache=cache if cache is not None else {}
+    namespace=(tuple((k,id(v)) for k,v in sorted(definitions.items())),
+        tuple((k,id(v)) for k,v in sorted(threads.items())),tuple((k,id(v)) for k,v in sorted(modifiers.items())))
+    if cache.get('namespace')!=namespace:cache.clear();cache['namespace']=namespace
+    profiles=cache.setdefault('profiles',{})
+    def profile(f):
+        key=(dimensions(design.block),f.model_dump_json(exclude={'connects_to'}))
+        if key not in profiles:
+            frozen=f.model_copy(deep=True)
+            profiles[key]=(list(_manufacturing_cuts(frozen,definitions,threads,modifiers)),envelope(frozen))
+            if len(profiles)>2048:profiles.pop(next(iter(profiles)))
+        return profiles[key]
+    cuts,installed=profile(feature)
     conflicts=[]
     for other in design.features:
         if other.id==feature.id or other.suppressed or other.route_net:continue
         clearance=required_wall(design,feature,other,definitions=definitions)
-        other_cuts=list(_manufacturing_cuts(other,definitions,threads,modifiers))
-        other_installed=envelope(other)
+        other_cuts,other_installed=profile(other)
         if (any(_cuts_too_close(cuts,cut,design.block,clearance) for cut in other_cuts) or
             any(_cuts_too_close(installed,cut,design.block,design.rules.minimum_access_gap) for cut in other_cuts+other_installed) or
             any(_cuts_too_close(cuts,cut,design.block,design.rules.minimum_access_gap) for cut in other_installed)):
@@ -105,7 +118,7 @@ def packing_dimensions(group,face,wall,gap,maximum,*,rectangular=False):
     return cols,rows,width+wall,height+wall,2*max(r for _,r in items)+gap
 
 
-def propose_dimensions(design,definitions,preferred=None):
+def propose_dimensions(design,definitions,preferred=None,*,preferred_is_soft=False):
     """Initial NEW-project envelope from source geometry and actual conditions.
 
     Routing allowance is a draft layout space based on the selected bore, not a
@@ -117,7 +130,7 @@ def propose_dimensions(design,definitions,preferred=None):
     allowance=max(bore,design.rules.minimum_access_gap)
     needed=[2*allowance]*3
     lower=design.constraints.envelope_min or (0,0,0);upper=design.constraints.envelope_max or (2000,2000,2000)
-    packing_limit=[max(lower[i],min(upper[i],preferred[i])) if preferred and preferred[i] is not None else upper[i] for i in range(3)]
+    packing_limit=[max(lower[i],min(upper[i],preferred[i])) if not preferred_is_soft and preferred and preferred[i] is not None else upper[i] for i in range(3)]
     for face in FACE_AXES:
         group=[f for f in design.features if f.kind in ('cavity','port') and f.face==face and not f.suppressed]
         if not group:continue
@@ -147,6 +160,7 @@ def propose_dimensions(design,definitions,preferred=None):
     sizes=[]
     for i in range(3):
         target=preferred[i] if preferred and preferred[i] is not None else math.ceil(needed[i]/5)*5
+        if preferred_is_soft:target=max(target,math.ceil(needed[i]/5)*5)
         target=max(lower[i],min(upper[i],target))
         if target+1e-6<needed[i]:raise ValueError('Source geometry, stated pressure and routing allowance cannot fit the requested initial block dimensions.')
         sizes.append(target)

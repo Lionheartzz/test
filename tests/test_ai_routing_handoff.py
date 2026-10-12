@@ -7,19 +7,12 @@ from manifold.ai_design import generation,service,layout_search
 from manifold.routing import resolve_design
 
 
-@pytest.mark.parametrize('compatible',[False,True])
-def test_new_layout_never_pins_analytic_samples(monkeypatch,compatible):
+def test_new_layout_never_pins_analytic_samples(monkeypatch):
     d=four_ports();before=d.model_dump_json()
-    baseline=dict(score=(3,),feasibility_score=(3,),conflicts=[],blocked_nets=['N'])
-    assessed=dict(score=(0,),feasibility_score=(0,),conflicts=[] if compatible else [('cross_net_wall','one','two')],
-        blocked_nets=[],selected={'N':'branch_0_50_50_50:xyz:nearest'},compatible=compatible,witnesses=[])
-    monkeypatch.setattr(layout_search,'assess',lambda *a,**k:baseline)
-    monkeypatch.setattr(layout_search,'_columns',lambda *a,**k:(d.model_copy(deep=True),{'N':50},50))
-    monkeypatch.setattr(layout_search,'screen',lambda *a,**k:assessed)
-    monkeypatch.setattr(layout_search,'_children',lambda *a,**k:[])
-    result=layout_search.plan_new(d,{},movable_features={f.id for f in d.features},growth_axes=(0,1,2))
+    result=layout_search.plan_new(d,{},movable_features={f.id for f in d.features},growth_axes=(0,1,2),layout_limit=2)
     assert result['proposals'][0]['design']['nets'][0]['routing_variant'] is None
-    assert result['proposals'][0]['assessment']['selected']==assessed['selected']
+    assert result['proposals'][0]['assessment']['status']=='ANALYTIC_UNVALIDATED'
+    assert result['validation'] is None
     assert d.model_dump_json()==before
 
 

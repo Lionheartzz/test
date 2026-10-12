@@ -1,7 +1,7 @@
 """AI-generation-owned layout search. Never called by Model or the Router.
 
-All route cuts come from the shared Router. These count-bounded analytic
-screens allocate space; they do not certify connectivity or manufacturing.
+All route cuts come from the shared Router. Analytic screens schedule geometry
+revisions; plan_new delegates acceptance to disposable Exact CAD workers.
 """
 import itertools
 import math
@@ -147,7 +147,7 @@ def _columns(design, definitions, movable, growth_axes, fixed_faces):
     return target, lanes, junction_z
 
 
-def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, progress=None):
+def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, progress=None,*,include_routes=False,corridor_labels=1024,general_families=False):
     from ..routing import (route_from_variant, route_obstructions, terminal_points, segment_depth,
         route_objective, select_route_combination, _ProposalSnapshot, _route_pair_failures)
     from ..cavity_access import cavity_terminal_candidates
@@ -158,9 +158,18 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
     points = terminal_points(source, definitions)
     snapshot = _ProposalSnapshot(source, definitions, threads, modifiers)
     pools, diagnostics = {}, {}
+    if general_families:
+        # Reuse shared simple/direct/axial/detour/port/tree generation, rather
+        # than requiring every layout to fit the old branch-column template.
+        from ..layout_planning import _catalogs
+        _,general_pools,general_diagnostics,_=_catalogs(source,definitions,threads,modifiers,tools,progress)
     for index, (name, net) in enumerate(nets.items()):
         if progress:
             progress('access', net=name, completed=index, total=len(nets))
+        if general_families:
+            pools[name]=[o for o in general_pools[name] if not o['failures']]
+            diagnostics[name]=general_diagnostics[name]
+            continue
         eligible = cavity_terminal_candidates(source, net, definitions, threads, modifiers)
         mask = sum(1 << i for i, member in enumerate(sorted(net.members))
                    if member in eligible and eligible[member].face in ('top', 'bottom'))
@@ -225,14 +234,14 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
     chosen, combination = select_route_combination(source, nets, pools, definitions, pair,
         pair_count=lambda: snapshot.combination_budget['used'])
     corridor=None
-    if chosen is None and nets:
+    if chosen is None and nets and corridor_labels:
         from ..drilling_planner import coordinate_routes
         planned,corridor=coordinate_routes(source,list(nets.values()),definitions,threads,modifiers,
-            label_limit=128,label_total_limit=1024,state_limit=16,pair_limit=256,exact_connectivity=False)
+            label_limit=min(128,corridor_labels),label_total_limit=corridor_labels,state_limit=16,pair_limit=256,exact_connectivity=False)
         if planned:chosen=planned
     fixed = sorted({('source_wall', *sorted((f.id, other))) for f in source.features if f.kind in ('port', 'cavity')
                     for other in placement_conflicts(source, f, definitions, threads, modifiers)})
-    blocked = sorted(name for name in nets if not pools[name])
+    blocked = sorted(name for name in nets if not pools[name] and (chosen is None or name not in chosen))
     compatible = chosen is not None
     if chosen is None and all(pools.values()):
         # Retain a complete, explicitly unresolved proposal for diagnostics and
@@ -251,7 +260,8 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
     return dict(status='ANALYTIC_UNVALIDATED', score=(*feasibility, *route_objective(source, route, definitions=definitions)),
         feasibility_score=feasibility, blocked_nets=blocked, compatible=compatible, conflicts=sorted(failures),
         fixed_conflicts=fixed, selected={n: o['key'] for n, o in (chosen or {}).items()}, pools=diagnostics,
-        combination=combination,corridor_planning=corridor,witnesses=list(witnesses.values()), drillings=len(route), plugs=sum(f.plugged for f in route))
+        combination=combination,corridor_planning=corridor,witnesses=list(witnesses.values()), drillings=len(route), plugs=sum(f.plugged for f in route),
+        **(dict(route_features=[f.model_dump(mode='json') for f in route]) if include_routes else {}))
 
 
 def _scout(entry,definitions,threads,modifiers):
@@ -368,7 +378,7 @@ def _children(target,definitions,movable,growth_axes,fixed_faces,lanes,z,result)
     return children
 
 
-def plan_new(design, definitions, *, movable_features, growth_axes, fixed_faces=None, progress=None):
+def plan_legacy_analytic(design, definitions, *, movable_features, growth_axes, fixed_faces=None, progress=None):
     """Only the new AI compiler calls this. Inputs are copied, never mutated."""
     from ..engineering_db import thread_definitions_for_design, modifier_definitions_for_design, tool_definitions
     from ..store import revision
@@ -414,3 +424,22 @@ def plan_new(design, definitions, *, movable_features, growth_axes, fixed_faces=
     proposals.sort(key=lambda p: (p['assessment']['score'], math.prod(p['dimensions'])))
     return dict(source_revision=revision(design), baseline=baseline, proposals=proposals[:3], evaluated_layouts=evaluated,
                 layout_limit=limit, evaluations=history, frontier=frontier_history,status='ANALYTIC_LAYOUT_PROPOSALS')
+
+
+def plan_new(design,definitions,*,movable_features,growth_axes=(0,1,2),fixed_faces=None,
+             fixed_positions=None,fixed_rotations=None,soft_faces=None,soft_dimensions=(),
+             progress=None,cancelled=lambda:False,layout_limit=48,exact_limit=0,initial=None,evidence_dir=None):
+    """New AI-owned joint design-space search; no Model call path."""
+    from .design_space import LayoutDomain
+    from .joint_layout import optimize
+    if any(n.routing_variant or n.route_state in ('committed','stale') for n in design.nets) or any(
+        f.route_net or f.frozen_net or f.kind=='drilling' for f in design.features):
+        from ..store import revision
+        return dict(scope='AI_GENERATION_ONLY',source_revision=revision(design),status='PROTECTED_EXISTING_GEOMETRY',
+            baseline=dict(status='NOT_EVALUATED',score=(1,),feasibility_score=(1,),blocked_nets=[],conflicts=[]),
+            proposals=[],evaluated_layouts=0,layout_limit=layout_limit,evaluations=[],attempts=[],validation=None,
+            reason='Existing route choices or authored machining were not released by a new AI compilation.')
+    domain=LayoutDomain.new_generation(design,movable_features,dimension_axes=growth_axes,fixed_faces=fixed_faces,
+        fixed_positions=fixed_positions,fixed_rotations=fixed_rotations,soft_faces=soft_faces,soft_dimensions=soft_dimensions)
+    return optimize(design,definitions,domain,layout_limit=layout_limit,exact_limit=exact_limit,
+        progress=progress,cancelled=cancelled,initial=initial,evidence_dir=evidence_dir)

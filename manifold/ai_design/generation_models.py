@@ -43,8 +43,9 @@ class GenerationOptions(Strict):
     port_diameter: float = Field(default=12, ge=4, le=50)
     port_depth: float = Field(default=12, ge=6, le=50)
     minimum_wall: float | None = Field(default=None, gt=0, le=30)
-    # Historical option packets remain readable; normal Generate Draft does not
-    # run layout comparisons or exact CAD. Model owns explicit optimization.
+    # Historical route-search count remains readable. New AI generation has a
+    # separate bounded geometry frontier and the Exact layout count below;
+    # Model never gains layout-change authority from these options.
     max_attempts: int = Field(default=4, ge=1, le=6)
     max_exact_attempts: int = Field(default=2, ge=1, le=8)
     # Retained for saved/older clients; local generation is bounded by candidate
