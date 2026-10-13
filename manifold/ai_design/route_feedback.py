@@ -322,10 +322,23 @@ def measured_actions(design,assessment,definitions,domain,threads,modifiers):
     from .design_space import signature
     witnesses=assessment.get('coordination_constraints',assessment.get('witnesses',[]))
     orientation_witnesses=[*witnesses,*[dict(nets=[w['net']]) for w in assessment.get('spatial_feedback',[])]]
-    queues=[iter(_orientations(design,orientation_witnesses,definitions,domain,threads,modifiers)),
+    from .coupled_layout import actions as coupled_actions
+    queues=[iter(coupled_actions(design,assessment,definitions,domain,threads,modifiers)),
+            iter(_orientations(design,orientation_witnesses,definitions,domain,threads,modifiers)),
             iter(_combined_actions(design,witnesses,definitions,domain,threads,modifiers))]
     queues.append(iter(_measured_actions(design,dict(spatial_feedback=assessment.get('spatial_feedback',[])),definitions,domain,threads,modifiers)))
-    queues.extend(iter(_measured_actions(design,dict(coordination_constraints=[w]),definitions,domain,threads,modifiers)) for w in witnesses)
+    def witness_actions():
+        pending=[iter(_measured_actions(design,dict(coordination_constraints=[w]),definitions,domain,threads,modifiers)) for w in witnesses]
+        while pending:
+            active=[]
+            for iterator in pending:
+                try:action=next(iterator);active.append(iterator)
+                except StopIteration:continue
+                yield action
+            pending=active
+    # Witness count must not dilute the opportunity to jointly move rigid
+    # multi-interface sources. Keep witness diversity INSIDE its own category.
+    queues.append(iter(witness_actions()))
     seen={signature(design)}
     while queues:
         active=[]

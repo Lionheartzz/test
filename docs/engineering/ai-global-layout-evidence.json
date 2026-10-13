@@ -1,0 +1,676 @@
+{
+  "status": "UNRESOLVED_LAYOUT",
+  "elapsed_s": 1291.75,
+  "call_chain": "generation.prepare -> generation.candidate -> _plan_generated_layout -> plan_new -> optimize -> shared Router",
+  "evaluated_layouts": 48,
+  "materially_distinct_layouts": 40,
+  "material_scale_mm": 8.0,
+  "stock_sizes": 14,
+  "pose_structures": 25,
+  "counters": {
+    "layouts": 48,
+    "transforms": 189,
+    "source_rejected": 3,
+    "duplicate_transforms": 34,
+    "exact_attempts": 0,
+    "route_refinements": 4,
+    "stalled_route_refinements": 3,
+    "transform_seconds": 254.73399999935646
+  },
+  "best_layout": 45,
+  "dimensions": [
+    310.06,
+    245.0,
+    230.0
+  ],
+  "compatible_nets": [
+    "MA",
+    "MB",
+    "P",
+    "SHUTTLE_OUTPUT",
+    "T",
+    "T_DC"
+  ],
+  "unresolved_nets": [
+    "A_DC",
+    "B_DC"
+  ],
+  "repair_burden": [
+    4,
+    4
+  ],
+  "first_best_coverage_layout": 5,
+  "deferred_layouts": 110,
+  "unexpanded_generators": 49,
+  "resource_schedule": {
+    "total": {
+      "labels": 2048,
+      "states": 2000,
+      "pairs": 8000,
+      "probes": 512,
+      "samples": 128
+    },
+    "used": {
+      "labels": 1664,
+      "states": 1935,
+      "pairs": 1565,
+      "probes": 512,
+      "samples": 22
+    },
+    "remaining": {
+      "labels": 384,
+      "states": 65,
+      "pairs": 6435,
+      "probes": 0,
+      "samples": 106
+    },
+    "physical_infeasibility_proven": false,
+    "ordinary_routing": {
+      "state_limit_per_layout": 1000,
+      "pair_limit_per_layout": 4000
+    },
+    "exact": {
+      "limit": 2,
+      "attempts": 0
+    },
+    "dispatches": [
+      {
+        "layout_index": 3,
+        "evaluated": 4,
+        "coverage": 5,
+        "novel_space": true,
+        "limits": {
+          "labels": 512,
+          "states": 500,
+          "pairs": 2000,
+          "probes": 128,
+          "samples": 32
+        }
+      },
+      {
+        "layout_index": 5,
+        "evaluated": 8,
+        "coverage": 5,
+        "novel_space": true,
+        "limits": {
+          "labels": 512,
+          "states": 500,
+          "pairs": 2000,
+          "probes": 128,
+          "samples": 32
+        }
+      },
+      {
+        "layout_index": 5,
+        "evaluated": 24,
+        "coverage": 6,
+        "novel_space": false,
+        "limits": {
+          "labels": 512,
+          "states": 500,
+          "pairs": 2000,
+          "probes": 128,
+          "samples": 32
+        }
+      },
+      {
+        "layout_index": 38,
+        "evaluated": 48,
+        "coverage": 6,
+        "novel_space": true,
+        "limits": {
+          "labels": 512,
+          "states": 500,
+          "pairs": 2000,
+          "probes": 128,
+          "samples": 32
+        }
+      }
+    ],
+    "results": [
+      {
+        "layout_index": 3,
+        "coverage": 5,
+        "gain": false,
+        "spent": {
+          "labels": 384,
+          "states": 500,
+          "pairs": 208,
+          "probes": 128,
+          "samples": 7
+        },
+        "generator_checkpoints": {
+          "BYPASS_PLANE": 41,
+          "DUPLICATE_GEOMETRY": 80
+        }
+      },
+      {
+        "layout_index": 5,
+        "coverage": 6,
+        "gain": true,
+        "spent": {
+          "labels": 512,
+          "states": 500,
+          "pairs": 208,
+          "probes": 128,
+          "samples": 8
+        },
+        "generator_checkpoints": {
+          "BYPASS_PLANE": 45,
+          "DUPLICATE_GEOMETRY": 77
+        }
+      },
+      {
+        "layout_index": 5,
+        "coverage": 6,
+        "gain": false,
+        "spent": {
+          "labels": 512,
+          "states": 435,
+          "pairs": 269,
+          "probes": 128,
+          "samples": 0
+        },
+        "generator_checkpoints": {
+          "DUPLICATE_GEOMETRY": 104,
+          "BYPASS_PLANE": 24
+        }
+      },
+      {
+        "layout_index": 38,
+        "coverage": 6,
+        "gain": false,
+        "spent": {
+          "labels": 256,
+          "states": 500,
+          "pairs": 880,
+          "probes": 128,
+          "samples": 7
+        },
+        "generator_checkpoints": {
+          "BYPASS_PLANE": 45,
+          "DUPLICATE_GEOMETRY": 76
+        }
+      }
+    ]
+  },
+  "linked_source_changes": [
+    {
+      "feature": "CV_f6c2bd2b2a09c41df1fb",
+      "schematic_id": "C4",
+      "parameters": {
+        "u": [
+          143.125,
+          143.185
+        ]
+      }
+    },
+    {
+      "feature": "CV_9989e7f7a3b9b57cf82c",
+      "schematic_id": "C5",
+      "parameters": {
+        "u": [
+          182.875,
+          182.935
+        ]
+      }
+    },
+    {
+      "feature": "CV_9622e55cd4ee3586de17",
+      "schematic_id": "C6",
+      "parameters": {
+        "u": [
+          166.175,
+          166.235
+        ],
+        "rotation": [
+          270.0,
+          180.0
+        ]
+      }
+    },
+    {
+      "feature": "CV_205e2ee6c661ea1c7052",
+      "schematic_id": "C7",
+      "parameters": {
+        "u": [
+          225.8,
+          225.86
+        ],
+        "v": [
+          58.465,
+          85.275
+        ]
+      }
+    },
+    {
+      "feature": "CV_56ff820f9c529f44a4ba",
+      "schematic_id": "C8",
+      "parameters": {
+        "u": [
+          275.075,
+          275.135
+        ],
+        "v": [
+          58.465,
+          85.275
+        ]
+      }
+    },
+    {
+      "feature": "PORT_4fe37ca51562661fdc3c",
+      "schematic_id": "P-PORT",
+      "parameters": {
+        "u": [
+          144.615,
+          136.845
+        ]
+      }
+    },
+    {
+      "feature": "PORT_16dc30d98aa04f3eb216",
+      "schematic_id": "T-PORT",
+      "parameters": {
+        "u": [
+          193.31500000000003,
+          220.12500000000003
+        ]
+      }
+    }
+  ],
+  "coupled_group_evaluations": [
+    {
+      "features": [
+        "CV_9479468e4dd71c7470a2",
+        "CV_9622e55cd4ee3586de17",
+        "CV_9989e7f7a3b9b57cf82c",
+        "CV_f6c2bd2b2a09c41df1fb"
+      ],
+      "evaluations": 2
+    },
+    {
+      "features": [
+        "CV_9622e55cd4ee3586de17",
+        "CV_f6c2bd2b2a09c41df1fb"
+      ],
+      "evaluations": 1
+    },
+    {
+      "features": [
+        "CV_56ff820f9c529f44a4ba",
+        "CV_9622e55cd4ee3586de17"
+      ],
+      "evaluations": 1
+    },
+    {
+      "features": [
+        "CV_205e2ee6c661ea1c7052",
+        "CV_56ff820f9c529f44a4ba"
+      ],
+      "evaluations": 1
+    },
+    {
+      "features": [
+        "CV_9989e7f7a3b9b57cf82c",
+        "CV_f6c2bd2b2a09c41df1fb"
+      ],
+      "evaluations": 1
+    },
+    {
+      "features": [
+        "CV_9479468e4dd71c7470a2",
+        "CV_9622e55cd4ee3586de17"
+      ],
+      "evaluations": 1
+    }
+  ],
+  "exact_attempts": 0,
+  "exact_status": [],
+  "manufacturing_ready": false,
+  "physical_infeasibility_proven": false,
+  "protected_unchanged": true,
+  "starting_head": "1d5effc6306586475fdc6849ee93df99046aaf89",
+  "evidence_directory": "output/runtime-checks/global-ai-20261013/fair-scheduling-generate",
+  "baseline": {
+    "elapsed_s": 708.75,
+    "evaluated_layouts": 48,
+    "best_compatible": 6,
+    "first_best_layout": 26,
+    "refinement_layouts": [
+      3,
+      6
+    ],
+    "exact_attempts": 0
+  },
+  "protected_hashes": {
+    "files": 13,
+    "database_sha256": "1e3267bd6a6271cf819b5181ed52eae55ab8b8b54a4a48ce45cc277175d7daa2",
+    "source_sha256": "394197644138ed39fc63f16f2710bad1361322a0d11e1fbbd9b9588c6a73bed9"
+  },
+  "coupled_results": [
+    {
+      "layout": 2,
+      "group_size": 4,
+      "coverage": 3,
+      "affected_nets": [
+        "A_DC",
+        "B_DC",
+        "MA",
+        "MB",
+        "P",
+        "SHUTTLE_OUTPUT",
+        "T_DC"
+      ],
+      "lost_nets": [
+        "A_DC",
+        "SHUTTLE_OUTPUT",
+        "T_DC"
+      ]
+    },
+    {
+      "layout": 9,
+      "group_size": 4,
+      "coverage": 4,
+      "affected_nets": [
+        "A_DC",
+        "B_DC",
+        "MA",
+        "MB",
+        "P",
+        "SHUTTLE_OUTPUT",
+        "T_DC"
+      ],
+      "lost_nets": [
+        "A_DC",
+        "MB",
+        "T_DC"
+      ]
+    },
+    {
+      "layout": 15,
+      "group_size": 2,
+      "coverage": 3,
+      "affected_nets": [
+        "A_DC",
+        "B_DC",
+        "MB",
+        "P",
+        "T_DC"
+      ],
+      "lost_nets": [
+        "A_DC",
+        "MB",
+        "T_DC"
+      ]
+    },
+    {
+      "layout": 23,
+      "group_size": 2,
+      "coverage": 4,
+      "affected_nets": [
+        "A_DC",
+        "B_DC",
+        "P",
+        "T",
+        "T_DC"
+      ],
+      "lost_nets": [
+        "A_DC",
+        "MB"
+      ]
+    },
+    {
+      "layout": 29,
+      "group_size": 2,
+      "coverage": 3,
+      "affected_nets": [
+        "P",
+        "SHUTTLE_OUTPUT",
+        "T",
+        "T_DC"
+      ],
+      "lost_nets": [
+        "A_DC",
+        "MB",
+        "SHUTTLE_OUTPUT",
+        "T"
+      ]
+    },
+    {
+      "layout": 35,
+      "group_size": 2,
+      "coverage": 5,
+      "affected_nets": [
+        "A_DC",
+        "B_DC",
+        "MB",
+        "SHUTTLE_OUTPUT"
+      ],
+      "lost_nets": [
+        "A_DC",
+        "SHUTTLE_OUTPUT"
+      ]
+    },
+    {
+      "layout": 42,
+      "group_size": 2,
+      "coverage": 5,
+      "affected_nets": [
+        "A_DC",
+        "B_DC",
+        "MA",
+        "P",
+        "T_DC"
+      ],
+      "lost_nets": [
+        "A_DC",
+        "MA"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "net": "A_DC",
+      "candidate": "window:branch_0_141.570000_163.415000_27.750000:yzx:negative",
+      "constraints": [
+        {
+          "nets": [
+            "A_DC",
+            "P"
+          ],
+          "failures": [
+            [
+              "installation_access",
+              "R-5c62e091-4",
+              "R-702e7749-8"
+            ]
+          ]
+        },
+        {
+          "nets": [
+            "A_DC",
+            "T"
+          ],
+          "failures": [
+            [
+              "cross_net_wall",
+              "R-702e7749-5",
+              "R-e632b709-1"
+            ]
+          ]
+        }
+      ],
+      "machining": [
+        {
+          "id": "R-702e7749-8",
+          "route_net": "A_DC",
+          "face": "bottom",
+          "u": 176.53500000000003,
+          "v": 24.139999999999997,
+          "diameter": 8.0,
+          "depth": 188.4913697733023,
+          "plugged": true,
+          "closure_definition_id": "closure_22046acec45212c1af3dbd89"
+        },
+        {
+          "id": "R-5c62e091-4",
+          "route_net": "P",
+          "face": "bottom",
+          "u": 166.235,
+          "v": 23.9,
+          "diameter": 8.0,
+          "depth": 173.3913697733023,
+          "plugged": true,
+          "closure_definition_id": "closure_22046acec45212c1af3dbd89"
+        },
+        {
+          "id": "R-702e7749-5",
+          "route_net": "A_DC",
+          "face": "back",
+          "u": 182.935,
+          "v": 149.79000000000002,
+          "diameter": 8.0,
+          "depth": 190.535,
+          "plugged": true,
+          "closure_definition_id": "closure_22046acec45212c1af3dbd89"
+        },
+        {
+          "id": "R-e632b709-1",
+          "route_net": "T",
+          "face": "right",
+          "u": 220.125,
+          "v": 156.99,
+          "diameter": 8.0,
+          "depth": 143.061667,
+          "plugged": true,
+          "closure_definition_id": "closure_22046acec45212c1af3dbd89"
+        }
+      ]
+    },
+    {
+      "net": "B_DC",
+      "candidate": "branch_0_136.420000_174.515000_104.665000:yxz:nearest",
+      "constraints": [
+        {
+          "nets": [
+            "B_DC",
+            "MA"
+          ],
+          "failures": [
+            [
+              "cross_net_wall",
+              "R-309be2fb-5",
+              "R-f0055891-2"
+            ]
+          ]
+        },
+        {
+          "nets": [
+            "B_DC",
+            "T"
+          ],
+          "failures": [
+            [
+              "cross_net_wall",
+              "R-309be2fb-8",
+              "R-e632b709-2"
+            ]
+          ]
+        }
+      ],
+      "machining": [
+        {
+          "id": "R-309be2fb-5",
+          "route_net": "B_DC",
+          "face": "front",
+          "u": 63.625,
+          "v": 194.25,
+          "diameter": 8.0,
+          "depth": 178.515,
+          "plugged": true,
+          "closure_definition_id": "closure_22046acec45212c1af3dbd89"
+        },
+        {
+          "id": "R-f0055891-2",
+          "route_net": "MA",
+          "face": "left",
+          "u": 88.69,
+          "v": 197.44,
+          "diameter": 8.0,
+          "depth": 107.375,
+          "plugged": true,
+          "closure_definition_id": "closure_22046acec45212c1af3dbd89"
+        },
+        {
+          "id": "R-309be2fb-8",
+          "route_net": "B_DC",
+          "face": "back",
+          "u": 182.935,
+          "v": 196.63,
+          "diameter": 8.0,
+          "depth": 190.535,
+          "plugged": true,
+          "closure_definition_id": "closure_22046acec45212c1af3dbd89"
+        },
+        {
+          "id": "R-e632b709-2",
+          "route_net": "T",
+          "face": "right",
+          "u": 220.125,
+          "v": 193.46,
+          "diameter": 8.0,
+          "depth": 143.061667,
+          "plugged": true,
+          "closure_definition_id": "closure_22046acec45212c1af3dbd89"
+        }
+      ]
+    }
+  ],
+  "late_tree_frontiers": [
+    {
+      "net": "B_DC",
+      "classification": "CORRIDOR_GENERATION_LIMIT",
+      "labels": 128,
+      "frontier_labels": 674,
+      "unexpanded_coordinate_events": [
+        207,
+        135,
+        232
+      ],
+      "released": [
+        "B_DC"
+      ],
+      "reserved_nets": [
+        "A_DC",
+        "MA",
+        "MB",
+        "P",
+        "SHUTTLE_OUTPUT",
+        "T"
+      ]
+    },
+    {
+      "net": "T_DC",
+      "classification": "CORRIDOR_GENERATION_LIMIT",
+      "labels": 128,
+      "frontier_labels": 1024,
+      "unexpanded_coordinate_events": [
+        207,
+        143,
+        242
+      ],
+      "released": [
+        "T_DC"
+      ],
+      "reserved_nets": [
+        "A_DC",
+        "MA",
+        "MB",
+        "P",
+        "SHUTTLE_OUTPUT",
+        "T"
+      ]
+    }
+  ],
+  "interpretation": "Analytic partial routing only; no complete Exact/production acceptance; bounded failure is not a physical infeasibility proof"
+}

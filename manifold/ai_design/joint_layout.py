@@ -88,16 +88,18 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
     from .initialization import initial_candidates,route_feedback,constraint_conflicts
     from .route_catalog import Session
     from .joint_state import capture,rank as analytic_rank
+    from .layout_resources import RefinementSchedule
     if not 1<=layout_limit<=128 or not 0<=exact_limit<=8:raise ValueError('Invalid AI layout calculation budget')
     original=design.model_copy(deep=True);source_revision=revision(original)
     threads=thread_definitions_for_design(original);modifiers=modifier_definitions_for_design(original) if any(f.machining_modifiers for f in original.features) else {}
     tools=tool_definitions('drill');serial=itertools.count();queue=[];frames=[];seen=set();records=[];attempts=[]
     counters=dict(layouts=0,transforms=0,source_rejected=0,duplicate_transforms=0,exact_attempts=0)
     counters.update(route_refinements=0,stalled_route_refinements=0)
+    resources=RefinementSchedule(exact_limit,len(original.nets),layout_limit)
     inspected=set();routing_rejections=[];hypotheses={};family_counts={};schedule=itertools.cycle(('size','face','group','individual','feedback'))
-    route_session=Session();assessments={};feedback_streak=0;frame_pages={};record_indices={}
+    route_session=Session();assessments={};feedback_streak=0;frame_pages={};record_indices={};coupled_evaluations={}
     frame_schedule=itertools.cycle(('feedback','initial','feedback','explore'))
-    feedback_schedule=itertools.cycle(('feedback-size','feedback-face','feedback-group','feedback-position'))
+    feedback_schedule=itertools.cycle(('feedback-coupled','feedback-size','feedback-face','feedback-group','feedback-position'))
     transform_limit=layout_limit*64
     def emit(stage,**detail):
         if cancelled():
@@ -135,6 +137,12 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
     frames.append((original,iter(actions(original,definitions,domain,threads,modifiers)),'explore'))
     def record_state(row,target):
         row['joint_state']=capture(target,row['assessment'],definitions)
+        row['routing_scale']=min((n.diameter for n in target.nets),default=1)
+        parent=row.get('parent_layout_index')
+        if parent is not None:
+            previous=set(records[parent]['joint_state']['compatible_nets']);current=set(row['joint_state']['compatible_nets'])
+            row['joint_transition']=dict(retained_compatible_nets=sorted(previous&current),
+                lost_compatible_nets=sorted(previous-current),new_compatible_nets=sorted(current-previous))
         assessments[signature(target)]=row['assessment']
         if evidence_dir:atomic_json(Path(evidence_dir)/'layouts'/f'{row["index"]:03}.json',row)
     def feedback(row,target):
@@ -168,6 +176,7 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
     def bucket(row):
         target,family,parent=row[2:5]
         if family in ('initial-scaffold','linked-source-layout'):return 'initial'
+        if family=='feedback-coupled-interfaces':return 'feedback-coupled'
         if family.startswith('feedback-'):
             if parent is not None and dimensions(target.block)!=dimensions(parent.block):return 'feedback-size'
             old={f.id:f for f in (parent or original).features}
@@ -186,11 +195,18 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
         if 'initial' in available:category='initial'
         elif measured and feedback_streak<2:category=next(c for c in feedback_schedule if c in available)
         else:
-            normal=available-{'feedback-size','feedback-face','feedback-group','feedback-position'}
+            normal={c for c in available if not c.startswith('feedback-')}
             category=next(c for c in schedule if c in normal) if normal else next(c for c in feedback_schedule if c in available)
         feedback_streak=feedback_streak+1 if category.startswith('feedback-') else 0
-        index=min((i for i,row in enumerate(queue) if bucket(row)==category),key=lambda i:queue[i][:2])
+        def queue_rank(i):
+            row=queue[i];reason=hypotheses.get(signature(row[2])) or {}
+            group=tuple(reason.get('owners',[]))
+            return (coupled_evaluations.get(group,0) if category=='feedback-coupled' else 0,*row[:2])
+        index=min((i for i,row in enumerate(queue) if bucket(row)==category),key=queue_rank)
         row=queue.pop(index);heapq.heapify(queue);family_counts[category]=family_counts.get(category,0)+1
+        if category=='feedback-coupled':
+            group=tuple((hypotheses.get(signature(row[2])) or {}).get('owners',[]))
+            coupled_evaluations[group]=coupled_evaluations.get(group,0)+1
         return row
     def scan(until):
         while counters['layouts']<until and (queue or frames):
@@ -240,35 +256,40 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
     # instead of exhausting increasingly elaborate fixed-geometry drillings.
     # React after a small layout batch, not after sixteen unrelated layouts.
     # This does not increase layouts, transforms, labels or Exact attempts.
-    rounds=max(1,(layout_limit+3)//4);refinement_remaining=exact_limit*1024
+    rounds=max(1,(layout_limit+3)//4)
     for turn in range(rounds):
         scan(max(1,layout_limit*(turn+1)//rounds))
         if not exact_limit or len(attempts)>=exact_limit:continue
-        eligible=[r for r in records if r['index'] not in inspected and r['assessment']['status']!='SOURCE_LAYOUT_REJECTED']
-        if not eligible:continue
-        chosen=min(eligible,key=analytic_rank);target=Design.model_validate(chosen['design'])
-        inspected.add(chosen['index'])
-        # An empty ordinary pool is not proof that no 3D source approach exists.
-        # It is precisely one reason to spend this bounded refinement allowance.
-        if not chosen['assessment'].get('compatible') and refinement_remaining:
+        complete=[r for r in records if r['index'] not in inspected and r['assessment'].get('compatible')]
+        choice=None if complete else resources.select(records,counters['layouts'],final=turn==rounds-1)
+        if not complete and choice is None:continue
+        chosen=min(complete,key=analytic_rank) if complete else choice[0]
+        target=Design.model_validate(chosen['design'])
+        if not chosen['assessment'].get('compatible'):
+            limits=choice[1]
             previous_coverage=len(chosen['joint_state']['compatible_nets'])
+            before=(previous_coverage,tuple(chosen['joint_state']['repair_burden']))
             points=terminal_points(target,definitions)
             lanes={n.id:sum(points[m][1] for m in n.members)/len(n.members) for n in target.nets if len(n.members)>=2}
             planes={n.id:sum(points[m][2] for m in n.members)/len(n.members) for n in target.nets if len(n.members)>=2}
-            labels=min(1024,refinement_remaining);refinement_remaining-=labels
             refinement_started=time.monotonic()
             chosen['assessment']=screen(target,definitions,threads,modifiers,tools,lanes,planes,
-                lambda stage,**d:emit(stage,**d),include_routes=True,corridor_labels=labels,general_families=True,route_session=route_session)
+                lambda stage,**d:emit(stage,**d),include_routes=True,corridor_labels=limits['labels'],general_families=True,
+                route_session=route_session,deep_limits=limits)
             chosen['assessment']['routing_refinement']='SHARED_3D_PLANNER_BOUNDED_BEFORE_NEXT_LAYOUT_REVISION'
             chosen['refinement_seconds']=time.monotonic()-refinement_started
             record_state(chosen,target)
             counters['route_refinements']+=1
-            improved=len(chosen['joint_state']['compatible_nets'])>previous_coverage
+            improved=resources.charge(chosen,before,limits)
             counters['stalled_route_refinements']+=int(not improved)
             chosen['search_decision']=dict(action='EXACT' if chosen['assessment'].get('compatible') else 'REVISE_GEOMETRY',
                 compatible_before=previous_coverage,compatible_after=len(chosen['joint_state']['compatible_nets']),
-                reason='Compatible coverage improved' if improved else 'Fixed-layout routing did not extend compatible coverage',
-                repeat_same_geometry=False)
+                reason=('Compatible coverage improved' if len(chosen['joint_state']['compatible_nets'])>previous_coverage else
+                    'Actual insertion conflicts decreased') if improved else 'No compatible coverage or insertion constraint improvement',
+                repair_burden_before=list(before[1]),repair_burden_after=chosen['joint_state']['repair_burden'],
+                repeat_same_geometry=bool(chosen.get('deep_history')))
+            chosen.setdefault('deep_history',[]).append(dict(**chosen['search_decision'],limits=limits,
+                seconds=chosen['refinement_seconds'],resources_remaining=resources.remaining()))
             record_state(chosen,target)
             if not chosen['assessment'].get('compatible'):feedback(chosen,target)
         route=[Feature.model_validate(f) for f in chosen['assessment']['route_features']]
@@ -286,6 +307,7 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
                 conflicts=chosen['assessment'].get('conflicts'),partial_routing=chosen['assessment'].get('partial_routing'),
                 witnesses=chosen['assessment'].get('witnesses')))
             continue
+        inspected.add(chosen['index'])
         target.features.extend(route)
         for net in target.nets:
             if net.routing=='automatic' and net.route_state=='unresolved':net.route_state='proposal';net.routing_variant=None
@@ -339,6 +361,10 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
         transform_limit=transform_limit,physical_infeasibility_proven=False,routing_rejections=routing_rejections,
         evaluations=[{k:v for k,v in r.items() if k!='design'} for r in records],frontier=[],manufacturing_ready=bool(accepted and best.get('manufacturing_ready')))
     result['family_evaluations']=family_counts
+    result['coupled_group_evaluations']=[dict(features=list(group),evaluations=count) for group,count in coupled_evaluations.items()]
+    result['resource_schedule']=resources.diagnostics()
+    result['resource_schedule']['ordinary_routing']=dict(state_limit_per_layout=1000,pair_limit_per_layout=4000)
+    result['resource_schedule']['exact']=dict(limit=exact_limit,attempts=len(attempts))
     result['packing_diagnostics']=domain._packing_diagnostics
     result['hard_constraint_conflicts']=constraint_conflicts(original,definitions,domain,threads,modifiers)
     result['outcome_classification']='EXACT_FEASIBLE' if accepted else 'PROVEN_HARD_CONSTRAINT_CONFLICT' if result['hard_constraint_conflicts'] else 'UNRESOLVED_SEARCH_OR_ENGINEERING'

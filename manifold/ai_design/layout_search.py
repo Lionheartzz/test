@@ -147,7 +147,7 @@ def _columns(design, definitions, movable, growth_axes, fixed_faces):
     return target, lanes, junction_z
 
 
-def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, progress=None,*,include_routes=False,corridor_labels=1024,general_families=False,route_session=None):
+def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, progress=None,*,include_routes=False,corridor_labels=1024,general_families=False,route_session=None,deep_limits=None):
     from ..routing import (route_from_variant, route_obstructions, terminal_points, segment_depth,
         route_objective, select_route_combination, _ProposalSnapshot, _route_pair_failures)
     from ..cavity_access import cavity_terminal_candidates
@@ -157,6 +157,7 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
     nets = {n.id: effective_net(source, n) for n in source.nets if n.id in owners and len(n.members) >= 2}
     points = terminal_points(source, definitions)
     snapshot = _ProposalSnapshot(source, definitions, threads, modifiers)
+    if deep_limits:snapshot.combination_budget['limit']=deep_limits['pairs']
     pools, diagnostics = {}, {}
     if general_families:
         # Reuse shared simple/direct/axial/detour/port/tree generation, rather
@@ -245,12 +246,12 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         from .joint_routes import coordinate
         preserved=route_session.compatible_core(source,nets,pair)
         pools={n:c.active(width=len(c.clear)) for n,c in route_session.catalogs.items()}
-        work=dict(states=0,limit=1000)
+        work=dict(states=0,limit=deep_limits['states'] if deep_limits else 1000)
         partial,joint=coordinate(route_session,source,nets,pools,pair,preserved,work,labels=corridor_labels,
-                                 fragments=bool(corridor_labels))
+                                 fragments=bool(corridor_labels),limits=deep_limits)
         joint['core_validation']=route_session.core_checks
         chosen=partial if len(partial)==len(nets) else None
-        combination=dict(states=work['states'],state_limit=1000,pair_screens=snapshot.combination_budget['used'],pair_limit=4000,
+        combination=dict(states=work['states'],state_limit=work['limit'],pair_screens=snapshot.combination_budget['used'],pair_limit=snapshot.combination_budget.get('limit',4000),
             exit_reason='clear_combination' if chosen else 'compatible_core_incomplete',pools={n:len(p) for n,p in pools.items()},
             preserved_core=sorted(preserved),best_partial=sorted(partial),empty_nets=sorted(n for n,p in pools.items() if not p))
     else:
@@ -329,6 +330,7 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
     if not compatible:failures.add(('route_combination',combination['exit_reason']))
     unresolved=sorted(set(nets)-set(partial))
     feasibility = (len(unresolved), *_conflict_objective(failures))
+    if general_families:route_session.remember_context()
     return dict(status='ANALYTIC_UNVALIDATED', score=(*feasibility, *route_objective(source, route, definitions=definitions)),
         feasibility_score=feasibility, blocked_nets=blocked, compatible=compatible, conflicts=sorted(failures),
         fixed_conflicts=fixed, selected={n:o['key'] for n,o in partial.items()}, pools=diagnostics,

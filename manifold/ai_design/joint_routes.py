@@ -245,7 +245,7 @@ def corridor_alternatives(source,net,bases,reserved,definitions,threads,modifier
         queues=active
 
 
-def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=True):
+def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=True,limits=None):
     """Preserve a compatible core; repair missing Nets, then their blockers."""
     overall=work['limit'];work['limit']=min(overall,work['states']+max(32,overall//3))
     best,events,conflicts=improve(source,nets,pools,pair,seed,work)
@@ -300,8 +300,10 @@ def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=Tru
         events.append(dict(action='REPLAY_ALTERNATIVE_CORE',inserted=name,released=sorted(blockers),compatible_nets=sorted(core)))
     if fragments:
         for core in sorted(core_states.values(),key=lambda c:-len(c)):pending.extend(jobs(core))
-    probes=0;duplicates=0;checkpoints={};probe_limit=max(1,session.remaining)*4
-    while pending and session.remaining and work['states']<work['limit'] and len(best)<len(nets) and probes<probe_limit:
+    sample_limit=limits['samples'] if limits else session.remaining
+    if limits:session.remaining=max(session.remaining,sample_limit)
+    probes=0;duplicates=0;checkpoints={};probe_limit=limits['probes'] if limits else max(1,session.remaining)*4
+    while pending and session.remaining and samples<sample_limit and work['states']<work['limit'] and len(best)<len(nets) and probes<probe_limit:
         name,outside,iterator,core=pending.popleft()
         try:option=next(iterator)
         except StopIteration:continue
@@ -362,18 +364,19 @@ def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=Tru
         # outside cuts remain full machining obstacles in the shared planner.
         releases.sort(key=lambda row:(len(row[1]),row[0]));unique=set()
         for index,(name,group) in enumerate(releases):
-            if used_labels>=labels or len(best)==len(nets) or work['states']>=overall:break
+            if used_labels>=labels or len(best)==len(nets) or work['states']>=overall or limits and samples>=sample_limit:break
             if (name,tuple(sorted(group))) in unique:continue
             unique.add((name,tuple(sorted(group))))
             outside={n:o for n,o in best.items() if n not in group}
             reserved=[f for o in outside.values() for f in o['route']];catalog=session.catalogs[name]
             allowance=min(labels-used_labels,max(128,(labels-used_labels)//max(1,len(releases)-index)))
             options,detail=plan_net(source,nets[name],catalog.definitions,catalog.threads,catalog.modifiers,
-                reserved=reserved,label_limit=allowance,alternatives=2,cache=session.cache,tools=catalog.tools)
+                reserved=reserved,label_limit=allowance,alternatives=min(2,sample_limit-samples) if limits else 2,cache=session.cache,tools=catalog.tools)
             used_labels+=detail.get('labels',0)
             searches.append({**detail,'released':sorted(group),'reserved_nets':sorted(outside)})
             for option in options:
                 catalog.accept(option['key'],option['route'],'reserved-3d')
+                if limits:samples+=1;session.remaining-=1
             pools[name]=catalog.active(width=len(catalog.clear))
             trial,moves,failed=improve(source,nets,pools,pair,best,work)
             events.extend(moves);conflicts.extend(failed)

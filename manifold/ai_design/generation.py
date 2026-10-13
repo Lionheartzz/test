@@ -374,6 +374,7 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
         attempts=planned.get('attempts',[]),validation=planned.get('validation'),counters=planned.get('counters'),
         routing_rejections=planned.get('routing_rejections',[]),
         family_evaluations=planned.get('family_evaluations'),hard_constraint_conflicts=planned.get('hard_constraint_conflicts'),
+        resource_schedule=planned.get('resource_schedule'),
         outcome_classification=planned.get('outcome_classification'),
         deferred_layouts=planned.get('deferred_layouts'),unexpanded_transform_generators=planned.get('unexpanded_transform_generators'),
         reason=selected['reason'] if selected else 'Initial layout retained; bounded samples did not improve engineering screening.')

@@ -151,6 +151,7 @@ class Session:
         self.previous={};self.catalogs={};self.cache={};self.remaining=0
         self.combinations=[];self.pair_evidence={};self.context=None;self.invalidated=False
         self.corridor_frontiers={}
+        self.contexts={}
         self._prepared_once=False
 
     def source_context(self,source,definitions,threads,modifiers):
@@ -200,6 +201,11 @@ class Session:
 
     def prepare(self, source, nets, definitions, threads, modifiers, tools, progress=None):
         context=self.source_context(source,definitions,threads,modifiers)
+        self.invalidated=self.context is not None and self.context!=context
+        if context in self.contexts and not self._prepared_once:
+            self.catalogs,self.cache,self.pair_evidence,self.remaining=self.contexts[context]
+            self.context=context
+            return {n:c.active(width=len(c.clear)) for n,c in self.catalogs.items()}
         if self._prepared_once and context==self.context:
             self._prepared_once=False
             return {n:c.active(width=len(c.clear)) for n,c in self.catalogs.items()}
@@ -230,6 +236,10 @@ class Session:
             *_,name,catalog=min(candidates,key=lambda r:r[:-1])
             if catalog.step():used+=1
         return {n:c.active() for n,c in self.catalogs.items()}
+
+    def remember_context(self):
+        self.contexts[self.context]=(self.catalogs,self.cache,self.pair_evidence,self.remaining)
+        while len(self.contexts)>max(4,len(self.catalogs)):self.contexts.pop(next(iter(self.contexts)))
 
     def coordinate(self,source,witnesses):
         """Allocate reserved samples to conflicting real cut planes, both Nets.

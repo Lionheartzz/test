@@ -211,7 +211,7 @@ def projected(feature,face,design):
     return feature.model_copy(update=dict(face=face,u=origin[u],v=origin[v]))
 
 
-def anchored(design,feature,definitions,domain,threads,modifiers,*,orientations_only=False):
+def anchored(design,feature,definitions,domain,threads,modifiers,*,orientations_only=False,window_targets=None):
     """Lazy source-event positions on every permitted face, no regular grid."""
     targets=target_origins(design,feature,definitions)
     queues=[]
@@ -227,12 +227,26 @@ def anchored(design,feature,definitions,domain,threads,modifiers,*,orientations_
             for zone,target in itertools.product(definitions[feature.definition].zones,targets):
                 if math.hypot(zone.offset_u,zone.offset_v)>1e-7:
                     rotations.append(math.degrees(math.atan2(target[v]-item.v,target[u]-item.u)-math.atan2(zone.offset_v,zone.offset_u))%360)
+            if window_targets:
+                for a,b in itertools.combinations(definition.zones,2):
+                    pa,pb=window_targets.get(feature.id+':'+a.id),window_targets.get(feature.id+':'+b.id)
+                    if pa is None or pb is None or math.hypot(a.offset_u-b.offset_u,a.offset_v-b.offset_v)<1e-7:continue
+                    rotations.append(math.degrees(math.atan2(pb[v]-pa[v],pb[u]-pa[u])-
+                        math.atan2(b.offset_v-a.offset_v,b.offset_u-a.offset_u))%360)
         for angle in dict.fromkeys(rotations):
             if orientations_only and face==feature.face and angle==feature.rotation:continue
             rotated=item.model_copy(update=dict(rotation=angle))
             probe=design.model_copy(update=dict(features=[rotated if f.id==item.id else f for f in design.features]))
             xs,ys=face_events(probe,rotated,definitions,threads,modifiers)
-            events=itertools.chain([(item.u,item.v)],[(p[u],p[v]) for p in target_origins(probe,rotated,definitions)],
+            joint=[]
+            if window_targets:
+                from ..routing import terminal_points
+                points=terminal_points(probe,definitions);origin,_=pose(rotated,probe.block)
+                origins=[tuple(target[i]-(points[key][i]-origin[i]) for i in range(3))
+                         for key,target in window_targets.items() if key in points]
+                if origins:
+                    joint=[(sum(p[u] for p in origins)/len(origins),sum(p[v] for p in origins)/len(origins))]
+            events=itertools.chain(joint,[(item.u,item.v)],[(p[u],p[v]) for p in target_origins(probe,rotated,definitions)],
                 ((x,item.v) for x in xs),((item.u,y) for y in ys),itertools.product(xs,ys))
             def variants(item,events):
                 seen=set()
