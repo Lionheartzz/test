@@ -12,6 +12,29 @@ from ..engineering_conditions import required_wall,effective_net
 from .design_space import radius,pack_topology,signature
 
 
+def linked_source_seed(design,linked):
+    """Copy matching source poses into a NEW candidate, never old route cuts.
+
+    A linked project's placement is a useful soft starting hypothesis. Its
+    origin grants no permission; the caller's new-generation domain checks
+    locks and ownership. Changed interfaces cannot inherit an unrelated pose.
+    """
+    if linked is None:return None
+    sources={f.schematic_id:f for f in linked.features if f.schematic_id and
+             f.kind in ('cavity','port') and not f.suppressed and not f.route_net}
+    target=design.model_copy(deep=True);matched=0
+    for f in target.features:
+        old=sources.get(f.schematic_id)
+        if old is None:continue
+        physical=lambda x:(x.kind,x.definition,x.thread_definition_id,x.diameter,x.depth,x.tip_angle,
+                           x.circuits,x.direction,x.parent_id)
+        if physical(f)!=physical(old):continue
+        f.face,f.u,f.v,f.rotation=old.face,old.u,old.v,old.rotation;matched+=1
+    if not matched:return None
+    for name in ('length','width','height'):setattr(target.block,name,getattr(linked.block,name))
+    return target
+
+
 def source_extents(design,feature,definitions,threads,modifiers):
     from ..routing import _manufacturing_cuts,cylinder_bounds
     origin,inward=pose(feature,design.block);axis=FACE_AXES[feature.face][2]

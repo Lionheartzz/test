@@ -79,7 +79,7 @@ def _focus(design,failures):
 
 
 def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=None,cancelled=lambda:False,
-             initial=None,evidence_dir=None):
+             initial=None,evidence_dir=None,seed_layouts=()):
     from ..engineering_db import thread_definitions_for_design,modifier_definitions_for_design,tool_definitions
     from ..layout_planning import _fits
     from ..routing import terminal_points,route_objective
@@ -95,7 +95,9 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
     counters=dict(layouts=0,transforms=0,source_rejected=0,duplicate_transforms=0,exact_attempts=0)
     counters.update(route_refinements=0,stalled_route_refinements=0)
     inspected=set();routing_rejections=[];hypotheses={};family_counts={};schedule=itertools.cycle(('size','face','group','individual','feedback'))
-    route_session=Session();assessments={};feedback_streak=0
+    route_session=Session();assessments={};feedback_streak=0;frame_pages={};record_indices={}
+    frame_schedule=itertools.cycle(('feedback','initial','feedback','explore'))
+    feedback_schedule=itertools.cycle(('feedback-size','feedback-face','feedback-group','feedback-position'))
     transform_limit=layout_limit*64
     def emit(stage,**detail):
         if cancelled():
@@ -122,6 +124,8 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
             math.prod(dimensions(target.block)))
         heapq.heappush(queue,(cheap,next(serial),target,family,parent,conflicts,fits))
     enqueue(original,'initial-scaffold')
+    for seed in seed_layouts:
+        enqueue(seed,'linked-source-layout',original,dict(rule='reviewed_source_poses',requires_route_regeneration=True))
     if initial:initial(original.model_copy(deep=True))
     # Retained source-column packing is one optional fast seed; it is no longer
     # the root or the sole placement family. Generic actions work without it.
@@ -141,7 +145,17 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
         frames.insert(0,(target,iter(route_feedback(target,row['assessment'],definitions,domain,threads,modifiers)),'feedback'))
     def expand_page():
         if not frames or counters['transforms']>=transform_limit:return False
-        parent,iterator,kind=frames.pop(0);exhausted=False
+        started=time.monotonic()
+        kinds={f[2] for f in frames};kind=next(k for k in frame_schedule if k in kinds)
+        # Expand valuable compatible parents, rather than recursively expanding
+        # the last rejected descendant while its better siblings wait forever.
+        def frame_rank(frame):
+            key=signature(frame[0]);a=assessments.get(key,{})
+            return (a.get('status')=='SOURCE_LAYOUT_REJECTED',len(a.get('unresolved_nets',original.nets)),
+                    frame_pages.get((key,kind),0))
+        index=min((i for i,f in enumerate(frames) if f[2]==kind),key=lambda i:frame_rank(frames[i]))
+        parent,iterator,kind=frames.pop(index);exhausted=False
+        token=(signature(parent),kind);frame_pages[token]=frame_pages.get(token,0)+1
         for _ in range(4):
             if counters['transforms']>=transform_limit:break
             try:
@@ -149,11 +163,17 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
             except StopIteration:exhausted=True;break
             emit('layout_alternate');counters['transforms']+=1;enqueue(target,family,parent,reason)
         if not exhausted:frames.append((parent,iterator,kind))
+        counters['transform_seconds']=counters.get('transform_seconds',0)+time.monotonic()-started
         return True
     def bucket(row):
-        target,family=row[2:4]
-        if family=='initial-scaffold':return 'initial'
-        if family.startswith('feedback-'):return 'feedback'
+        target,family,parent=row[2:5]
+        if family in ('initial-scaffold','linked-source-layout'):return 'initial'
+        if family.startswith('feedback-'):
+            if parent is not None and dimensions(target.block)!=dimensions(parent.block):return 'feedback-size'
+            old={f.id:f for f in (parent or original).features}
+            changed=[f for f in target.features if (f.face,f.u,f.v,f.rotation)!=(old[f.id].face,old[f.id].u,old[f.id].v,old[f.id].rotation)]
+            if any((f.face,f.rotation)!=(old[f.id].face,old[f.id].rotation) for f in changed):return 'feedback-face'
+            return 'feedback-group' if len(changed)>1 else 'feedback-position'
         if family=='face-arrangement':return 'face'
         if dimensions(target.block)!=dimensions(original.block):return 'size'
         if any(f.face!=g.face for f,g in zip(target.features,original.features)):return 'face'
@@ -161,11 +181,14 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
     def pop_diverse():
         nonlocal feedback_streak
         available={bucket(row) for row in queue}
-        measured=any(bucket(row)=='feedback' and hypotheses.get(signature(row[2]),{} ) and
+        measured=any(bucket(row).startswith('feedback-') and hypotheses.get(signature(row[2]),{} ) and
             hypotheses[signature(row[2])].get('requires_route_regeneration') for row in queue)
-        category=('initial' if 'initial' in available else 'feedback' if measured and feedback_streak<2
-                  else next(c for c in schedule if c in available))
-        feedback_streak=feedback_streak+1 if category=='feedback' else 0
+        if 'initial' in available:category='initial'
+        elif measured and feedback_streak<2:category=next(c for c in feedback_schedule if c in available)
+        else:
+            normal=available-{'feedback-size','feedback-face','feedback-group','feedback-position'}
+            category=next(c for c in schedule if c in normal) if normal else next(c for c in feedback_schedule if c in available)
+        feedback_streak=feedback_streak+1 if category.startswith('feedback-') else 0
         index=min((i for i,row in enumerate(queue) if bucket(row)==category),key=lambda i:queue[i][:2])
         row=queue.pop(index);heapq.heapify(queue);family_counts[category]=family_counts.get(category,0)+1
         return row
@@ -173,10 +196,16 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
         while counters['layouts']<until and (queue or frames):
             emit('layout_alternate')
             expand_page()
+            # Use the existing transform allowance to expose distinct action
+            # classes before selection, rather than enlarging routing budgets.
+            for _ in range(2):
+                if len({bucket(row) for row in queue})>=3:break
+                if not expand_page():break
             if not queue:
                 if not frames or counters['transforms']>=transform_limit:break
                 continue
             _,_,target,family,parent,conflicts,fits=pop_diverse();counters['layouts']+=1
+            screen_started=time.monotonic()
             if not fits or conflicts:
                 counters['source_rejected']+=1
                 detail=dict(status='SOURCE_LAYOUT_REJECTED',compatible=False,blocked_nets=[],
@@ -194,9 +223,12 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
             changes=[dict(feature=f.id,parameters={k:[getattr(old[f.id],k),getattr(f,k)] for k in ('face','u','v','rotation')
                 if getattr(old[f.id],k)!=getattr(f,k)}) for f in target.features if f!=old[f.id]]
             row=dict(index=len(records),family=family,design=target.model_dump(),assessment=detail,
+                parent_layout_index=record_indices.get(signature(parent)) if parent is not None else None,
+                screen_seconds=time.monotonic()-screen_started,
                 hypothesis=hypotheses.get(signature(target)),
                 geometry_changes=dict(dimensions=[list(dimensions(original.block)),list(dimensions(target.block))],placements=changes))
             records.append(row)
+            record_indices[signature(target)]=row['index']
             record_state(row,target)
             focus=_focus(target,detail.get('conflicts',[]))
             if counters['transforms']<transform_limit:
@@ -216,15 +248,19 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
         if not eligible:continue
         chosen=min(eligible,key=analytic_rank);target=Design.model_validate(chosen['design'])
         inspected.add(chosen['index'])
-        if not chosen['assessment'].get('compatible') and refinement_remaining and not chosen['assessment'].get('blocked_nets'):
+        # An empty ordinary pool is not proof that no 3D source approach exists.
+        # It is precisely one reason to spend this bounded refinement allowance.
+        if not chosen['assessment'].get('compatible') and refinement_remaining:
             previous_coverage=len(chosen['joint_state']['compatible_nets'])
             points=terminal_points(target,definitions)
             lanes={n.id:sum(points[m][1] for m in n.members)/len(n.members) for n in target.nets if len(n.members)>=2}
             planes={n.id:sum(points[m][2] for m in n.members)/len(n.members) for n in target.nets if len(n.members)>=2}
             labels=min(1024,refinement_remaining);refinement_remaining-=labels
+            refinement_started=time.monotonic()
             chosen['assessment']=screen(target,definitions,threads,modifiers,tools,lanes,planes,
                 lambda stage,**d:emit(stage,**d),include_routes=True,corridor_labels=labels,general_families=True,route_session=route_session)
             chosen['assessment']['routing_refinement']='SHARED_3D_PLANNER_BOUNDED_BEFORE_NEXT_LAYOUT_REVISION'
+            chosen['refinement_seconds']=time.monotonic()-refinement_started
             record_state(chosen,target)
             counters['route_refinements']+=1
             improved=len(chosen['joint_state']['compatible_nets'])>previous_coverage

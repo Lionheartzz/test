@@ -14,9 +14,16 @@ def geometry_key(route):
 
 
 def terminal_key(source, net):
+    from ..kinematics import pose
     owners={m.split(':')[0] for m in net.members}
-    return (dimensions(source.block), net.model_dump_json(), tuple(
-        f.model_dump_json() for f in source.features if f.id in owners))
+    return (net.model_dump_json(),tuple((f.model_dump_json(),pose(f,source.block))
+                                      for f in source.features if f.id in owners))
+
+
+def cut_locations(source,route):
+    from ..kinematics import pose,FACE_AXES
+    return tuple((pose(f,source.block),dimensions(source.block)[FACE_AXES[f.face][2]] if f.through else f.depth)
+                 for f in route)
 
 
 def arrangement(option):
@@ -143,6 +150,7 @@ class Session:
     def __init__(self):
         self.previous={};self.catalogs={};self.cache={};self.remaining=0
         self.combinations=[];self.pair_evidence={};self.context=None;self.invalidated=False
+        self.corridor_frontiers={}
         self._prepared_once=False
 
     def source_context(self,source,definitions,threads,modifiers):
@@ -158,7 +166,8 @@ class Session:
         terminals={n:terminal_key(source,effective_net(source,next(k for k in source.nets if k.id==n))) for n in chosen}
         identity=lambda r:(tuple(sorted(r['terminals'].items())),
                            tuple(sorted((n,geometry_key(o['route'])) for n,o in r['chosen'].items())))
-        record=dict(source_context=self.context,clear_pairs=clear_pairs,terminals=terminals,chosen=chosen)
+        record=dict(source_context=self.context,clear_pairs=clear_pairs,terminals=terminals,chosen=chosen,
+            locations={n:cut_locations(source,o['route']) for n,o in chosen.items()})
         self.combinations=[r for r in self.combinations if identity(r)!=identity(record)]+[record]
         # Repeatedly remembering one core must not evict all alternative
         # assignments. Round-robin covered-Net sets, then actual cut geometry.
@@ -177,7 +186,7 @@ class Session:
         for record in self.combinations:
             kept={}
             for name,old in record['chosen'].items():
-                if name not in nets or record['terminals'][name]!=terminal_key(source,nets[name]):discarded.add(name);continue
+                if name not in nets or record['terminals'][name]!=terminal_key(source,nets[name]) or record['locations'][name]!=cut_locations(source,old['route']):discarded.add(name);continue
                 option=next((o for o in self.catalogs[name].clear if geometry_key(o['route'])==geometry_key(old['route'])),None)
                 if option is not None:
                     checked+=len(kept)
@@ -202,8 +211,9 @@ class Session:
         for name,net in nets.items():
             seeds=[]
             for record in self.combinations:
-                if name in record['chosen'] and record['terminals'][name]==terminal_key(source,net):seeds.append(record['chosen'][name])
-            seeds.extend(self.previous.get(terminal_key(source,net),()))
+                if name in record['chosen'] and record['terminals'][name]==terminal_key(source,net) and record['locations'][name]==cut_locations(source,record['chosen'][name]['route']):seeds.append(record['chosen'][name])
+            seeds.extend(o for o in self.previous.get(terminal_key(source,net),())
+                         if o.get('replay_locations')==cut_locations(source,o['route']))
             self.catalogs[name]=Catalog(source,net,definitions,threads,modifiers,tools,self.cache,seeds)
         # SAME total sample allocation as 32 per Net. Cheap Nets stop after
         # first diverse choices; missing/complex Nets receive unused tokens.
@@ -286,5 +296,6 @@ class Session:
                 if key not in seen:kept.append(option);seen.add(key)
             # The useful partial/complete choice gets the first reuse slot,
             # including when compatibility promoted it beyond the first eight.
-            if kept:self.previous[terminal_key(source,catalog.net)]=kept[:8]
+            if kept:self.previous[terminal_key(source,catalog.net)]=[
+                {**o,'replay_locations':cut_locations(source,o['route'])} for o in kept[:8]]
         while len(self.previous)>128:self.previous.pop(next(iter(self.previous)))

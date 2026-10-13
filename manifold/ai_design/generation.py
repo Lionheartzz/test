@@ -347,6 +347,8 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
             percent=progress_high,layout=layout,layout_limit=limit,candidate=detail.get('candidate'),candidate_limit=detail.get('candidate_limit'),
             detail=('Net '+detail['net']) if detail.get('net') else (detail.get('exact_progress') or {}).get('stage_text','Comparing source-constrained layouts'))))
     try:
+        from .initialization import linked_source_seed
+        seed=linked_source_seed(design,inputs.project_engineering)
         planned=layout_plan(design,definitions,movable_features=set(feature_map.values()),growth_axes=axes,
             fixed_faces={**design.constraints.required_feature_faces,**(fixed_faces or {})},soft_faces=soft_faces,
             soft_dimensions=tuple(settings.get('soft_dimensions',{}).get(name,
@@ -354,7 +356,8 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
             explicit_dimension_axes={kind:[i for i,name in enumerate(names) if name in settings['envelope_'+suffix+'_axes'] or
                 inputs.project_engineering and getattr(inputs.project_engineering.constraints,'envelope_'+suffix)]
                 for kind,suffix in (('minimum','min'),('maximum','max'))},
-            progress=update,cancelled=cancelled,layout_limit=48,exact_limit=exact_limit,initial=initial,evidence_dir=evidence_dir)
+            progress=update,cancelled=cancelled,layout_limit=48,exact_limit=exact_limit,initial=initial,evidence_dir=evidence_dir,
+            seed_layouts=[seed] if seed is not None else ())
     except ValueError as exc:
         settings['layout_planning']=dict(scope='AI_GENERATION_ONLY',status='ANALYTIC_UNAVAILABLE',evaluated_layouts=0)
         design.review_items.append(EngineeringReview(id='AI_LAYOUT_ROUTING',kind='connection',subject='project',

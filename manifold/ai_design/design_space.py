@@ -211,7 +211,7 @@ def projected(feature,face,design):
     return feature.model_copy(update=dict(face=face,u=origin[u],v=origin[v]))
 
 
-def anchored(design,feature,definitions,domain,threads,modifiers):
+def anchored(design,feature,definitions,domain,threads,modifiers,*,orientations_only=False):
     """Lazy source-event positions on every permitted face, no regular grid."""
     targets=target_origins(design,feature,definitions)
     queues=[]
@@ -228,6 +228,7 @@ def anchored(design,feature,definitions,domain,threads,modifiers):
                 if math.hypot(zone.offset_u,zone.offset_v)>1e-7:
                     rotations.append(math.degrees(math.atan2(target[v]-item.v,target[u]-item.u)-math.atan2(zone.offset_v,zone.offset_u))%360)
         for angle in dict.fromkeys(rotations):
+            if orientations_only and face==feature.face and angle==feature.rotation:continue
             rotated=item.model_copy(update=dict(rotation=angle))
             probe=design.model_copy(update=dict(features=[rotated if f.id==item.id else f for f in design.features]))
             xs,ys=face_events(probe,rotated,definitions,threads,modifiers)
@@ -264,7 +265,7 @@ def pack_topology(design,definitions,domain,threads,modifiers):
     anchored_ids={f.id for f in design.features if {'u','v'}<=domain.fixed_positions.get(f.id,{}).keys() or
                   {'x','y','z'}<=domain.fixed_positions.get(f.id,{}).keys()}
     order=sorted((f for f in design.features if f.id in domain.movable and f.id not in anchored_ids),key=lambda f:(
-        f.id not in domain.fixed_faces,-weights[f.id],-radius(f,definitions),f.id))
+        f.id not in domain.fixed_faces,-weights[f.id],-radius(f,definitions),f.schematic_id or f.id))
     fixed=[f for f in design.features if f.id not in domain.movable or f.id in anchored_ids]
     beam=[fixed];width=min(4,max(1,len(order)));limit=512*len(order);used=0;dead=0;forks=0
     for feature in order:
@@ -309,7 +310,7 @@ def actions(design,definitions,domain,threads,modifiers,focus=()):
     by_id={f.id:f for f in design.features};focus=set(focus)
     def placements():
         queues=[]
-        for feature in sorted((f for f in design.features if f.id in domain.movable),key=lambda f:(f.id not in focus,f.id)):
+        for feature in sorted((f for f in design.features if f.id in domain.movable),key=lambda f:(f.id not in focus,f.schematic_id or f.id)):
             def moves(f):
                 for trial in anchored(design,f,definitions,domain,threads,modifiers):
                     if trial==f:continue

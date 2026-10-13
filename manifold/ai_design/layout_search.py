@@ -505,7 +505,7 @@ def plan_legacy_analytic(design, definitions, *, movable_features, growth_axes, 
 
 def plan_new(design,definitions,*,movable_features,growth_axes=(0,1,2),fixed_faces=None,
              fixed_positions=None,fixed_rotations=None,soft_faces=None,soft_dimensions=(),
-             progress=None,cancelled=lambda:False,layout_limit=48,exact_limit=0,initial=None,evidence_dir=None,explicit_dimension_axes=None):
+             progress=None,cancelled=lambda:False,layout_limit=48,exact_limit=0,initial=None,evidence_dir=None,explicit_dimension_axes=None,seed_layouts=()):
     """New AI-owned joint design-space search; no Model call path."""
     from .design_space import LayoutDomain
     from .joint_layout import optimize
@@ -520,4 +520,4 @@ def plan_new(design,definitions,*,movable_features,growth_axes=(0,1,2),fixed_fac
         fixed_positions=fixed_positions,fixed_rotations=fixed_rotations,soft_faces=soft_faces,soft_dimensions=soft_dimensions,
         explicit_dimension_axes=explicit_dimension_axes)
     return optimize(design,definitions,domain,layout_limit=layout_limit,exact_limit=exact_limit,
-        progress=progress,cancelled=cancelled,initial=initial,evidence_dir=evidence_dir)
+        progress=progress,cancelled=cancelled,initial=initial,evidence_dir=evidence_dir,seed_layouts=seed_layouts)

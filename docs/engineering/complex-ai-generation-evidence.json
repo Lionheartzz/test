@@ -1,0 +1,206 @@
+{
+  "status": "UNRESOLVED_LAYOUT",
+  "elapsed_s": 708.75,
+  "protected_unchanged": true,
+  "layouts": 48,
+  "materially_distinct_layouts": 42,
+  "material_difference_threshold_mm": 8.0,
+  "dimension_sets": [
+    [
+      114.83,
+      392.71,
+      116.36
+    ],
+    [
+      126.36,
+      381.66,
+      107.1
+    ],
+    [
+      145.7,
+      116.36,
+      125.34
+    ],
+    [
+      310.0,
+      245.0,
+      230.0
+    ],
+    [
+      310.06,
+      245.0,
+      230.0
+    ],
+    [
+      310.06,
+      300.6684424761103,
+      230.0
+    ],
+    [
+      318.07,
+      245.0,
+      230.0
+    ],
+    [
+      326.08,
+      245.0,
+      230.0
+    ],
+    [
+      334.09,
+      245.0,
+      230.0
+    ],
+    [
+      371.65273954660466,
+      108.2875,
+      116.35273954660458
+    ],
+    [
+      371.65273954660466,
+      116.35273954660458,
+      97.1
+    ],
+    [
+      371.65273954660466,
+      116.35273954660458,
+      103.60249999999999
+    ],
+    [
+      371.66,
+      116.36,
+      97.1
+    ],
+    [
+      381.66,
+      126.36,
+      107.1
+    ],
+    [
+      398.16,
+      116.47,
+      116.36
+    ],
+    [
+      450.0799999999999,
+      245.0,
+      230.0
+    ],
+    [
+      458.0899999999999,
+      245.0,
+      230.0
+    ],
+    [
+      484.305,
+      245.0,
+      230.0
+    ],
+    [
+      544.9608604761103,
+      245.0,
+      230.0
+    ]
+  ],
+  "orientation_patterns": 17,
+  "families": {
+    "initial": 2,
+    "feedback-size": 9,
+    "feedback-face": 9,
+    "size": 7,
+    "feedback-group": 9,
+    "face": 7,
+    "individual": 1,
+    "feedback-position": 4
+  },
+  "counters": {
+    "layouts": 48,
+    "transforms": 189,
+    "source_rejected": 3,
+    "duplicate_transforms": 32,
+    "exact_attempts": 0,
+    "route_refinements": 2,
+    "stalled_route_refinements": 2,
+    "transform_seconds": 103.56399999943096
+  },
+  "feedback_coverage_gains": [
+    {
+      "parent": 21,
+      "index": 26,
+      "before": 5,
+      "after": 6,
+      "hypothesis": {
+        "rule": "conflict_source_orientation",
+        "owners": [
+          "CV_faf9a4539bd830840904"
+        ],
+        "from_face": "front",
+        "to_face": "front",
+        "rotation": 90.0,
+        "requires_route_regeneration": true
+      }
+    }
+  ],
+  "screen_seconds": 434.99800000013784,
+  "transform_seconds": 103.56399999943096,
+  "exact_attempts": 0,
+  "full_cad_evaluations": 0,
+  "failures": null,
+  "deferred_layouts": 112,
+  "unexpanded_transform_generators": 49,
+  "base_commit": "5817524e46f4202ecfb998dab2545d81dce1d96e",
+  "call_chain": "generation.prepare -> generation.candidate -> _plan_generated_layout -> plan_new -> optimize -> shared Router",
+  "monkeypatch_used": false,
+  "old_route_cuts_replayed": false,
+  "selected_dimensions": [
+    484.305,
+    245.0,
+    230.0
+  ],
+  "selected_compatible_nets": [
+    "MA",
+    "MB",
+    "P",
+    "SHUTTLE_OUTPUT",
+    "T",
+    "T_DC"
+  ],
+  "selected_unresolved_nets": [
+    "A_DC",
+    "B_DC"
+  ],
+  "selected_source_clear_pools": {
+    "MA": 3,
+    "MB": 3,
+    "A_DC": 3,
+    "B_DC": 4,
+    "P": 3,
+    "T": 3,
+    "T_DC": 3,
+    "SHUTTLE_OUTPUT": 3
+  },
+  "protected_hashes": {
+    "D:\\Project\\Manifold\\output\\runtime-checks\\corridor3d-20261012\\eight-valve-final\\source.json": "394197644138ed39fc63f16f2710bad1361322a0d11e1fbbd9b9588c6a73bed9",
+    "D:\\Project\\Manifold\\data\\pmc_engineering.db": "1e3267bd6a6271cf819b5181ed52eae55ab8b8b54a4a48ce45cc277175d7daa2",
+    "D:\\Project\\Manifold\\projects\\saved\\063b619795b843b8bf9d263ef5070771.json": "69735e2b416250a0ae79f4d4395db1d74265f83f8e6b68403458f9b8cc5a95b1",
+    "D:\\Project\\Manifold\\projects\\saved\\28775064c6c547159f3985bb402f114b.json": "67b05bf1550518ccc63c790234a5a56019464db371b63377c79e469578ee98a1",
+    "D:\\Project\\Manifold\\projects\\saved\\2b93c6c68df24d5ebe543215e8e91c99.json": "d347a81a002b8f4cd1384359c4c77f71795b22571062940fedb2b1798d41823e",
+    "D:\\Project\\Manifold\\projects\\saved\\481fff0805a24befa9b83b7569527052.json": "92f73d51986364f35671fd0e548912bb91885aafba84abd3f73abfe9a849bb21",
+    "D:\\Project\\Manifold\\projects\\saved\\610cf82b4a20414aa00ae964c1240a2a.json": "8bd7969d2de58920ce3810a2d9bc173cb68d977f8a13bb8109e791f2f5a2aa03",
+    "D:\\Project\\Manifold\\projects\\saved\\6e57fdcccb174b87a72c32f3069bb285.json": "825a04756db7f967997f7409084c706fb562de1c27252a0a7ba808ee9d99d888",
+    "D:\\Project\\Manifold\\projects\\saved\\85a5799c71764a59abfc95ffb0d162a9.json": "fe20986acfced8c899a89dd033ff4e3f1d88c06e1880a8bafe3f4018947d7aac",
+    "D:\\Project\\Manifold\\projects\\saved\\9e8a8be7b31e4ccd8994de3481845435.json": "b615374475714becf065f14803690c11337ec6a731f229a4e9abcc8dc32b0f12",
+    "D:\\Project\\Manifold\\projects\\saved\\f24a44ae30394c268bfadd60fe6a56e7.json": "2505bcc065fdb346f171d5bd467eac7f42584cd98245fe07a5f1f1e23caab2f9",
+    "D:\\Project\\Manifold\\projects\\ai-design\\343f91fdb98c435296b6e78322157433.json": "9cd373503b542603fe68371937e31cfe45d120ca0a06c5bb261ff5296dec0604",
+    "D:\\Project\\Manifold\\projects\\ai-design\\69e50e63d2314ea4b34fff9d238e64d3.json": "50744169e539aef3f36ea25aa1bef7b2ecebf1ea10c3ac0d7fbb0235611cc3ad"
+  },
+  "exact_acceptance": "NOT_REACHED",
+  "brep": "NOT_EVALUATED",
+  "step": "NOT_EVALUATED",
+  "remaining_algorithm_gaps": [
+    "Coupled multi-source window arrangement for overlapping hydraulic hyperedges",
+    "Refinement allowance spent before later stronger compatible states",
+    "Large proportion of duplicate or unproductive machining proposals; deferred work is not proof of infeasibility"
+  ],
+  "next_gate_not_reached": "Production Exact executor"
+}

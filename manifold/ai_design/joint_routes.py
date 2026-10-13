@@ -160,6 +160,9 @@ def bypass_alternatives(source,net,option,reserved,definitions,threads,modifiers
             def planes(transverse=transverse):
                 coordinates=sorted(space.coordinates[transverse],key=lambda x:(abs(x-origin[transverse]),x))
                 for coordinate_index,coordinate in enumerate(coordinates):
+                    # Returning no route must still spend search work. Resume
+                    # this exact iterator later; a checkpoint is NOT a route.
+                    yield dict(checkpoint='BYPASS_PLANE',net=net.id,bore=bore.id,axis=transverse,coordinate=coordinate)
                     if coordinate_index%16==0:
                         from .. import timing
                         timing.progress('conflicts',timing.summary().get('progress',{}).get('percent',8),
@@ -224,6 +227,7 @@ def corridor_alternatives(source,net,bases,reserved,definitions,threads,modifier
                         seen.add(variant)
                         route=route_from_variant(context,net,variant,definitions,threads,modifiers,obstruction_cache=cache)
                         if route:yield dict(key=variant,route=route,risk=0,connection_verified=False)
+                        else:yield dict(checkpoint='EMPTY_VARIANT',net=net.id,variant=variant)
             queues.append(iter(moves()))
     produced=set();excluded=excluded if excluded is not None else set()
     while queues:
@@ -231,8 +235,11 @@ def corridor_alternatives(source,net,bases,reserved,definitions,threads,modifier
         for queue in queues:
             try:
                 option=next(queue);active.append(queue)
+                if 'checkpoint' in option:yield option;continue
                 token=geometry_key(option['route'])
-                if token in excluded or token in produced:continue
+                if token in excluded or token in produced:
+                    yield dict(checkpoint='DUPLICATE_GEOMETRY',net=net.id)
+                    continue
                 produced.add(token);yield option
             except StopIteration:pass
         queues=active
@@ -247,6 +254,10 @@ def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=Tru
     for core in getattr(session,'validated_cores',[]):
         if len(core)>=len(best)-1 and len(core_states)<max(4,len(nets)):core_states.setdefault(fingerprint(core),core)
     advanced=bool(fragments and (labels or len(seed)>=max(1,len(nets)-2)))
+    jobs_seen=set();frontiers=session.corridor_frontiers
+    if fragments:
+        pending.extend(frontiers.pop(session.context,()))
+        jobs_seen.update((name,fingerprint(outside),fingerprint(core)) for name,outside,_,core in pending)
     if len(best)>start:events.append(dict(action='EXTEND_FROM_EXISTING_POOLS',before=start,after=len(best),nets=sorted(best)))
     def jobs(core):
         for name in sorted(set(nets)-set(core),key=lambda n:(len(pools.get(n,[])),n)):
@@ -262,6 +273,9 @@ def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=Tru
                 seen.add(token)
                 outside={n:p for n,p in core.items() if n not in released}
                 for owner in sorted(released,key=lambda n:n!=name):
+                    job=(owner,fingerprint(outside),fingerprint(core))
+                    if job in jobs_seen:continue
+                    jobs_seen.add(job)
                     catalog=session.catalogs[owner]
                     bases=([core[owner]] if owner in core else [])+sorted(catalog.clear,key=lambda o:(
                         sum(bool(pair(owner,o,n,p)) for n,p in outside.items()),o['key']))[:3]
@@ -286,13 +300,16 @@ def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=Tru
         events.append(dict(action='REPLAY_ALTERNATIVE_CORE',inserted=name,released=sorted(blockers),compatible_nets=sorted(core)))
     if fragments:
         for core in sorted(core_states.values(),key=lambda c:-len(c)):pending.extend(jobs(core))
-    probes=0;duplicates=0;probe_limit=max(1,session.remaining)*4
+    probes=0;duplicates=0;checkpoints={};probe_limit=max(1,session.remaining)*4
     while pending and session.remaining and work['states']<work['limit'] and len(best)<len(nets) and probes<probe_limit:
         name,outside,iterator,core=pending.popleft()
         try:option=next(iterator)
         except StopIteration:continue
         pending.append((name,outside,iterator,core));catalog=session.catalogs[name]
         probes+=1
+        if 'checkpoint' in option:
+            reason=option['checkpoint'];checkpoints[reason]=checkpoints.get(reason,0)+1
+            continue
         if geometry_key(option['route']) in catalog.seen:duplicates+=1;continue
         before=len(catalog.clear);catalog.accept(option['key'],option['route'],'joint-corridor')
         session.remaining-=1;samples+=1
@@ -363,7 +380,11 @@ def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=Tru
             if len(trial)>len(best):
                 events.append(dict(action='EXTEND_WITH_RESERVED_3D',before=len(best),after=len(trial),nets=sorted(trial)))
                 best=trial
+    if pending and len(best)<len(nets):frontiers[session.context]=pending
+    while len(frontiers)>max(4,len(nets)):frontiers.pop(next(iter(frontiers)))
     return best,dict(status='ANALYTIC_PARTIAL_NOT_EXACT',initial_compatible=start,best_compatible=len(best),
+        generator_checkpoints=checkpoints,raw_probe_limit=probe_limit,
+        pending_corridor_examples=[dict(net=n,reserved_nets=sorted(outside),compatible_core=sorted(core)) for n,outside,_,core in list(pending)[:8]],
         states=work['states'],state_limit=work['limit'],samples=samples,duplicate_probes=duplicates,raw_probes=probes,pending_corridor_batches=len(pending),
         events=events,advanced_fragment_search=advanced,
         compatible_cores=[dict(nets=sorted(c),selected={n:o['key'] for n,o in c.items()}) for c in core_states.values()],

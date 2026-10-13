@@ -280,11 +280,15 @@ def _combined_actions(design,witnesses,definitions,domain,threads,modifiers):
                     if not owners or not owners<=domain.movable:continue
                     for axis in range(3):
                         for delta in (other[axis][0]-wall-own[axis][1],other[axis][1]+wall-own[axis][0]):
-                            key=(tuple(sorted(owners)),axis,delta>0)
+                            # Different missing-Net alternatives are mutually
+                            # exclusive. Do not intersect their constraints as
+                            # if every candidate must be machined simultaneously.
+                            assignment=(witness.get('missing_net'),witness.get('candidate'))
+                            key=(assignment,tuple(sorted(owners)),axis,delta>0)
                             state=moves.setdefault(key,dict(delta=delta,opponents=set(),pairs=set(),nets=set()))
                             if abs(delta)>abs(state['delta']):state['delta']=delta
                             state['opponents'].update(opponents);state['pairs'].add((a.id,b.id));state['nets'].update(witness['nets'])
-    for (owners,axis,_),state in sorted(moves.items(),key=lambda r:(-len(r[1]['pairs']),abs(r[1]['delta']))):
+    for (_,owners,axis,_),state in sorted(moves.items(),key=lambda r:(-len(r[1]['pairs']),abs(r[1]['delta']))):
         target,moving=_joint_translation(design,owners,state['opponents'],axis,state['delta'],domain,definitions,threads,modifiers)
         if target is None or fit_violations(target,definitions,domain) or source_conflicts(target,definitions,threads,modifiers,domain._placement_cache):continue
         yield 'feedback-machining-separation',target,dict(nets=sorted(state['nets']),rule='combined_machining_constraints',
@@ -292,11 +296,34 @@ def _combined_actions(design,witnesses,definitions,domain,threads,modifiers):
             joint_motion=len(moving)>1,requires_route_regeneration=True)
 
 
+def _orientations(design,witnesses,definitions,domain,threads,modifiers):
+    """Give coupled source-window orientations their own resumable frontier."""
+    from .design_space import anchored,source_conflicts,fit_violations
+    owners={m.split(':')[0] for w in witnesses for n in design.nets if n.id in w['nets'] for m in n.members}
+    queues=[]
+    for f in design.features:
+        if f.id in owners&domain.movable:queues.append((f,iter(itertools.islice(
+            anchored(design,f,definitions,domain,threads,modifiers,orientations_only=True),512))))
+    while queues:
+        active=[]
+        for feature,iterator in queues:
+            try:trial=next(iterator);active.append((feature,iterator))
+            except StopIteration:continue
+            if trial.face==feature.face and trial.rotation==feature.rotation:continue
+            target=design.model_copy(update=dict(features=[trial if f.id==feature.id else f for f in design.features]))
+            if not domain.accepts(design,target) or fit_violations(target,definitions,domain) or source_conflicts(target,definitions,threads,modifiers,domain._placement_cache):continue
+            yield 'feedback-window-orientation',target,dict(rule='conflict_source_orientation',owners=[feature.id],
+                from_face=feature.face,to_face=trial.face,rotation=trial.rotation,requires_route_regeneration=True)
+        queues=active
+
+
 def measured_actions(design,assessment,definitions,domain,threads,modifiers):
     """Interleave actual constraint families; one witness cannot starve others."""
     from .design_space import signature
     witnesses=assessment.get('coordination_constraints',assessment.get('witnesses',[]))
-    queues=[iter(_combined_actions(design,witnesses,definitions,domain,threads,modifiers))]
+    orientation_witnesses=[*witnesses,*[dict(nets=[w['net']]) for w in assessment.get('spatial_feedback',[])]]
+    queues=[iter(_orientations(design,orientation_witnesses,definitions,domain,threads,modifiers)),
+            iter(_combined_actions(design,witnesses,definitions,domain,threads,modifiers))]
     queues.append(iter(_measured_actions(design,dict(spatial_feedback=assessment.get('spatial_feedback',[])),definitions,domain,threads,modifiers)))
     queues.extend(iter(_measured_actions(design,dict(coordination_constraints=[w]),definitions,domain,threads,modifiers)) for w in witnesses)
     seen={signature(design)}
