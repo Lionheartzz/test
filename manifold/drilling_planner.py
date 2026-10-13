@@ -63,25 +63,39 @@ def proposal_alternatives(source,target,eligible,excluded,snapshot,*,objective_c
 def _distance(a,b):return sum(abs(x-y) for x,y in zip(a,b))
 
 
-def _path(space,start,goal,route,budget,forbidden,diagnostics,*,starts=None):
-    from .routing import route_objective
-    serial=itertools.count();queue=[];seen={};expanded=set();solutions=[]
-    def push(point,cuts,path,cursor=0):
-        token=(point,network_key(cuts),cursor)
-        if token in seen:return
-        seen[token]=True
-        objective=route_objective(space.design,cuts,definitions=space.definitions)
-        axes=sum(abs(x-y)>1e-7 for x,y in zip(point,goal))
-        heapq.heappush(queue,((len(cuts)+axes+cursor//24,_distance(point,goal),objective),next(serial),point,cuts,path,cursor))
-    for point,cuts in starts if starts is not None else [(start,route)]:push(point,cuts,[])
-    while queue and budget['used']<budget['limit']:
+class _PathSearch:
+    """One real path frontier; a step completes exactly one label expansion."""
+    def __init__(self,space,start,goal,route,forbidden,diagnostics,*,starts=None,trim=True,observe=None):
+        from .routing import route_objective
+        serial=itertools.count();queue=[];seen={};expanded=set();solutions=[]
+        self.space=space;self.goal=goal;self.forbidden=forbidden;self.diagnostics=diagnostics
+        self.trim=trim;self.done=False;self.observe=observe
+        self.queue=queue;self.seen=seen;self.expanded=expanded;self.solutions=solutions
+        def push(point,cuts,path,cursor=0):
+            token=(point,network_key(cuts),cursor)
+            if token in seen:return
+            seen[token]=True
+            objective=route_objective(space.design,cuts,definitions=space.definitions)
+            axes=sum(abs(x-y)>1e-7 for x,y in zip(point,goal))
+            heapq.heappush(queue,((len(cuts)+axes+cursor//24,_distance(point,goal),objective),next(serial),point,cuts,path,cursor))
+        for point,cuts in starts if starts is not None else [(start,route)]:push(point,cuts,[])
+        self.push=push
+
+    def step(self,budget):
+        from .routing import route_objective
+        space=self.space;goal=self.goal;forbidden=self.forbidden;diagnostics=self.diagnostics
+        queue=self.queue;seen=self.seen;expanded=self.expanded;solutions=self.solutions;push=self.push
         _,_,point,cuts,path,cursor=heapq.heappop(queue);budget['used']+=1
         expanded.add((point,network_key(cuts),cursor))
+        if self.observe:self.observe(dict(point=point,goal=goal,cursor=cursor,
+            geometry=hashlib.sha256(repr(network_key(cuts)).encode()).hexdigest(),
+            last_segment=path[-1] if path else None))
         if point==goal:
             if network_key(cuts) not in forbidden:
                 solutions.append((cuts,path))
-                if len(solutions)>=budget.get('alternatives',4):break
-            continue
+                limit=budget.get('alternatives',4)
+                if limit is not None and len(solutions)>=limit:self.done=True
+            return
         per_axis={}
         for axis in sorted(range(3),key=lambda i:(point[i]==goal[i],-abs(point[i]-goal[i]),i)):
             # All event coordinates were offered by the preceding straight
@@ -98,7 +112,7 @@ def _path(space,start,goal,route,budget,forbidden,diagnostics,*,starts=None):
             diagnostics['coordinate_pages_deferred']=diagnostics.get('coordinate_pages_deferred',0)+1
         elif not found and budget['used']%16==0:
             for axis in per_axis:space.refine(axis,(point[axis]+goal[axis])/2)
-        if len(queue)>budget['limit']*8:
+        if self.trim and len(queue)>budget['limit']*8:
             kept=heapq.nsmallest(budget['limit']*8,queue);ids={row[1] for row in kept}
             for row in queue:
                 if row[1] not in ids:
@@ -108,30 +122,36 @@ def _path(space,start,goal,route,budget,forbidden,diagnostics,*,starts=None):
                     if len(samples)<16:samples.append(dict(point=row[2],coordinate_cursor=row[5],cut_ids=[f.id for f in row[3]],
                         entry_faces=sorted({f.face for f in row[3]}),state='ANALYTIC_SCREENED_PARTIAL_NOT_EXACT'))
             diagnostics['deferred_labels']=diagnostics.get('deferred_labels',0)+len(queue)-len(kept)
-            queue=kept;heapq.heapify(queue)
+            queue[:]=kept;heapq.heapify(queue)
         if budget['used']%32==0:
             from .timing import diagnostic,progress,summary
             status=dict(net=space.net.id,planner_labels=budget['used'],planner_label_limit=budget['limit'],machining_operations=space.generated)
             progress('access',summary()['progress'].get('percent',8),routing=status)
             diagnostic('corridor_search',dict(**status,labels=budget['used'],label_limit=budget['limit'],frontier=len(queue)))
-    diagnostics.update(labels=budget['used'],label_limit=budget['limit'],frontier_labels=len(queue),
-        termination='LABEL_BUDGET' if queue and budget['used']>=budget['limit'] else 'SOLUTIONS_GENERATED' if solutions else 'EXPLORED_FRONTIER_EMPTY')
-    return solutions
 
 
-def plan_net(design,net,definitions,threads,modifiers,*,reserved=(),label_limit=8192,alternatives=4,
-             forbidden=(),cache=None,tools=None):
-    """Lazy sparse search; terminal order and attachment geometry are revisable."""
+
+def _path(space,start,goal,route,budget,forbidden,diagnostics,*,starts=None):
+    # Manual/default callers retain their bounded one-shot search policy.
+    search=_PathSearch(space,start,goal,route,forbidden,diagnostics,starts=starts)
+    while search.queue and budget['used']<budget['limit'] and not search.done:search.step(budget)
+    diagnostics.update(labels=budget['used'],label_limit=budget['limit'],frontier_labels=len(search.queue),
+        termination='LABEL_BUDGET' if search.queue and budget['used']>=budget['limit'] else
+            'SOLUTIONS_GENERATED' if search.solutions else 'EXPLORED_FRONTIER_EMPTY')
+    return search.solutions
+
+
+def _prepare_net(design,net,definitions,threads,modifiers,*,reserved=(),cache=None,tools=None):
     from .kinematics import resolve_parents
     design=resolve_parents(design)
     net=effective_net(design,net)
     space=MachiningSpace(design,net,definitions,threads,modifiers,reserved=reserved,cache=cache,tools=tools)
     members=sorted(net.members);detail=dict(net=net.id,planner='corridor3d',exact_verified=False,lifecycle=[])
     if any(m not in space.points for m in members) or len(members)<2 or space.failures.get('SOURCE_DATA_UNRESOLVED'):
-        detail.update(classification='SOURCE_DATA_UNRESOLVED',termination='SOURCE_DATA_UNRESOLVED',missing_terminals=[m for m in members if m not in space.points],labels=0,generated_candidates=0);return [],detail
+        detail.update(classification='SOURCE_DATA_UNRESOLVED',termination='SOURCE_DATA_UNRESOLVED',missing_terminals=[m for m in members if m not in space.points],labels=0,generated_candidates=0);return space,members,detail,None,None
     barrier=space.barrier()
     if barrier:
-        detail.update(space.diagnostics(barrier['rule']),classification=barrier['rule'],barrier=barrier,labels=0,generated_candidates=0);return [],detail
+        detail.update(space.diagnostics(barrier['rule']),classification=barrier['rule'],barrier=barrier,labels=0,generated_candidates=0);return space,members,detail,None,None
     # Source-derived face-open turns supplement actual zone centres. No source
     # dimensions or window numbering are inferred.
     from .branch_candidates import face_window_points
@@ -155,6 +175,19 @@ def plan_net(design,net,definitions,threads,modifiers,*,reserved=(),label_limit=
                     point=tuple(origin[i]+direction[i]*depth for i in range(3));possible.append(point);seeds[(member,point)]=[bore]
             centre=tuple(sum(space.points[m][i] for m in members if m!=member)/(len(members)-1) for i in range(3))
             aliases[member]=list(dict.fromkeys([*sorted(possible,key=lambda p:_distance(p,centre)),*aliases[member]]))
+    return space,members,detail,aliases,seeds
+
+
+def plan_net(design,net,definitions,threads,modifiers,*,reserved=(),label_limit=8192,alternatives=4,
+             forbidden=(),cache=None,tools=None,ai_context=None):
+    """Lazy sparse search; terminal order and attachment geometry are revisable."""
+    if ai_context is not None:
+        return ai_context.advance(design,net,definitions,threads,modifiers,reserved=reserved,
+            label_limit=label_limit,alternatives=alternatives,forbidden=forbidden,cache=cache,tools=tools)
+    space,members,detail,aliases,seeds=_prepare_net(design,net,definitions,threads,modifiers,
+        reserved=reserved,cache=cache,tools=tools)
+    if aliases is None:return [],detail
+    design=space.design;net=space.net
     budget=dict(used=0,limit=label_limit,alternatives=alternatives)
     routes=[];orders=[members,list(reversed(members))] if len(members)>2 else [members]
     from .routing import route_objective

@@ -1,7 +1,7 @@
 """Resumable analytic Router sampling owned by a new AI generation.
 
-No candidate is hydraulically admitted here. Explicit cuts go through the
-shared Exact gate. Model's _catalogs/route_options and budgets are unchanged.
+Catalog sampling is analytic. Valuable cores also use the shared local CAD
+gate; full Design acceptance remains separate. Model budgets are unchanged.
 """
 import itertools
 from collections import Counter, defaultdict, deque
@@ -153,6 +153,23 @@ class Session:
         self.corridor_frontiers={}
         self.contexts={}
         self._prepared_once=False
+        from ..routing_continuation import AISearchContext
+        self.search_context=AISearchContext()
+        self.local_admission=None;self.local_records={};self.local_source_dependency=None
+
+    def admit_core(self,source,nets,core):
+        from .local_admission import LocalAdmission
+        if self.local_admission is None:self.local_admission=LocalAdmission(max(8,2*len(nets)))
+        kept,records=self.local_admission.core(source,nets,core,self.catalogs)
+        if self.local_source_dependency!=self.local_admission.source_dependency:self.local_records={}
+        self.local_source_dependency=self.local_admission.source_dependency
+        self.local_records.update(records)
+        for name,option in core.items():
+            self.search_context.record_admission(option,records[name])
+        return kept
+
+    def permits_core(self,core):
+        return self.local_admission is None or self.local_admission.permits(core)
 
     def source_context(self,source,definitions,threads,modifiers):
         import hashlib,json
@@ -190,6 +207,7 @@ class Session:
                 if name not in nets or record['terminals'][name]!=terminal_key(source,nets[name]) or record['locations'][name]!=cut_locations(source,old['route']):discarded.add(name);continue
                 option=next((o for o in self.catalogs[name].clear if geometry_key(o['route'])==geometry_key(old['route'])),None)
                 if option is not None:
+                    if not self.permits_core({name:option}):continue
                     checked+=len(kept)
                     if all(not pair(name,option,n,p) for n,p in kept.items()):kept[name]=option
             if len(kept)>len(best):best=kept

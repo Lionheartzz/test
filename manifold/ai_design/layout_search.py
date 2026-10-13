@@ -244,11 +244,15 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
     joint=None;preserved={}
     if general_families:
         from .joint_routes import coordinate
+        if route_session.local_admission:route_session.local_admission.bind(source,nets,route_session.catalogs)
         preserved=route_session.compatible_core(source,nets,pair)
         pools={n:c.active(width=len(c.clear)) for n,c in route_session.catalogs.items()}
         work=dict(states=0,limit=deep_limits['states'] if deep_limits else 1000)
         partial,joint=coordinate(route_session,source,nets,pools,pair,preserved,work,labels=corridor_labels,
                                  fragments=bool(corridor_labels),limits=deep_limits)
+        partial=route_session.admit_core(source,nets,partial)
+        joint['local_admission']=route_session.local_admission.diagnostics()
+        joint['local_core_records']=route_session.local_records
         joint['core_validation']=route_session.core_checks
         chosen=partial if len(partial)==len(nets) else None
         combination=dict(states=work['states'],state_limit=work['limit'],pair_screens=snapshot.combination_budget['used'],pair_limit=snapshot.combination_budget.get('limit',4000),
@@ -338,7 +342,8 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         diagnostic_combination=dict(status='INCOMPATIBLE_DIAGNOSTIC_ONLY',
             selected={n:o['key'] for n,o in (diagnostic or {}).items()},conflicts=sorted(diagnostic_failures)),
         combination=combination,joint_coordination=joint,corridor_planning=corridor,witnesses=list(witnesses.values()), drillings=len(route), plugs=sum(f.plugged for f in route),
-        layout_feedback=feedback,spatial_feedback=spatial,partial_routing=dict(status='ANALYTIC_PARTIAL_NOT_EXACT',nets=sorted(partial),
+        layout_feedback=feedback,spatial_feedback=spatial,partial_routing=dict(status='PARTIAL_REQUIRES_FULL_EXACT',nets=sorted(partial),
+            local_admission=route_session.local_records if general_families else {},
             features=[f.model_dump(mode='json') for o in partial.values() for f in o['route']],connection_verified=False),
         **(dict(route_features=[f.model_dump(mode='json') for f in route]) if include_routes else {}))
 

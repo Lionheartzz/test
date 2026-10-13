@@ -1,0 +1,185 @@
+{
+  "baseline": "36d65c92c00170427121829336495c1147c15b29",
+  "scope": "Phase B F3/F6 only",
+  "E3": {
+    "net": "B_DC",
+    "same_trace": true,
+    "same_candidates": true,
+    "same_candidate_features": true,
+    "unique_first_batch": 128,
+    "unique_second_batch": 128,
+    "repeated_states_between_batches": 0,
+    "labels": 256,
+    "independent_frontiers": true,
+    "geometry_only_cache_reused": true,
+    "reference_new_machining_evaluations": 0,
+    "all_candidates_available": true,
+    "pending_drained": [
+      82,
+      84
+    ],
+    "split": [
+      {
+        "labels": 128,
+        "cumulative": 128,
+        "seconds": 52.125,
+        "candidates": 43,
+        "frontier_labels": 1874,
+        "tree_states": 2,
+        "visited_trees": 46
+      },
+      {
+        "labels": 128,
+        "cumulative": 256,
+        "seconds": 50.79700000002049,
+        "candidates": 86,
+        "frontier_labels": 3176,
+        "tree_states": 2,
+        "visited_trees": 89
+      }
+    ],
+    "continuous_seconds": 11.655999999959022,
+    "largest_retained_path_solution_batch": 86,
+    "trace_sha256": {
+      "e3-split-trace.json": "d89f1b4066d2b22110c8acd14b2212b177bea604f1c995140eaf6da9753e6b14",
+      "e3-continuous-trace.json": "d89f1b4066d2b22110c8acd14b2212b177bea604f1c995140eaf6da9753e6b14"
+    }
+  },
+  "E6": {
+    "records": {
+      "MA": {
+        "status": "LOCAL_EXACT_ADMISSIBLE",
+        "dependency": "07392ea3682b77bd9912c0f3ff752aa866cec4318a767e9417d6fc9799528071",
+        "physical_connectivity": true,
+        "checked": true,
+        "full_engineering_validation_passed": null,
+        "retry_conditions": [],
+        "candidate": "saved-core:MA"
+      },
+      "MB": {
+        "status": "LOCAL_EXACT_ADMISSIBLE",
+        "dependency": "7f2731ec5f2a51611c851bdcc683d13ee3473f5cc8e67e1b1eb1a071c93b19cd",
+        "physical_connectivity": true,
+        "checked": true,
+        "full_engineering_validation_passed": null,
+        "retry_conditions": [],
+        "candidate": "saved-core:MB"
+      },
+      "P": {
+        "status": "CAD_EVALUATION_ERROR",
+        "dependency": "53ecce8f7dc93b3c88fac7e98fdffec93ba93f43d6013c0ee8957cdd4bf0bf49",
+        "physical_connectivity": null,
+        "checked": true,
+        "full_engineering_validation_passed": null,
+        "retry_conditions": [
+          "Changed source/route/retained machining/engineering dependency",
+          "Explicit local CAD retry uses a fresh error cache"
+        ],
+        "candidate": "saved-core:P",
+        "cad_error": {
+          "cad_operation": "routing.fluid_intersection.result",
+          "reason_code": "INVALID_TOPOLOGY",
+          "node_pair": [
+            "CV_9622e55cd4ee3586de17:P",
+            "R-5c62e091-4"
+          ],
+          "shape_states": {
+            "shape": {
+              "null": false,
+              "valid": false,
+              "empty": false
+            },
+            "left": {
+              "null": false,
+              "valid": true,
+              "empty": false
+            },
+            "right": {
+              "null": false,
+              "valid": true,
+              "empty": false
+            }
+          },
+          "scope": "candidate"
+        }
+      },
+      "SHUTTLE_OUTPUT": {
+        "status": "LOCAL_EXACT_ADMISSIBLE",
+        "dependency": "490633dd9a32ec0e94b299182614819d1a276760341620846a9bdf05c4ccc55f",
+        "physical_connectivity": true,
+        "checked": true,
+        "full_engineering_validation_passed": null,
+        "retry_conditions": [],
+        "candidate": "saved-core:SHUTTLE_OUTPUT"
+      },
+      "T": {
+        "status": "LOCAL_EXACT_ADMISSIBLE",
+        "dependency": "4ca8c4e980753ef78b933e005014319cba9e78af1d6714a61b580113d8f8f379",
+        "physical_connectivity": true,
+        "checked": true,
+        "full_engineering_validation_passed": null,
+        "retry_conditions": [],
+        "candidate": "saved-core:T"
+      },
+      "T_DC": {
+        "status": "LOCAL_EXACT_ADMISSIBLE",
+        "dependency": "b86d404b9ac4d287c867e647b47572de1e8672fa868561be23e31c7d5eb6e6b5",
+        "physical_connectivity": true,
+        "checked": true,
+        "full_engineering_validation_passed": null,
+        "retry_conditions": [],
+        "candidate": "saved-core:T_DC"
+      }
+    },
+    "confirmed_nets": [
+      "MA",
+      "MB",
+      "SHUTTLE_OUTPUT",
+      "T",
+      "T_DC"
+    ],
+    "cad_evaluations": 6,
+    "cache_hits": 6,
+    "default_prune_reason": "INVALID_TOPOLOGY",
+    "candidate_geometry_preserved": true,
+    "full_design_approval": false
+  },
+  "tests": {
+    "phase_b": 17,
+    "phase_a": 19,
+    "related_shared_calls": 4,
+    "manual_persistence_store_api": 4,
+    "changed_python_syntax_files": 9
+  },
+  "protected_unchanged": true,
+  "protected_hashes": {
+    "output\\runtime-checks\\corridor3d-20261012\\eight-valve-final\\source.json": "394197644138ed39fc63f16f2710bad1361322a0d11e1fbbd9b9588c6a73bed9",
+    "data\\pmc_engineering.db": "1e3267bd6a6271cf819b5181ed52eae55ab8b8b54a4a48ce45cc277175d7daa2",
+    "projects\\saved\\063b619795b843b8bf9d263ef5070771.json": "69735e2b416250a0ae79f4d4395db1d74265f83f8e6b68403458f9b8cc5a95b1",
+    "projects\\saved\\28775064c6c547159f3985bb402f114b.json": "67b05bf1550518ccc63c790234a5a56019464db371b63377c79e469578ee98a1",
+    "projects\\saved\\2b93c6c68df24d5ebe543215e8e91c99.json": "d347a81a002b8f4cd1384359c4c77f71795b22571062940fedb2b1798d41823e",
+    "projects\\saved\\481fff0805a24befa9b83b7569527052.json": "92f73d51986364f35671fd0e548912bb91885aafba84abd3f73abfe9a849bb21",
+    "projects\\saved\\610cf82b4a20414aa00ae964c1240a2a.json": "8bd7969d2de58920ce3810a2d9bc173cb68d977f8a13bb8109e791f2f5a2aa03",
+    "projects\\saved\\6e57fdcccb174b87a72c32f3069bb285.json": "825a04756db7f967997f7409084c706fb562de1c27252a0a7ba808ee9d99d888",
+    "projects\\saved\\85a5799c71764a59abfc95ffb0d162a9.json": "fe20986acfced8c899a89dd033ff4e3f1d88c06e1880a8bafe3f4018947d7aac",
+    "projects\\saved\\9e8a8be7b31e4ccd8994de3481845435.json": "b615374475714becf065f14803690c11337ec6a731f229a4e9abcc8dc32b0f12",
+    "projects\\saved\\f24a44ae30394c268bfadd60fe6a56e7.json": "2505bcc065fdb346f171d5bd467eac7f42584cd98245fe07a5f1f1e23caab2f9",
+    "projects\\ai-design\\343f91fdb98c435296b6e78322157433.json": "9cd373503b542603fe68371937e31cfe45d120ca0a06c5bb261ff5296dec0604",
+    "projects\\ai-design\\69e50e63d2314ea4b34fff9d238e64d3.json": "50744169e539aef3f36ea25aa1bef7b2ecebf1ea10c3ac0d7fbb0235611cc3ad"
+  },
+  "actual_full_generate": false,
+  "complex_manifold_manufacturing_approval": false,
+  "phase_c_started": false,
+  "normalized_source_hashes": {
+    "manifold/drilling_planner.py": "dd39a01f5ef20284ef38baf209aa35e91f2753d2e89d497b1ad0f1f51f3e3fc0",
+    "manifold/routing_continuation.py": "0c219ad0cefdfd2ac9728d91f0544807bf81db9cfcbb1d196c3e8d4bc6a00890",
+    "manifold/ai_design/local_admission.py": "dd07ff3fb4caa4a78715c8468362742c093acf4551bb72f3de1a6d807bc493d7",
+    "manifold/ai_design/route_catalog.py": "4908cb83d5d0e7160d65be83886df293bdea7f6c5b14ce096fb242d1e96ea71b",
+    "manifold/ai_design/joint_routes.py": "e265d5ccb8259c6f472472cd6f15c043a041927ca856e8e1f23b3faf6090e78b",
+    "manifold/ai_design/layout_search.py": "98774d211e818aa09c57007d70677f43da4bf0f0fb6ea9e92d016dbefa54fe80",
+    "manifold/ai_design/joint_state.py": "c506aee28227594db7494f6d6eebfcc392f8eeb772642c11113d1dd9d3e10ac9",
+    "scripts/check-phase-b.py": "814eff804a604064950a5e8b93e20ce0484796dc3b239635b9106d33f469ff07",
+    "tests/test_phase_b_correctness.py": "6b4e39b9765f3258b352c2bd0a631a00f8ec97b1e0c296790b3020dc6cf6cc76"
+  },
+  "local_artifacts": "output/runtime-checks/phase-b-20261013/final"
+}
