@@ -165,6 +165,7 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         from .route_catalog import Session
         route_session=route_session or Session()
         general_pools=route_session.prepare(source,nets,definitions,threads,modifiers,tools,progress)
+        route_session.solver.bind(source,nets,route_session.catalogs)
     for index, (name, net) in enumerate(nets.items()):
         if progress:
             progress('access', net=name, completed=index, total=len(nets))
@@ -223,6 +224,9 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
             rejected=[dict(variant=o['key'], failures=sorted(o['failures'])) for o in rejected[:3]])
     witnesses = {}
     def pair(a, ao, b, bo):
+        state=route_session.solver.current if general_families else None
+        fact=state.pair_fact(a,ao,b,bo) if state else None
+        if fact is not None:return {tuple(f) for f in fact['failures']}
         if general_families:
             from .route_catalog import geometry_key
             token=tuple(sorted(((a,geometry_key(ao['route'])),(b,geometry_key(bo['route'])))))
@@ -232,6 +236,7 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         if general_families and cached is None and not any(f[0]=='search_budget' for f in failures):
             route_session.pair_evidence[token]=frozenset(failures)
             if len(route_session.pair_evidence)>4096:route_session.pair_evidence.pop(next(iter(route_session.pair_evidence)))
+        if state:state.pair_fact(a,ao,b,bo,failures)
         if failures and not any(f[0] == 'search_budget' for f in failures):
             key = tuple(sorted((a, b)))
             if key not in witnesses or len(failures) < len(witnesses[key]['failures']):
@@ -317,10 +322,11 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
                         evidence='CURRENT_COMPATIBLE_CORE_INSERTION',exact_verified=False))
     source_ids={f.id for f in source.features}
     from .route_feedback import obstruction_witnesses
-    # Once a Net has clear source approaches, its rejected alternatives are
-    # not the reason the global combination fails. Drive placement from the
-    # actual cross-Net cuts, not obsolete rejected single-Net strategies.
-    spatial=obstruction_witnesses(source,nets,{n:d for n,d in diagnostics.items() if not pools[n]},definitions,threads,modifiers)
+    # An alternate entry can be essential to the GLOBAL combination even
+    # when this Net already has an individually clear route (F7).
+    feedback_diagnostics=({n:c.diagnostics(pools[n],all_rejections=True) for n,c in route_session.catalogs.items()}
+                          if general_families else diagnostics)
+    spatial=obstruction_witnesses(source,nets,feedback_diagnostics,definitions,threads,modifiers)
     feedback=[dict(net=name,terminals=list(nets[name].members),source_blockers=sorted({str(key).split(':')[0]
         for sample in diagnostics[name].get('rejected_samples',[]) for failure in sample['failures'] for key in failure[1:]
         if str(key).split(':')[0] in source_ids}),
@@ -335,7 +341,7 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
     unresolved=sorted(set(nets)-set(partial))
     feasibility = (len(unresolved), *_conflict_objective(failures))
     if general_families:route_session.remember_context()
-    return dict(status='ANALYTIC_UNVALIDATED', score=(*feasibility, *route_objective(source, route, definitions=definitions)),
+    result=dict(status='ANALYTIC_UNVALIDATED', score=(*feasibility, *route_objective(source, route, definitions=definitions)),
         feasibility_score=feasibility, blocked_nets=blocked, compatible=compatible, conflicts=sorted(failures),
         fixed_conflicts=fixed, selected={n:o['key'] for n,o in partial.items()}, pools=diagnostics,
         unresolved_nets=unresolved,coordination_constraints=constraints,deferred_constraints=deferred_constraints,
@@ -346,6 +352,8 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
             local_admission=route_session.local_records if general_families else {},
             features=[f.model_dump(mode='json') for o in partial.values() for f in o['route']],connection_verified=False),
         **(dict(route_features=[f.model_dump(mode='json') for f in route]) if include_routes else {}))
+    if general_families:route_session.solver.update(result)
+    return result
 
 
 def _scout(entry,definitions,threads,modifiers):

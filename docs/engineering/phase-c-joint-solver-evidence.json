@@ -1,0 +1,2164 @@
+{
+  "starting_head": "af4a5bd03bdf760a5f9782fa217e6fdb261aa382",
+  "generic": {
+    "status": "EXACT_FEASIBLE",
+    "counts": {
+      "PASS": 143,
+      "WARNING": 0,
+      "FAIL": 0
+    },
+    "topology": {
+      "valid": true,
+      "solids": 1
+    },
+    "step": {
+      "rule": "step_round_trip",
+      "items": [
+        "block"
+      ],
+      "status": "PASS",
+      "actual": 0.0,
+      "required": "Valid single solid; volume Δ < 0.01 mm³",
+      "unit": "mm³",
+      "valid": true,
+      "solids": 1,
+      "volume_delta_mm3": 1.6298145055770874e-09,
+      "volume_measurement": {
+        "delta": 1.6298145055770874e-09,
+        "converged": true,
+        "native_mm3": 1704731.9347551393,
+        "step_mm3": 1704731.934755141,
+        "convergence_mm3": [
+          0.0,
+          4.656612873077393e-10
+        ],
+        "integration_tolerance": 5.787037027391977e-13
+      },
+      "message": "STEP reimport: valid single solid and matching volume."
+    },
+    "labels": 64,
+    "released": [
+      "P",
+      "T"
+    ],
+    "jointly_regenerated": [
+      {
+        "action": "JOINT_REPLACEMENT_READY",
+        "released": [
+          "P",
+          "T"
+        ],
+        "regenerated": [
+          "P",
+          "T"
+        ],
+        "selected": {
+          "P": "corridor3d:99685a7cea8f3c3a0ac81799",
+          "T": "corridor3d:cc348954c1a458c01a03f46d"
+        },
+        "status": "ANALYTIC_CLEAR_REQUIRES_EXACT"
+      },
+      {
+        "action": "JOINT_REPLACEMENT_READY",
+        "released": [
+          "P",
+          "T"
+        ],
+        "regenerated": [
+          "P",
+          "T"
+        ],
+        "selected": {
+          "P": "corridor3d:99685a7cea8f3c3a0ac81799",
+          "T": "corridor3d:94ce7fad7a8b41abd8249497"
+        },
+        "status": "ANALYTIC_CLEAR_REQUIRES_EXACT"
+      }
+    ],
+    "evidence": "output\\runtime-checks\\phase-c-20261013\\controller-r2\\test_two_nets_need_new_conditi0\\joint-exact\\acceptance.json"
+  },
+  "complex": {
+    "status": "SOURCE_LAYOUT_READY_ROUTING_PENDING",
+    "seconds": 4412.2970000000205,
+    "call_chain": "generation.prepare -> generation.candidate -> _plan_generated_layout -> plan_new -> optimize -> shared Router",
+    "layouts": 48,
+    "source_ready": 45,
+    "independent_geometry": 48,
+    "dimensions": 18,
+    "attitudes": 22,
+    "best_compatible": 6,
+    "selected_compatible": [
+      "A_DC",
+      "MA",
+      "MB",
+      "P",
+      "SHUTTLE_OUTPUT",
+      "T"
+    ],
+    "selected_local": {
+      "A_DC": "ANALYTIC_CLEAR",
+      "MA": "ANALYTIC_CLEAR",
+      "MB": "ANALYTIC_CLEAR",
+      "P": "ANALYTIC_CLEAR",
+      "SHUTTLE_OUTPUT": "ANALYTIC_CLEAR",
+      "T": "ANALYTIC_CLEAR",
+      "T_DC": "ANALYTIC_CLEAR"
+    },
+    "unresolved": [
+      "B_DC",
+      "T_DC"
+    ],
+    "source_feedback_rows": 45,
+    "conditioned_violations": 2131,
+    "violation_rules": {
+      "cross_net_wall": 3770,
+      "installation_access": 161,
+      "plug_cut": 212
+    },
+    "new_labels": 2048,
+    "resumed_batches": 4,
+    "conditional_depth": 2,
+    "locally_unresolved_cad": [],
+    "refinements": [
+      {
+        "index": 3,
+        "history": [
+          {
+            "action": "REVISE_GEOMETRY",
+            "compatible_before": 5,
+            "compatible_after": 6,
+            "reason": "Compatible coverage improved",
+            "repair_burden_before": [
+              4,
+              5
+            ],
+            "repair_burden_after": [
+              4,
+              6
+            ],
+            "repeat_same_geometry": false,
+            "limits": {
+              "labels": 512,
+              "states": 500,
+              "pairs": 2000,
+              "probes": 128,
+              "samples": 32
+            },
+            "seconds": 651.6879999999655,
+            "resources_remaining": {
+              "labels": 1536,
+              "states": 1729,
+              "pairs": 7676,
+              "probes": 512,
+              "samples": 120
+            }
+          }
+        ],
+        "coverage": [
+          "B_DC",
+          "MA",
+          "MB",
+          "P",
+          "SHUTTLE_OUTPUT",
+          "T_DC"
+        ],
+        "transactions": [
+          {
+            "released": [
+              "A_DC",
+              "SHUTTLE_OUTPUT"
+            ],
+            "outside": [
+              "MA",
+              "MB",
+              "P",
+              "T"
+            ],
+            "labels": 128,
+            "calls": 4,
+            "generated_candidates": 2,
+            "independent_states": 3,
+            "pending_jobs": 4,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 1,
+            "pending_examples": [
+              {
+                "net": "SHUTTLE_OUTPUT",
+                "new_routes": {
+                  "A_DC": "corridor3d:ce3febc24863885720031e48"
+                }
+              },
+              {
+                "net": "SHUTTLE_OUTPUT",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "T",
+              "T_DC"
+            ],
+            "outside": [
+              "MA",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT"
+            ],
+            "labels": 128,
+            "calls": 4,
+            "generated_candidates": 2,
+            "independent_states": 3,
+            "pending_jobs": 4,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 1,
+            "pending_examples": [
+              {
+                "net": "T",
+                "new_routes": {
+                  "T_DC": "corridor3d:5b5d3d8c584fcbe17ae47c23"
+                }
+              },
+              {
+                "net": "T",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC",
+              "MB",
+              "SHUTTLE_OUTPUT"
+            ],
+            "outside": [
+              "MA",
+              "P",
+              "T"
+            ],
+            "labels": 128,
+            "calls": 4,
+            "generated_candidates": 1,
+            "independent_states": 2,
+            "pending_jobs": 5,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 1,
+            "pending_examples": [
+              {
+                "net": "SHUTTLE_OUTPUT",
+                "new_routes": {
+                  "A_DC": "corridor3d:a4356bed284b7f823dbf2783"
+                }
+              },
+              {
+                "net": "MB",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "B_DC",
+              "MB",
+              "SHUTTLE_OUTPUT"
+            ],
+            "outside": [
+              "MA",
+              "P",
+              "T"
+            ],
+            "labels": 128,
+            "calls": 4,
+            "generated_candidates": 3,
+            "independent_states": 4,
+            "pending_jobs": 7,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 2,
+            "pending_examples": [
+              {
+                "net": "SHUTTLE_OUTPUT",
+                "new_routes": {
+                  "B_DC": "corridor3d:b123fd60f498f3c3458a9757",
+                  "MB": "corridor3d:5cbeeec54f5891f1917e3ee0"
+                }
+              },
+              {
+                "net": "MB",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "B_DC",
+              "MB",
+              "T"
+            ],
+            "outside": [
+              "MA",
+              "P",
+              "SHUTTLE_OUTPUT"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 3,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              },
+              {
+                "net": "MB",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "P",
+              "T",
+              "T_DC"
+            ],
+            "outside": [
+              "MA",
+              "MB",
+              "SHUTTLE_OUTPUT"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 3,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "P",
+                "new_routes": {}
+              },
+              {
+                "net": "T",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC",
+              "MB",
+              "SHUTTLE_OUTPUT",
+              "T"
+            ],
+            "outside": [
+              "MA",
+              "P"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 4,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "A_DC",
+                "new_routes": {}
+              },
+              {
+                "net": "MB",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "B_DC",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT"
+            ],
+            "outside": [
+              "MA",
+              "T"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 4,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              },
+              {
+                "net": "MB",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "MB",
+              "P",
+              "T",
+              "T_DC"
+            ],
+            "outside": [
+              "MA",
+              "SHUTTLE_OUTPUT"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 4,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "MB",
+                "new_routes": {}
+              },
+              {
+                "net": "P",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC",
+              "B_DC",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T",
+              "T_DC"
+            ],
+            "outside": [
+              "MA"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 7,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "A_DC",
+                "new_routes": {}
+              },
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC"
+            ],
+            "outside": [
+              "MA",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 1,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "A_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "B_DC"
+            ],
+            "outside": [
+              "MA",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 1,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "T_DC"
+            ],
+            "outside": [
+              "MA",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 1,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "T_DC",
+                "new_routes": {}
+              }
+            ]
+          }
+        ],
+        "continuation_summary": {
+          "contexts": 14,
+          "expanded_labels": 512,
+          "pending": 14,
+          "candidates": 20
+        }
+      },
+      {
+        "index": 6,
+        "history": [
+          {
+            "action": "REVISE_GEOMETRY",
+            "compatible_before": 5,
+            "compatible_after": 6,
+            "reason": "Compatible coverage improved",
+            "repair_burden_before": [
+              4,
+              13
+            ],
+            "repair_burden_after": [
+              4,
+              6
+            ],
+            "repeat_same_geometry": false,
+            "limits": {
+              "labels": 512,
+              "states": 500,
+              "pairs": 2000,
+              "probes": 128,
+              "samples": 32
+            },
+            "seconds": 489.98400000005495,
+            "resources_remaining": {
+              "labels": 1024,
+              "states": 1384,
+              "pairs": 7497,
+              "probes": 512,
+              "samples": 104
+            }
+          }
+        ],
+        "coverage": [
+          "B_DC",
+          "MA",
+          "MB",
+          "P",
+          "SHUTTLE_OUTPUT",
+          "T_DC"
+        ],
+        "transactions": [
+          {
+            "released": [
+              "MA",
+              "MB"
+            ],
+            "outside": [
+              "B_DC",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T_DC"
+            ],
+            "labels": 64,
+            "calls": 2,
+            "generated_candidates": 4,
+            "independent_states": 5,
+            "pending_jobs": 4,
+            "completed": 2,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 1,
+            "pending_examples": [
+              {
+                "net": "MB",
+                "new_routes": {}
+              },
+              {
+                "net": "MA",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC",
+              "B_DC",
+              "MB"
+            ],
+            "outside": [
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T_DC"
+            ],
+            "labels": 128,
+            "calls": 4,
+            "generated_candidates": 4,
+            "independent_states": 3,
+            "pending_jobs": 7,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 1,
+            "pending_examples": [
+              {
+                "net": "MB",
+                "new_routes": {
+                  "A_DC": "corridor3d:5503ca21ea628d7683b130dd"
+                }
+              },
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC",
+              "B_DC",
+              "SHUTTLE_OUTPUT"
+            ],
+            "outside": [
+              "MB",
+              "P",
+              "T_DC"
+            ],
+            "labels": 128,
+            "calls": 4,
+            "generated_candidates": 1,
+            "independent_states": 2,
+            "pending_jobs": 5,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 1,
+            "pending_examples": [
+              {
+                "net": "A_DC",
+                "new_routes": {
+                  "B_DC": "corridor3d:b123fd60f498f3c3458a9757"
+                }
+              },
+              {
+                "net": "SHUTTLE_OUTPUT",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "B_DC",
+              "MA",
+              "MB"
+            ],
+            "outside": [
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T_DC"
+            ],
+            "labels": 96,
+            "calls": 3,
+            "generated_candidates": 5,
+            "independent_states": 6,
+            "pending_jobs": 7,
+            "completed": 2,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 2,
+            "pending_examples": [
+              {
+                "net": "MA",
+                "new_routes": {}
+              },
+              {
+                "net": "MB",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "SHUTTLE_OUTPUT",
+              "T",
+              "T_DC"
+            ],
+            "outside": [
+              "B_DC",
+              "MB",
+              "P"
+            ],
+            "labels": 96,
+            "calls": 3,
+            "generated_candidates": 2,
+            "independent_states": 3,
+            "pending_jobs": 7,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 1,
+            "pending_examples": [
+              {
+                "net": "T",
+                "new_routes": {
+                  "T_DC": "corridor3d:5b5d3d8c584fcbe17ae47c23"
+                }
+              },
+              {
+                "net": "T",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC",
+              "B_DC",
+              "MB",
+              "SHUTTLE_OUTPUT"
+            ],
+            "outside": [
+              "P",
+              "T_DC"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 4,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "A_DC",
+                "new_routes": {}
+              },
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "B_DC",
+              "SHUTTLE_OUTPUT",
+              "T",
+              "T_DC"
+            ],
+            "outside": [
+              "MB",
+              "P"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 4,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              },
+              {
+                "net": "T",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T",
+              "T_DC"
+            ],
+            "outside": [
+              "B_DC"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 5,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "MB",
+                "new_routes": {}
+              },
+              {
+                "net": "P",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "B_DC",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T",
+              "T_DC"
+            ],
+            "outside": [],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 6,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              },
+              {
+                "net": "MB",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC",
+              "B_DC",
+              "MA",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T",
+              "T_DC"
+            ],
+            "outside": [],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 8,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "A_DC",
+                "new_routes": {}
+              },
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC"
+            ],
+            "outside": [
+              "B_DC",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T_DC"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 1,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "A_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "MA"
+            ],
+            "outside": [
+              "B_DC",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T_DC"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 1,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "MA",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "T"
+            ],
+            "outside": [
+              "B_DC",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T_DC"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 1,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "T",
+                "new_routes": {}
+              }
+            ]
+          }
+        ],
+        "continuation_summary": {
+          "contexts": 15,
+          "expanded_labels": 512,
+          "pending": 15,
+          "candidates": 41
+        }
+      },
+      {
+        "index": 14,
+        "history": [
+          {
+            "action": "REVISE_GEOMETRY",
+            "compatible_before": 6,
+            "compatible_after": 6,
+            "reason": "No compatible coverage or insertion constraint improvement",
+            "repair_burden_before": [
+              3,
+              3
+            ],
+            "repair_burden_after": [
+              3,
+              3
+            ],
+            "repeat_same_geometry": false,
+            "limits": {
+              "labels": 512,
+              "states": 500,
+              "pairs": 2000,
+              "probes": 128,
+              "samples": 32
+            },
+            "seconds": 603.594000000041,
+            "resources_remaining": {
+              "labels": 512,
+              "states": 1224,
+              "pairs": 7447,
+              "probes": 512,
+              "samples": 98
+            }
+          }
+        ],
+        "coverage": [
+          "A_DC",
+          "MA",
+          "MB",
+          "P",
+          "SHUTTLE_OUTPUT",
+          "T"
+        ],
+        "transactions": [
+          {
+            "released": [
+              "T",
+              "T_DC"
+            ],
+            "outside": [
+              "A_DC",
+              "MA",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT"
+            ],
+            "labels": 128,
+            "calls": 4,
+            "generated_candidates": 2,
+            "independent_states": 3,
+            "pending_jobs": 4,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 1,
+            "pending_examples": [
+              {
+                "net": "T",
+                "new_routes": {
+                  "T_DC": "corridor3d:258b610cde0293050b9f5339"
+                }
+              },
+              {
+                "net": "T",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "B_DC",
+              "MB",
+              "T"
+            ],
+            "outside": [
+              "A_DC",
+              "MA",
+              "P",
+              "SHUTTLE_OUTPUT"
+            ],
+            "labels": 128,
+            "calls": 4,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 3,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "MB",
+                "new_routes": {}
+              },
+              {
+                "net": "T",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "MA",
+              "T",
+              "T_DC"
+            ],
+            "outside": [
+              "A_DC",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT"
+            ],
+            "labels": 128,
+            "calls": 4,
+            "generated_candidates": 2,
+            "independent_states": 3,
+            "pending_jobs": 7,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 1,
+            "pending_examples": [
+              {
+                "net": "T",
+                "new_routes": {
+                  "T_DC": "corridor3d:3c58c378e4d569ef621ae348"
+                }
+              },
+              {
+                "net": "MA",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "P",
+              "T",
+              "T_DC"
+            ],
+            "outside": [
+              "A_DC",
+              "MA",
+              "MB",
+              "SHUTTLE_OUTPUT"
+            ],
+            "labels": 128,
+            "calls": 4,
+            "generated_candidates": 2,
+            "independent_states": 3,
+            "pending_jobs": 7,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 1,
+            "pending_examples": [
+              {
+                "net": "T_DC",
+                "new_routes": {
+                  "P": "corridor3d:8d8672641b5fb006e6105a36"
+                }
+              },
+              {
+                "net": "T",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC",
+              "B_DC",
+              "MB",
+              "T"
+            ],
+            "outside": [
+              "MA",
+              "P",
+              "SHUTTLE_OUTPUT"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 4,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "A_DC",
+                "new_routes": {}
+              },
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC",
+              "B_DC",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT"
+            ],
+            "outside": [
+              "MA",
+              "T"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 5,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "A_DC",
+                "new_routes": {}
+              },
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC",
+              "MA",
+              "P",
+              "T",
+              "T_DC"
+            ],
+            "outside": [
+              "MB",
+              "SHUTTLE_OUTPUT"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 5,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "A_DC",
+                "new_routes": {}
+              },
+              {
+                "net": "MA",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC",
+              "B_DC",
+              "MA",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T",
+              "T_DC"
+            ],
+            "outside": [],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 8,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "A_DC",
+                "new_routes": {}
+              },
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "B_DC"
+            ],
+            "outside": [
+              "A_DC",
+              "MA",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 1,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "T_DC"
+            ],
+            "outside": [
+              "A_DC",
+              "MA",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 1,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "T_DC",
+                "new_routes": {}
+              }
+            ]
+          }
+        ],
+        "continuation_summary": {
+          "contexts": 15,
+          "expanded_labels": 512,
+          "pending": 15,
+          "candidates": 20
+        }
+      },
+      {
+        "index": 18,
+        "history": [
+          {
+            "action": "REVISE_GEOMETRY",
+            "compatible_before": 6,
+            "compatible_after": 6,
+            "reason": "No compatible coverage or insertion constraint improvement",
+            "repair_burden_before": [
+              4,
+              5
+            ],
+            "repair_burden_after": [
+              4,
+              5
+            ],
+            "repeat_same_geometry": false,
+            "limits": {
+              "labels": 512,
+              "states": 500,
+              "pairs": 2000,
+              "probes": 128,
+              "samples": 32
+            },
+            "seconds": 583.969000000041,
+            "resources_remaining": {
+              "labels": 0,
+              "states": 1065,
+              "pairs": 7366,
+              "probes": 512,
+              "samples": 88
+            }
+          }
+        ],
+        "coverage": [
+          "A_DC",
+          "MA",
+          "MB",
+          "P",
+          "SHUTTLE_OUTPUT",
+          "T"
+        ],
+        "transactions": [
+          {
+            "released": [
+              "A_DC",
+              "B_DC",
+              "MB"
+            ],
+            "outside": [
+              "MA",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T"
+            ],
+            "labels": 128,
+            "calls": 4,
+            "generated_candidates": 3,
+            "independent_states": 4,
+            "pending_jobs": 7,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 2,
+            "pending_examples": [
+              {
+                "net": "B_DC",
+                "new_routes": {
+                  "A_DC": "corridor3d:2dbbaaf9d695afb40f6ebb53",
+                  "MB": "corridor3d:0142a90f14efffdf13af955a"
+                }
+              },
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "P",
+              "T",
+              "T_DC"
+            ],
+            "outside": [
+              "A_DC",
+              "MA",
+              "MB",
+              "SHUTTLE_OUTPUT"
+            ],
+            "labels": 128,
+            "calls": 4,
+            "generated_candidates": 2,
+            "independent_states": 3,
+            "pending_jobs": 7,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 1,
+            "pending_examples": [
+              {
+                "net": "T_DC",
+                "new_routes": {
+                  "P": "corridor3d:eb925709699c6a909af953a5"
+                }
+              },
+              {
+                "net": "T",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC",
+              "B_DC",
+              "MA",
+              "MB"
+            ],
+            "outside": [
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T"
+            ],
+            "labels": 128,
+            "calls": 4,
+            "generated_candidates": 1,
+            "independent_states": 2,
+            "pending_jobs": 7,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 1,
+            "pending_examples": [
+              {
+                "net": "B_DC",
+                "new_routes": {
+                  "A_DC": "corridor3d:2dbbaaf9d695afb40f6ebb53"
+                }
+              },
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC",
+              "P",
+              "T",
+              "T_DC"
+            ],
+            "outside": [
+              "MA",
+              "MB",
+              "SHUTTLE_OUTPUT"
+            ],
+            "labels": 128,
+            "calls": 4,
+            "generated_candidates": 4,
+            "independent_states": 5,
+            "pending_jobs": 14,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 2,
+            "pending_examples": [
+              {
+                "net": "T",
+                "new_routes": {
+                  "A_DC": "corridor3d:2dbbaaf9d695afb40f6ebb53",
+                  "P": "corridor3d:8d8672641b5fb006e6105a36"
+                }
+              },
+              {
+                "net": "P",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC",
+              "B_DC",
+              "MB",
+              "P",
+              "T"
+            ],
+            "outside": [
+              "MA",
+              "SHUTTLE_OUTPUT"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 5,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "A_DC",
+                "new_routes": {}
+              },
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "A_DC",
+              "B_DC",
+              "MA",
+              "MB",
+              "P",
+              "T",
+              "T_DC"
+            ],
+            "outside": [
+              "SHUTTLE_OUTPUT"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 7,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "A_DC",
+                "new_routes": {}
+              },
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "B_DC"
+            ],
+            "outside": [
+              "A_DC",
+              "MA",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 1,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "B_DC",
+                "new_routes": {}
+              }
+            ]
+          },
+          {
+            "released": [
+              "T_DC"
+            ],
+            "outside": [
+              "A_DC",
+              "MA",
+              "MB",
+              "P",
+              "SHUTTLE_OUTPUT",
+              "T"
+            ],
+            "labels": 0,
+            "calls": 0,
+            "generated_candidates": 0,
+            "independent_states": 1,
+            "pending_jobs": 1,
+            "completed": 0,
+            "cad_unknown_arrangements": 0,
+            "deferred_pair_candidates": 0,
+            "deepest_pending_assignment": 0,
+            "pending_examples": [
+              {
+                "net": "T_DC",
+                "new_routes": {}
+              }
+            ]
+          }
+        ],
+        "continuation_summary": {
+          "contexts": 16,
+          "expanded_labels": 512,
+          "pending": 16,
+          "candidates": 16
+        }
+      }
+    ],
+    "resources": {
+      "total": {
+        "labels": 2048,
+        "states": 2000,
+        "pairs": 8000,
+        "probes": 512,
+        "samples": 128
+      },
+      "used": {
+        "labels": 2048,
+        "states": 935,
+        "pairs": 634,
+        "probes": 0,
+        "samples": 40
+      },
+      "remaining": {
+        "labels": 0,
+        "states": 1065,
+        "pairs": 7366,
+        "probes": 512,
+        "samples": 88
+      },
+      "events": [
+        {
+          "stage": "DEEP_ROUTING",
+          "layout_index": 3,
+          "evaluated": 4,
+          "coverage": 5,
+          "novel_space": true,
+          "limits": {
+            "labels": 512,
+            "states": 500,
+            "pairs": 2000,
+            "probes": 128,
+            "samples": 32
+          },
+          "remaining": {
+            "labels": 2048,
+            "states": 2000,
+            "pairs": 8000,
+            "probes": 512,
+            "samples": 128
+          }
+        },
+        {
+          "stage": "DEEP_RESULT",
+          "layout_index": 3,
+          "coverage": 6,
+          "gain": true,
+          "spent": {
+            "labels": 512,
+            "states": 271,
+            "pairs": 324,
+            "probes": 0,
+            "samples": 8
+          },
+          "generator_checkpoints": {},
+          "remaining": {
+            "labels": 1536,
+            "states": 1729,
+            "pairs": 7676,
+            "probes": 512,
+            "samples": 120
+          }
+        },
+        {
+          "stage": "DEEP_ROUTING",
+          "layout_index": 6,
+          "evaluated": 8,
+          "coverage": 5,
+          "novel_space": true,
+          "limits": {
+            "labels": 512,
+            "states": 500,
+            "pairs": 2000,
+            "probes": 128,
+            "samples": 32
+          },
+          "remaining": {
+            "labels": 1536,
+            "states": 1729,
+            "pairs": 7676,
+            "probes": 512,
+            "samples": 120
+          }
+        },
+        {
+          "stage": "DEEP_RESULT",
+          "layout_index": 6,
+          "coverage": 6,
+          "gain": true,
+          "spent": {
+            "labels": 512,
+            "states": 345,
+            "pairs": 179,
+            "probes": 0,
+            "samples": 16
+          },
+          "generator_checkpoints": {},
+          "remaining": {
+            "labels": 1024,
+            "states": 1384,
+            "pairs": 7497,
+            "probes": 512,
+            "samples": 104
+          }
+        },
+        {
+          "stage": "LAYOUT",
+          "evaluated": 12,
+          "reason": "LATE_RESERVE",
+          "remaining": {
+            "labels": 1024,
+            "states": 1384,
+            "pairs": 7497,
+            "probes": 512,
+            "samples": 104
+          }
+        },
+        {
+          "stage": "LAYOUT",
+          "evaluated": 16,
+          "reason": "LATE_RESERVE",
+          "remaining": {
+            "labels": 1024,
+            "states": 1384,
+            "pairs": 7497,
+            "probes": 512,
+            "samples": 104
+          }
+        },
+        {
+          "stage": "LAYOUT",
+          "evaluated": 20,
+          "reason": "LATE_RESERVE",
+          "remaining": {
+            "labels": 1024,
+            "states": 1384,
+            "pairs": 7497,
+            "probes": 512,
+            "samples": 104
+          }
+        },
+        {
+          "stage": "DEEP_ROUTING",
+          "layout_index": 14,
+          "evaluated": 24,
+          "coverage": 6,
+          "novel_space": true,
+          "limits": {
+            "labels": 512,
+            "states": 500,
+            "pairs": 2000,
+            "probes": 128,
+            "samples": 32
+          },
+          "remaining": {
+            "labels": 1024,
+            "states": 1384,
+            "pairs": 7497,
+            "probes": 512,
+            "samples": 104
+          }
+        },
+        {
+          "stage": "DEEP_RESULT",
+          "layout_index": 14,
+          "coverage": 6,
+          "gain": false,
+          "spent": {
+            "labels": 512,
+            "states": 160,
+            "pairs": 50,
+            "probes": 0,
+            "samples": 6
+          },
+          "generator_checkpoints": {},
+          "remaining": {
+            "labels": 512,
+            "states": 1224,
+            "pairs": 7447,
+            "probes": 512,
+            "samples": 98
+          }
+        },
+        {
+          "stage": "LAYOUT",
+          "evaluated": 28,
+          "reason": "FINAL_RESERVE",
+          "remaining": {
+            "labels": 512,
+            "states": 1224,
+            "pairs": 7447,
+            "probes": 512,
+            "samples": 98
+          }
+        },
+        {
+          "stage": "LAYOUT",
+          "evaluated": 32,
+          "reason": "FINAL_RESERVE",
+          "remaining": {
+            "labels": 512,
+            "states": 1224,
+            "pairs": 7447,
+            "probes": 512,
+            "samples": 98
+          }
+        },
+        {
+          "stage": "LAYOUT",
+          "evaluated": 36,
+          "reason": "FINAL_RESERVE",
+          "remaining": {
+            "labels": 512,
+            "states": 1224,
+            "pairs": 7447,
+            "probes": 512,
+            "samples": 98
+          }
+        },
+        {
+          "stage": "LAYOUT",
+          "evaluated": 40,
+          "reason": "FINAL_RESERVE",
+          "remaining": {
+            "labels": 512,
+            "states": 1224,
+            "pairs": 7447,
+            "probes": 512,
+            "samples": 98
+          }
+        },
+        {
+          "stage": "LAYOUT",
+          "evaluated": 44,
+          "reason": "FINAL_RESERVE",
+          "remaining": {
+            "labels": 512,
+            "states": 1224,
+            "pairs": 7447,
+            "probes": 512,
+            "samples": 98
+          }
+        },
+        {
+          "stage": "DEEP_ROUTING",
+          "layout_index": 18,
+          "evaluated": 48,
+          "coverage": 6,
+          "novel_space": true,
+          "limits": {
+            "labels": 512,
+            "states": 500,
+            "pairs": 2000,
+            "probes": 128,
+            "samples": 32
+          },
+          "remaining": {
+            "labels": 512,
+            "states": 1224,
+            "pairs": 7447,
+            "probes": 512,
+            "samples": 98
+          }
+        },
+        {
+          "stage": "DEEP_RESULT",
+          "layout_index": 18,
+          "coverage": 6,
+          "gain": false,
+          "spent": {
+            "labels": 512,
+            "states": 159,
+            "pairs": 81,
+            "probes": 0,
+            "samples": 10
+          },
+          "generator_checkpoints": {},
+          "remaining": {
+            "labels": 0,
+            "states": 1065,
+            "pairs": 7366,
+            "probes": 512,
+            "samples": 88
+          }
+        }
+      ],
+      "physical_infeasibility_proven": false,
+      "ordinary_routing": {
+        "state_limit_per_layout": 1000,
+        "pair_limit_per_layout": 4000
+      },
+      "exact": {
+        "limit": 2,
+        "attempts": 0
+      }
+    },
+    "summary": {
+      "geometry_states": 46,
+      "conditional_constraints": 5182,
+      "repair_transactions": 44,
+      "continuation_states": 60,
+      "newly_expanded_labels": 2048,
+      "source_layout_status": "SOURCE_LAYOUT_READY",
+      "routing_status": "ROUTING_PENDING"
+    },
+    "deferred_layouts": 121,
+    "unexpanded_generators": 49,
+    "attempts": [],
+    "validation": null,
+    "manufacturing_ready": false,
+    "physical_infeasibility_proven": false,
+    "known_limitations": [
+      "SEARCH_NOT_COVERED: conditional branches contain two new Net routes but dependent third-Net searches remain pending.",
+      "Most released-group/conditional-assignment 3D contexts only received 32 or 64 labels; larger conflict components remain unexpanded.",
+      "Label allocations are exhausted while other resource types remain unused; priority defers independent fragment work instead of converting resource types or increasing budgets.",
+      "Local CAD allocation was consumed on earlier geometry; selected core has no current dependency-bound local Exact admissions.",
+      "Conditional nogoods describe concrete machining arrangements; there is no complete continuous pose/coordinate-domain proof."
+    ],
+    "functional_blocker": "No complete complex machining proposal; B_DC and T_DC unresolved in selected layout; manufacturing_ready=false."
+  },
+  "protected": {
+    "before": {
+      "D:\\Project\\Manifold\\output\\runtime-checks\\corridor3d-20261012\\eight-valve-final\\source.json": "394197644138ed39fc63f16f2710bad1361322a0d11e1fbbd9b9588c6a73bed9",
+      "D:\\Project\\Manifold\\data\\pmc_engineering.db": "1e3267bd6a6271cf819b5181ed52eae55ab8b8b54a4a48ce45cc277175d7daa2",
+      "D:\\Project\\Manifold\\projects\\saved\\063b619795b843b8bf9d263ef5070771.json": "69735e2b416250a0ae79f4d4395db1d74265f83f8e6b68403458f9b8cc5a95b1",
+      "D:\\Project\\Manifold\\projects\\saved\\28775064c6c547159f3985bb402f114b.json": "67b05bf1550518ccc63c790234a5a56019464db371b63377c79e469578ee98a1",
+      "D:\\Project\\Manifold\\projects\\saved\\2b93c6c68df24d5ebe543215e8e91c99.json": "d347a81a002b8f4cd1384359c4c77f71795b22571062940fedb2b1798d41823e",
+      "D:\\Project\\Manifold\\projects\\saved\\481fff0805a24befa9b83b7569527052.json": "92f73d51986364f35671fd0e548912bb91885aafba84abd3f73abfe9a849bb21",
+      "D:\\Project\\Manifold\\projects\\saved\\610cf82b4a20414aa00ae964c1240a2a.json": "8bd7969d2de58920ce3810a2d9bc173cb68d977f8a13bb8109e791f2f5a2aa03",
+      "D:\\Project\\Manifold\\projects\\saved\\6e57fdcccb174b87a72c32f3069bb285.json": "825a04756db7f967997f7409084c706fb562de1c27252a0a7ba808ee9d99d888",
+      "D:\\Project\\Manifold\\projects\\saved\\85a5799c71764a59abfc95ffb0d162a9.json": "fe20986acfced8c899a89dd033ff4e3f1d88c06e1880a8bafe3f4018947d7aac",
+      "D:\\Project\\Manifold\\projects\\saved\\9e8a8be7b31e4ccd8994de3481845435.json": "b615374475714becf065f14803690c11337ec6a731f229a4e9abcc8dc32b0f12",
+      "D:\\Project\\Manifold\\projects\\saved\\f24a44ae30394c268bfadd60fe6a56e7.json": "2505bcc065fdb346f171d5bd467eac7f42584cd98245fe07a5f1f1e23caab2f9",
+      "D:\\Project\\Manifold\\projects\\ai-design\\343f91fdb98c435296b6e78322157433.json": "9cd373503b542603fe68371937e31cfe45d120ca0a06c5bb261ff5296dec0604",
+      "D:\\Project\\Manifold\\projects\\ai-design\\69e50e63d2314ea4b34fff9d238e64d3.json": "50744169e539aef3f36ea25aa1bef7b2ecebf1ea10c3ac0d7fbb0235611cc3ad"
+    },
+    "after": {
+      "D:\\Project\\Manifold\\output\\runtime-checks\\corridor3d-20261012\\eight-valve-final\\source.json": "394197644138ed39fc63f16f2710bad1361322a0d11e1fbbd9b9588c6a73bed9",
+      "D:\\Project\\Manifold\\data\\pmc_engineering.db": "1e3267bd6a6271cf819b5181ed52eae55ab8b8b54a4a48ce45cc277175d7daa2",
+      "D:\\Project\\Manifold\\projects\\saved\\063b619795b843b8bf9d263ef5070771.json": "69735e2b416250a0ae79f4d4395db1d74265f83f8e6b68403458f9b8cc5a95b1",
+      "D:\\Project\\Manifold\\projects\\saved\\28775064c6c547159f3985bb402f114b.json": "67b05bf1550518ccc63c790234a5a56019464db371b63377c79e469578ee98a1",
+      "D:\\Project\\Manifold\\projects\\saved\\2b93c6c68df24d5ebe543215e8e91c99.json": "d347a81a002b8f4cd1384359c4c77f71795b22571062940fedb2b1798d41823e",
+      "D:\\Project\\Manifold\\projects\\saved\\481fff0805a24befa9b83b7569527052.json": "92f73d51986364f35671fd0e548912bb91885aafba84abd3f73abfe9a849bb21",
+      "D:\\Project\\Manifold\\projects\\saved\\610cf82b4a20414aa00ae964c1240a2a.json": "8bd7969d2de58920ce3810a2d9bc173cb68d977f8a13bb8109e791f2f5a2aa03",
+      "D:\\Project\\Manifold\\projects\\saved\\6e57fdcccb174b87a72c32f3069bb285.json": "825a04756db7f967997f7409084c706fb562de1c27252a0a7ba808ee9d99d888",
+      "D:\\Project\\Manifold\\projects\\saved\\85a5799c71764a59abfc95ffb0d162a9.json": "fe20986acfced8c899a89dd033ff4e3f1d88c06e1880a8bafe3f4018947d7aac",
+      "D:\\Project\\Manifold\\projects\\saved\\9e8a8be7b31e4ccd8994de3481845435.json": "b615374475714becf065f14803690c11337ec6a731f229a4e9abcc8dc32b0f12",
+      "D:\\Project\\Manifold\\projects\\saved\\f24a44ae30394c268bfadd60fe6a56e7.json": "2505bcc065fdb346f171d5bd467eac7f42584cd98245fe07a5f1f1e23caab2f9",
+      "D:\\Project\\Manifold\\projects\\ai-design\\343f91fdb98c435296b6e78322157433.json": "9cd373503b542603fe68371937e31cfe45d120ca0a06c5bb261ff5296dec0604",
+      "D:\\Project\\Manifold\\projects\\ai-design\\69e50e63d2314ea4b34fff9d238e64d3.json": "50744169e539aef3f36ea25aa1bef7b2ecebf1ea10c3ac0d7fbb0235611cc3ad"
+    },
+    "unchanged": true
+  },
+  "code": {
+    "execution_hashes": {
+      "manifold\\ai_design\\api.py": "5d37165b9aed96f051c691b6d6c7672446be68d3bfb53c2057c8c518cb42a2fe",
+      "manifold\\ai_design\\cartridge_identity.py": "03c87d56d34053f85b04cf4c91c16046183141e6dc88235f52345c58b7597df8",
+      "manifold\\ai_design\\config.py": "a7023571b06fd112b423522fe215476c6c72bb3c52308dc5f93daad36d4bbaa3",
+      "manifold\\ai_design\\coupled_layout.py": "3ea770c2e4503af693201324dbdc1034eea0621dee38abe984dad3d7b17b4b18",
+      "manifold\\ai_design\\design_space.py": "8bcaf3c132a36d7f2fbe2d269010783dee830e8719eecdcfb30874430baa0c76",
+      "manifold\\ai_design\\diagnostics.py": "179a5cdf0b39d1be69d471bbc67ddc007955a10bdd485079b5a2882a2522d678",
+      "manifold\\ai_design\\documents.py": "ae23c83ca8aed7834348d8e32df9645160945a65c5b998d9eb1a0f083d358750",
+      "manifold\\ai_design\\document_worker.py": "ed2f0c2ac6ea15b47a80b957b7a5c26727df7baf9aabc6bd1ff737b1e5528a34",
+      "manifold\\ai_design\\generation.py": "99367c75802648af7546d398fa93a9de143581ee1fe01aa450fb93e08da1f635",
+      "manifold\\ai_design\\generation_models.py": "dcbeba21d19a534441e9efa89e3a9954d546f8c91e9f3017e4ccd88b19cc1f78",
+      "manifold\\ai_design\\identity_admission.py": "5674d05b9e725e96295c611e489fd0a89e24e3241fd9b8ee7c747c6742766815",
+      "manifold\\ai_design\\identity_lookup.py": "fb7e1b457d32230d3c7b11a6c97c773bc3ec011afa90227ca1b2dfabee69fb09",
+      "manifold\\ai_design\\identity_reading.py": "72c050e04615dafbc6ed0d784de2485c032a8f590c54e61347364b728fdc6242",
+      "manifold\\ai_design\\initialization.py": "c0f12f78db327cbfc1d93fd1c73f93557d73b855696515db61ae418033c70dbf",
+      "manifold\\ai_design\\intent.py": "deeb6b0a5f3ccc89d3ef145570e096a23670366f47d34408f4e2947282d317c1",
+      "manifold\\ai_design\\interface_catalog.py": "f2bb55be7e0bb5c74c2375c985b6c8acb2e8c8db553b7398657f70ee722a23b2",
+      "manifold\\ai_design\\jobs.py": "6557d2fce7fcf42f92ce322e73e48fab6cf30bd52818077ee8ee66bf28fedd4d",
+      "manifold\\ai_design\\joint_layout.py": "27c3c64ed30956bfe9d0b5de71911bc32703fc0f4114a9b27fb1c1026d8cc845",
+      "manifold\\ai_design\\joint_routes.py": "2149a858ad5bedad5e59696b0879a81eb9a0281283e21e38da4509074d60b8fc",
+      "manifold\\ai_design\\joint_solver.py": "45473730c59370faa9aefc3899abbe1d1ff35fb32a35e89cb5e0e6f7b2f2d6ae",
+      "manifold\\ai_design\\joint_state.py": "4775452ad3c74529a415e620e6fa6e1425b778c57c72917ac3809865fff4835a",
+      "manifold\\ai_design\\knowledge.py": "7197086ea4c340f7354ccebf22ce6babc01aac8bcccc98ee9b3c5ac1a4b3ad17",
+      "manifold\\ai_design\\layout_resources.py": "c7a87518d383b4fdf7613191d86ac9d49c78360d104b52417ec67694b41fd1b1",
+      "manifold\\ai_design\\layout_search.py": "6fdf2b4baa63a21295fdfe229d9c9bc3d3416b177f804f5546e36cdceb755504",
+      "manifold\\ai_design\\library_resolution.py": "5fba4b1922cf68f0ca71bc1ae317d96c0cec4c3e9297b161f81213b45b7f1382",
+      "manifold\\ai_design\\local_admission.py": "dd07ff3fb4caa4a78715c8468362742c093acf4551bb72f3de1a6d807bc493d7",
+      "manifold\\ai_design\\models.py": "18134ee7fca4bfc5788fe498a47513175cb0320a1edc57be07bc7bb1498d90aa",
+      "manifold\\ai_design\\normalization_input.py": "78a2334967e3116fef37451f01759be8bca4bfee46e06077d173aefc5d0a9c1b",
+      "manifold\\ai_design\\observation_adapter.py": "11f21803e95531fb545e40ae52b656cf6d5400877a985dbafc5d3fad32032cef",
+      "manifold\\ai_design\\providers.py": "b2fd694390293d26dc01314adfcc1d1442a6d5633732ebb0c64ac18853149f97",
+      "manifold\\ai_design\\remote.py": "5445e2fd38a713dccfec5a144c8a945e0ef183e5f23b0f3153f69bd95aef685d",
+      "manifold\\ai_design\\route_catalog.py": "d1eb2f56eddab0f2e078c319f7d5883b009f33b0ef1e7ccbfc15463dc5974b8e",
+      "manifold\\ai_design\\route_feedback.py": "08f28e30ec770b38774ed8f6ae8ba41c08665b7147bdf9ac5288838cd8b2b59f",
+      "manifold\\ai_design\\semantic.py": "0c1c290dded29fc9dffef08bdfba1b97406a360614e82046e3cb7b9f120c9523",
+      "manifold\\ai_design\\service.py": "7db057e3cbd771fb30576e6240c13547b4533b079b6c49154f1bebbbbfc53aa1",
+      "manifold\\ai_design\\transport_controls.py": "b829555b12a5ada41d8507fc8e263666ea6570aa6d190d880a8d370389e89e28",
+      "manifold\\ai_design\\validation_details.py": "216071f3f6efe15c66c0c6353b0d7fd5a67738791cc26c3cfe5a5a47184d3246",
+      "manifold\\ai_design\\__init__.py": "6eefd684fe0de31df77b265ce705d5156b8ffe998f1ce899955fa3efd82ce8be",
+      "scripts\\evaluate_ai_generation.py": "2c1b386845f59397b37cdfa363d91513266e5f40d629629ab75df1b2117503a3"
+    },
+    "delivery_hashes": {
+      "manifold\\ai_design\\api.py": "5d37165b9aed96f051c691b6d6c7672446be68d3bfb53c2057c8c518cb42a2fe",
+      "manifold\\ai_design\\cartridge_identity.py": "03c87d56d34053f85b04cf4c91c16046183141e6dc88235f52345c58b7597df8",
+      "manifold\\ai_design\\config.py": "a7023571b06fd112b423522fe215476c6c72bb3c52308dc5f93daad36d4bbaa3",
+      "manifold\\ai_design\\coupled_layout.py": "3ea770c2e4503af693201324dbdc1034eea0621dee38abe984dad3d7b17b4b18",
+      "manifold\\ai_design\\design_space.py": "8bcaf3c132a36d7f2fbe2d269010783dee830e8719eecdcfb30874430baa0c76",
+      "manifold\\ai_design\\diagnostics.py": "179a5cdf0b39d1be69d471bbc67ddc007955a10bdd485079b5a2882a2522d678",
+      "manifold\\ai_design\\documents.py": "ae23c83ca8aed7834348d8e32df9645160945a65c5b998d9eb1a0f083d358750",
+      "manifold\\ai_design\\document_worker.py": "ed2f0c2ac6ea15b47a80b957b7a5c26727df7baf9aabc6bd1ff737b1e5528a34",
+      "manifold\\ai_design\\generation.py": "99367c75802648af7546d398fa93a9de143581ee1fe01aa450fb93e08da1f635",
+      "manifold\\ai_design\\generation_models.py": "dcbeba21d19a534441e9efa89e3a9954d546f8c91e9f3017e4ccd88b19cc1f78",
+      "manifold\\ai_design\\identity_admission.py": "5674d05b9e725e96295c611e489fd0a89e24e3241fd9b8ee7c747c6742766815",
+      "manifold\\ai_design\\identity_lookup.py": "fb7e1b457d32230d3c7b11a6c97c773bc3ec011afa90227ca1b2dfabee69fb09",
+      "manifold\\ai_design\\identity_reading.py": "72c050e04615dafbc6ed0d784de2485c032a8f590c54e61347364b728fdc6242",
+      "manifold\\ai_design\\initialization.py": "c0f12f78db327cbfc1d93fd1c73f93557d73b855696515db61ae418033c70dbf",
+      "manifold\\ai_design\\intent.py": "deeb6b0a5f3ccc89d3ef145570e096a23670366f47d34408f4e2947282d317c1",
+      "manifold\\ai_design\\interface_catalog.py": "f2bb55be7e0bb5c74c2375c985b6c8acb2e8c8db553b7398657f70ee722a23b2",
+      "manifold\\ai_design\\jobs.py": "6557d2fce7fcf42f92ce322e73e48fab6cf30bd52818077ee8ee66bf28fedd4d",
+      "manifold\\ai_design\\joint_layout.py": "b28497771b18a090de3e5e5c3b01fda77ecc5010ec5324f4339a552033cc9207",
+      "manifold\\ai_design\\joint_routes.py": "2149a858ad5bedad5e59696b0879a81eb9a0281283e21e38da4509074d60b8fc",
+      "manifold\\ai_design\\joint_solver.py": "cfcc378cb06562d3bf192b995c8c5fa55589a12a9b8c1a8c762572ef39acca8c",
+      "manifold\\ai_design\\joint_state.py": "4775452ad3c74529a415e620e6fa6e1425b778c57c72917ac3809865fff4835a",
+      "manifold\\ai_design\\knowledge.py": "7197086ea4c340f7354ccebf22ce6babc01aac8bcccc98ee9b3c5ac1a4b3ad17",
+      "manifold\\ai_design\\layout_resources.py": "c7a87518d383b4fdf7613191d86ac9d49c78360d104b52417ec67694b41fd1b1",
+      "manifold\\ai_design\\layout_search.py": "6fdf2b4baa63a21295fdfe229d9c9bc3d3416b177f804f5546e36cdceb755504",
+      "manifold\\ai_design\\library_resolution.py": "5fba4b1922cf68f0ca71bc1ae317d96c0cec4c3e9297b161f81213b45b7f1382",
+      "manifold\\ai_design\\local_admission.py": "dd07ff3fb4caa4a78715c8468362742c093acf4551bb72f3de1a6d807bc493d7",
+      "manifold\\ai_design\\models.py": "18134ee7fca4bfc5788fe498a47513175cb0320a1edc57be07bc7bb1498d90aa",
+      "manifold\\ai_design\\normalization_input.py": "78a2334967e3116fef37451f01759be8bca4bfee46e06077d173aefc5d0a9c1b",
+      "manifold\\ai_design\\observation_adapter.py": "11f21803e95531fb545e40ae52b656cf6d5400877a985dbafc5d3fad32032cef",
+      "manifold\\ai_design\\providers.py": "b2fd694390293d26dc01314adfcc1d1442a6d5633732ebb0c64ac18853149f97",
+      "manifold\\ai_design\\remote.py": "5445e2fd38a713dccfec5a144c8a945e0ef183e5f23b0f3153f69bd95aef685d",
+      "manifold\\ai_design\\route_catalog.py": "d1eb2f56eddab0f2e078c319f7d5883b009f33b0ef1e7ccbfc15463dc5974b8e",
+      "manifold\\ai_design\\route_feedback.py": "08f28e30ec770b38774ed8f6ae8ba41c08665b7147bdf9ac5288838cd8b2b59f",
+      "manifold\\ai_design\\semantic.py": "0c1c290dded29fc9dffef08bdfba1b97406a360614e82046e3cb7b9f120c9523",
+      "manifold\\ai_design\\service.py": "7db057e3cbd771fb30576e6240c13547b4533b079b6c49154f1bebbbbfc53aa1",
+      "manifold\\ai_design\\transport_controls.py": "b829555b12a5ada41d8507fc8e263666ea6570aa6d190d880a8d370389e89e28",
+      "manifold\\ai_design\\validation_details.py": "216071f3f6efe15c66c0c6353b0d7fd5a67738791cc26c3cfe5a5a47184d3246",
+      "manifold\\ai_design\\__init__.py": "6eefd684fe0de31df77b265ce705d5156b8ffe998f1ce899955fa3efd82ce8be",
+      "scripts\\evaluate_ai_generation.py": "2c1b386845f59397b37cdfa363d91513266e5f40d629629ab75df1b2117503a3"
+    },
+    "post_regression_changes": [
+      "manifold\\ai_design\\joint_layout.py",
+      "manifold\\ai_design\\joint_solver.py"
+    ],
+    "post_regression_scope": "Only full Exact outcome/state synchronization and added diagnostic fields; the complex run made zero full Exact attempts. Real rejection and optimizer acceptance paths are separately tested."
+  },
+  "focused": {
+    "final_results": "output/runtime-checks/phase-c-20261013/delivery-focused-results.xml",
+    "phase_c_mechanisms": 9,
+    "full_exact_feedback": "Real invalid crossing rejected by exact_candidate, then retained state updated despite a different current layout; actual geometry-driven feedback produced.",
+    "broad_suite": false,
+    "tests": 67,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 96.776,
+    "syntax": "PASS",
+    "diff_check": "PASS"
+  },
+  "no_paid_ai": true,
+  "no_browser": true,
+  "no_broad_suite": true,
+  "interrupted_attempt": "output\\runtime-checks\\phase-c-20261013\\normal-generate\\interrupted.json"
+}

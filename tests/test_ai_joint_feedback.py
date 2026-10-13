@@ -25,7 +25,7 @@ def direct_screen(design):
     # Supply real shared-Router coaxial cuts to the real source/pair screen.
     # Freeze candidate enumeration only, so the layout feedback is exercised
     # without an unrelated large fixed-layout corridor search.
-    session=Session();session.context=session.source_context(design,{}, {},{})
+    session=Session();session.context=session.source_context(design,{}, {},{},TOOLS)
     session._prepared_once=True;session.remaining=0
     for net in design.nets:
         c=Catalog(design,net,{}, {},{},TOOLS,{})
@@ -134,10 +134,10 @@ def test_optimizer_uses_refined_failure_for_next_layout_and_real_exact(monkeypat
     monkeypatch.setattr(initialization,'initial_candidates',lambda *args:iter(()))
     monkeypatch.setattr(joint_layout,'actions',lambda *args:iter(()))
     observed=[];real_feedback=initialization.route_feedback
-    def feedback(target,assessment,*args):
+    def feedback(target,assessment,*args,**kwargs):
         observed.append(assessment)
         # Scheduling adversary: only the refined diagnostic generates actions.
-        return real_feedback(target,assessment,*args) if assessment.get('routing_refinement') else iter(())
+        return real_feedback(target,assessment,*args,**kwargs) if assessment.get('routing_refinement') else iter(())
     monkeypatch.setattr(initialization,'route_feedback',feedback)
     monkeypatch.setattr(joint_layout,'run_exact',lambda target,defs,threads,modifiers,**kw:
         joint_layout.exact_candidate(target,defs,threads,modifiers,folder=kw.get('folder')))

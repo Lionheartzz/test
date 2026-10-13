@@ -97,7 +97,8 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
     counters.update(route_refinements=0,stalled_route_refinements=0)
     resources=RefinementSchedule(exact_limit,len(original.nets),layout_limit)
     inspected=set();routing_rejections=[];hypotheses={};family_counts={};schedule=itertools.cycle(('size','face','group','individual','feedback'))
-    route_session=Session();assessments={};feedback_streak=0;frame_pages={};record_indices={};coupled_evaluations={}
+    route_session=Session();route_session.solver.domain=domain.diagnostics()
+    assessments={};feedback_streak=0;frame_pages={};record_indices={};coupled_evaluations={}
     frame_schedule=itertools.cycle(('feedback','initial','feedback','explore'))
     feedback_schedule=itertools.cycle(('feedback-coupled','feedback-size','feedback-face','feedback-group','feedback-position'))
     transform_limit=layout_limit*64
@@ -136,6 +137,12 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
     frames.append((original,iter(initial_candidates(original,definitions,domain,threads,modifiers)),'initial'))
     frames.append((original,iter(actions(original,definitions,domain,threads,modifiers)),'explore'))
     def record_state(row,target):
+        state=route_session.solver.states.get(row['assessment'].get('joint_solver',{}).get('dependency'))
+        if state is not None and state.assessment is not row['assessment']:
+            # Full Exact may evaluate an earlier layout while another source
+            # state is current. Feedback must use that layout's NEW outcome,
+            # not its cached pre-CAD assessment or the most recent layout.
+            route_session.solver.update(row['assessment'],state=state)
         row['joint_state']=capture(target,row['assessment'],definitions)
         row['routing_scale']=min((n.diameter for n in target.nets),default=1)
         parent=row.get('parent_layout_index')
@@ -150,7 +157,9 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
         # Other compatible layouts keep their own action frontier.
         key=signature(target)
         frames[:]=[f for f in frames if f[2]!='feedback' or signature(f[0])!=key]
-        frames.insert(0,(target,iter(route_feedback(target,row['assessment'],definitions,domain,threads,modifiers)),'feedback'))
+        state=route_session.solver.states.get(row['joint_state'].get('joint_dependency'))
+        frames.insert(0,(target,iter(route_feedback(target,state.assessment if state else row['assessment'],
+            definitions,domain,threads,modifiers,joint_state=state)),'feedback'))
     def expand_page():
         if not frames or counters['transforms']>=transform_limit:return False
         started=time.monotonic()
@@ -159,8 +168,10 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
         # the last rejected descendant while its better siblings wait forever.
         def frame_rank(frame):
             key=signature(frame[0]);a=assessments.get(key,{})
-            return (a.get('status')=='SOURCE_LAYOUT_REJECTED',len(a.get('unresolved_nets',original.nets)),
-                    frame_pages.get((key,kind),0))
+            # A geometry with temporarily fewer routed Nets must still expose
+            # its different source/window space. Age precedes soft coverage.
+            return (a.get('status')=='SOURCE_LAYOUT_REJECTED',frame_pages.get((key,kind),0),
+                    len(a.get('unresolved_nets',original.nets)))
         index=min((i for i,f in enumerate(frames) if f[2]==kind),key=lambda i:frame_rank(frames[i]))
         parent,iterator,kind=frames.pop(index);exhausted=False
         token=(signature(parent),kind);frame_pages[token]=frame_pages.get(token,0)+1
@@ -321,6 +332,8 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
             if cancelled():raise
             result=dict(status='EXACT_UNAVAILABLE',validation=None,design=target.model_dump(),error=str(exc),failures=[],full_cad_evaluated=False)
         counters['exact_attempts']+=1;attempts.append(dict(layout_index=chosen['index'],index=len(attempts),**result))
+        chosen['assessment']={**chosen['assessment'],'full_exact_status':result['status'],
+            'full_exact_outcome':{k:result.get(k) for k in ('status','topology','step','error','full_cad_evaluated')}}
         if result['status']!='EXACT_FEASIBLE':
             rejected=Design.model_validate(result['design']);focus=_focus(rejected,result.get('failures',[]))
             chosen['assessment']={**chosen['assessment'], 'blocked_nets':[n.id for n in target.nets if {m.split(':')[0] for m in n.members}&focus],
@@ -331,6 +344,7 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
             chosen['assessment']['spatial_feedback']=source_witnesses
             source=Design.model_validate(chosen['design'])
             record_state(chosen,source);feedback(chosen,source)
+        else:record_state(chosen,Design.model_validate(chosen['design']))
     if not records:
         records=[dict(index=0,family='initial-scaffold',design=original.model_dump(),assessment=dict(status='SOURCE_LAYOUT_REJECTED',compatible=False,
             score=(1,),feasibility_score=(1,),blocked_nets=[],conflicts=[['source_envelope']],route_features=[]))]
@@ -346,12 +360,18 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
         status=best['status'];validation=best['validation']
     else:
         selected=min(records,key=analytic_rank);output=Design.model_validate(selected['design']);validation=None
-        status='ANALYTIC_UNVALIDATED' if not exact_limit else 'UNRESOLVED_LAYOUT'
-        if exact_limit:
-            for net in output.nets:
-                if net.routing=='automatic':
-                    net.route_state='stale';net.routing_variant=None
-                    net.route_issue='AI layout/routing remains unresolved. Review retained constraints or explicitly Reroute; Model will preserve all source positions.'
+        ready=selected['joint_state']['source_layout_status']=='SOURCE_LAYOUT_READY'
+        status='SOURCE_LAYOUT_READY_ROUTING_PENDING' if ready else 'SOURCE_LAYOUT_REJECTED'
+        # Preserve the useful layout AND real compatible partial machining.
+        # These are proposals, not manufacturing approval or implicit Model
+        # permission to resize/replan. Missing Nets remain explicitly pending.
+        cuts=[Feature.model_validate(f) for f in selected['assessment'].get('partial_routing',{}).get('features',[])]
+        output.features.extend(cuts)
+        for net in output.nets:
+            if net.routing=='automatic':
+                net.route_state='proposal' if any(f.route_net==net.id for f in cuts) else 'unresolved'
+                net.routing_variant=None
+                net.route_issue='AI routing is not fully accepted. Review retained constraints or explicitly Reroute; Model preserves source positions.'
     # The complete geometry is the handoff, never a variant/candidate registry.
     proposals=[dict(design=output.model_dump(),assessment={k:v for k,v in selected['assessment'].items() if k!='route_features'},
         reason='Joint source-constrained placement, dimensions and shared routing',dimensions=list(dimensions(output.block)))]
@@ -366,6 +386,13 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
     result['resource_schedule']['ordinary_routing']=dict(state_limit_per_layout=1000,pair_limit_per_layout=4000)
     result['resource_schedule']['exact']=dict(limit=exact_limit,attempts=len(attempts))
     result['packing_diagnostics']=domain._packing_diagnostics
+    result['joint_solver_summary']=dict(geometry_states=len(route_session.solver.states),
+        conditional_constraints=sum(len(s.constraints) for s in route_session.solver.states.values()),
+        repair_transactions=sum(len(s.transactions) for s in route_session.solver.states.values()),
+        continuation_states=len(route_session.search_context.searches),
+        newly_expanded_labels=sum(s.budget['used'] for s in route_session.search_context.searches.values()),
+        source_layout_status=selected['joint_state']['source_layout_status'],
+        routing_status='FULL_EXACT_ACCEPTED' if accepted else selected['joint_state']['routing_status'])
     result['hard_constraint_conflicts']=constraint_conflicts(original,definitions,domain,threads,modifiers)
     result['outcome_classification']='EXACT_FEASIBLE' if accepted else 'PROVEN_HARD_CONSTRAINT_CONFLICT' if result['hard_constraint_conflicts'] else 'UNRESOLVED_SEARCH_OR_ENGINEERING'
     if evidence_dir:atomic_json(Path(evidence_dir)/'layout-search.json',result)

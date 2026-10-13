@@ -23,6 +23,9 @@ def capture(design, assessment, definitions):
         drilling_ids=[f.id for f in route if f.route_net==n],
         geometry=geometry_key([f for f in route if f.route_net==n])) for n in sorted(covered)}
     missing=sorted(set(required)-covered)
+    solver=assessment.get('joint_solver',{})
+    transactions=solver.get('repair_transactions',[])
+    source_ready=assessment.get('status')!='SOURCE_LAYOUT_REJECTED' and not assessment.get('fixed_conflicts')
     hard=assessment.get('fixed_conflicts',[])
     exact=assessment.get('exact_failures',[])
     constraints=assessment.get('coordination_constraints',[])
@@ -40,6 +43,14 @@ def capture(design, assessment, definitions):
         choices=[(len(v['nets']),len(v['pairs'])) for (n,_),v in alternatives.items() if n==name]
         burden.append(min(choices) if choices else (len(required)+1,0))
     return dict(status='SEARCH_STATE_NOT_ENGINEERING_APPROVAL',dimensions=list(dimensions(design.block)),
+        source_layout_status='SOURCE_LAYOUT_READY' if source_ready else 'SOURCE_LAYOUT_REJECTED',
+        routing_status='ANALYTIC_COMPLETE' if assessment.get('compatible') else 'ROUTING_PENDING',
+        joint_dependency=solver.get('dependency'),hard_domain=solver.get('domain',{}),
+        conditional_constraints=solver.get('conditional_constraints',[]),
+        repair_transactions=transactions,continuation=solver.get('continuation',[]),
+        exploration=dict(alternate_source_entries=len(assessment.get('spatial_feedback',[])),
+            pending_joint_branches=sum(t['pending_jobs'] for t in transactions),
+            new_conditional_depth=max((len(p['new_routes']) for t in transactions for p in t['pending']),default=0)),
         placements=[dict(id=f.id,face=f.face,u=f.u,v=f.v,rotation=f.rotation) for f in design.features],
         compatible_nets=sorted(covered),unresolved_nets=missing,route_dependencies=dependencies,
         locally_admitted_nets=sorted(n for n in covered if local.get(n,{}).get('status')=='LOCAL_EXACT_ADMISSIBLE'),

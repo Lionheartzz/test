@@ -283,7 +283,8 @@ def _combined_actions(design,witnesses,definitions,domain,threads,modifiers):
                             # Different missing-Net alternatives are mutually
                             # exclusive. Do not intersect their constraints as
                             # if every candidate must be machined simultaneously.
-                            assignment=(witness.get('missing_net'),witness.get('candidate'))
+                            assignment=(tuple(tuple(a) for a in witness['arrangements']) if witness.get('arrangements') else
+                                        (witness.get('missing_net'),witness.get('candidate')))
                             key=(assignment,tuple(sorted(owners)),axis,delta>0)
                             state=moves.setdefault(key,dict(delta=delta,opponents=set(),pairs=set(),nets=set()))
                             if abs(delta)>abs(state['delta']):state['delta']=delta
@@ -317,10 +318,24 @@ def _orientations(design,witnesses,definitions,domain,threads,modifiers):
         queues=active
 
 
-def measured_actions(design,assessment,definitions,domain,threads,modifiers):
+def measured_actions(design,assessment,definitions,domain,threads,modifiers,*,joint_state=None):
     """Interleave actual constraint families; one witness cannot starve others."""
     from .design_space import signature
-    witnesses=assessment.get('coordination_constraints',assessment.get('witnesses',[]))
+    # The operation-owned solver retains conditioned machining failures even
+    # when a different compatible core becomes the incumbent. Their source
+    # dependency is THIS layout, never a cross-revision unconditional ban.
+    unified=assessment.get('joint_solver',{})
+    dependency=joint_state.dependency if joint_state is not None else unified.get('dependency')
+    facts=joint_state.constraints.values() if joint_state is not None else unified.get('conditional_constraints',[])
+    propagated=[]
+    for c in facts:
+        if c['state']!='PROVEN_VIOLATION' or c['dependency']!=dependency:continue
+        implicated={v for r in c['failures'] for v in r[1:]}
+        features=[f for f in c.get('features',[]) if f['id'] in implicated]
+        if features:propagated.append({**c,'features':features})
+    witnesses=[*assessment.get('coordination_constraints',assessment.get('witnesses',[])),*propagated]
+    assessment={**assessment,'coordination_constraints':witnesses,
+                'spatial_feedback':joint_state.source_obstacles if joint_state is not None else assessment.get('spatial_feedback',[])}
     orientation_witnesses=[*witnesses,*[dict(nets=[w['net']]) for w in assessment.get('spatial_feedback',[])]]
     from .coupled_layout import actions as coupled_actions
     queues=[iter(coupled_actions(design,assessment,definitions,domain,threads,modifiers)),

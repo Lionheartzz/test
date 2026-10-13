@@ -24,7 +24,7 @@ class RefinementSchedule:
     @staticmethod
     def _structure(state):
         placements=state['placements']
-        poses=tuple((f['id'],f['face'],f['rotation']%360) for f in placements)
+        poses=tuple((f['id'],f['face'],f['rotation']%360,f.get('u'),f.get('v')) for f in placements)
         # A relative source ordering can open different corridors without a
         # new face or stock size. Use world window coordinates when available.
         frames=state.get('interface_frames',[])
@@ -44,15 +44,20 @@ class RefinementSchedule:
         for row in rows:
             a=row['assessment'];s=row['joint_state'];h=self.history.get(row['index'],{})
             if a['status']=='SOURCE_LAYOUT_REJECTED' or a.get('compatible') or s['exact_failures']:continue
-            if h.get('stalled',0) and not final:continue
+            opportunity=s.get('exploration',{})
+            continuing=bool(opportunity.get('pending_joint_branches'))
+            if h.get('stalled',0) and not final and not continuing:continue
             coverage=len(s['compatible_nets']);burden=tuple(s.get('repair_burden',(0,0)))
             novel=self._novel(row)
             # Only the first same-quality state is probed early. Other geometry
             # must improve coverage/conflicts or provide a new spatial structure.
-            if self.history and not final and not novel and not any(
+            if self.history and not final and not novel and not continuing and not any(
                 coverage>v['coverage'] or coverage==v['coverage'] and burden<v['burden'] for v in self.history.values()):continue
-            lost=len(row.get('joint_transition',{}).get('lost_compatible_nets',[]))
-            eligible.append(((-coverage,burden,not novel,h.get('stalled',0),lost,row['index']),row))
+            # Fair access to distinct future space precedes current coverage.
+            # A temporary retreat gets a deep turn; it is never deleted as
+            # dominated by a geometrically different 6/8 incumbent.
+            eligible.append(((h.get('calls',0),not novel,-opportunity.get('new_conditional_depth',0),
+                              -coverage,burden,h.get('stalled',0),row['index']),row))
         if not eligible:return None
         _,chosen=min(eligible,key=lambda r:r[0])
         limits={k:min(available[k],self.quantum[k]) for k in available}

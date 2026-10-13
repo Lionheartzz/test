@@ -167,10 +167,10 @@ def constraint_conflicts(design,definitions,domain,threads,modifiers):
     return conflicts
 
 
-def route_feedback(design,assessment,definitions,domain,threads,modifiers):
+def route_feedback(design,assessment,definitions,domain,threads,modifiers,*,joint_state=None):
     """Convert actual missing/obstructed routes to interface/group hypotheses."""
     from .route_feedback import measured_actions
-    yield from measured_actions(design,assessment,definitions,domain,threads,modifiers)
+    yield from measured_actions(design,assessment,definitions,domain,threads,modifiers,joint_state=joint_state)
     failed=set(assessment.get('blocked_nets',[]))
     failed.update(assessment.get('unresolved_nets',[]))
     failed.update(n for w in assessment.get('coordination_constraints',[]) for n in w['nets'])

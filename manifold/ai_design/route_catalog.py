@@ -133,7 +133,7 @@ class Catalog:
             else:first.append(o);seen.add(arrangement(o))
         return (first+rest)[:width]
 
-    def diagnostics(self, active):
+    def diagnostics(self, active, *, all_rejections=False):
         from ..routing import _conflict_objective, route_objective
         rejected=sorted(self.rejected,key=lambda o:(_conflict_objective(o['failures']),
             route_objective(self.source,o['route'],definitions=self.definitions),o['key']))
@@ -141,8 +141,11 @@ class Catalog:
             candidate_errors=self.errors,families=dict(self.families),reused=self.reused,
             deferred_clear=max(0,len(self.clear)-len(active)),unexpanded_families=[n for n,_ in self.queues],
             pending_entry_repairs=len(self.refinements),connectivity='NOT_EXACT_VERIFIED',
+            # Entry/layer diversity is evidence even when another entry is
+            # source-clear. Keep every distinct explored arrangement; feedback
+            # consumes it lazily under its own transform budget.
             rejected_samples=[dict(variant=o['key'],failures=sorted(o['failures']),
-                features=[f.model_dump(mode='json') for f in o['route']]) for o in rejected[:3]])
+                features=[f.model_dump(mode='json') for f in o['route']]) for o in (rejected if all_rejections else rejected[:3])])
 
 
 class Session:
@@ -156,6 +159,8 @@ class Session:
         from ..routing_continuation import AISearchContext
         self.search_context=AISearchContext()
         self.local_admission=None;self.local_records={};self.local_source_dependency=None
+        from .joint_solver import JointSolver
+        self.solver=JointSolver(self)
 
     def admit_core(self,source,nets,core):
         from .local_admission import LocalAdmission
@@ -169,12 +174,17 @@ class Session:
         return kept
 
     def permits_core(self,core):
-        return self.local_admission is None or self.local_admission.permits(core)
+        return self.solver.permits(core) and (self.local_admission is None or self.local_admission.permits(core))
 
-    def source_context(self,source,definitions,threads,modifiers):
-        import hashlib,json
-        return hashlib.sha256((source.model_dump_json()+json.dumps(
-            [sorted((k,d.model_dump_json()) for k,d in definitions.items()),threads,modifiers],sort_keys=True,default=str)).encode()).hexdigest()
+    def source_context(self,source,definitions,threads,modifiers,tools=None):
+        from ..routing_continuation import dependency_key
+        from ..engineering_db import tool_definitions
+        # Tool, closure, explicit endpoint and engineering dependencies are
+        # part of the same state as placement, not an outer geometry-only LRU.
+        if source.nets:
+            return dependency_key(source,source.nets[0],definitions,threads,modifiers,[],
+                                  tool_definitions('drill') if tools is None else tools)
+        return source.model_dump_json()
 
     def seed_combination(self,source,chosen):
         # Restored diagnostics supply real cuts, not a compatibility approval.
@@ -187,17 +197,9 @@ class Session:
         record=dict(source_context=self.context,clear_pairs=clear_pairs,terminals=terminals,chosen=chosen,
             locations={n:cut_locations(source,o['route']) for n,o in chosen.items()})
         self.combinations=[r for r in self.combinations if identity(r)!=identity(record)]+[record]
-        # Repeatedly remembering one core must not evict all alternative
-        # assignments. Round-robin covered-Net sets, then actual cut geometry.
-        groups=defaultdict(deque)
-        for r in sorted(self.combinations,key=lambda r:-len(r['chosen'])):groups[tuple(sorted(r['chosen']))].append(r)
-        kept=[]
-        while groups and len(kept)<max(4,len(source.nets)):
-            for key in list(groups):
-                kept.append(groups[key].popleft())
-                if not groups[key]:del groups[key]
-                if len(kept)>=max(4,len(source.nets)):break
-        self.combinations=kept
+        # A lower-coverage core with different entrances is not dominated by a
+        # longer incumbent. Count budgets bound expansion, not equivalence.
+        if self.solver.current:self.solver.current.retain(chosen)
 
     def compatible_core(self,source,nets,pair):
         best={};discarded=set();checked=0;valid=[]
@@ -218,7 +220,7 @@ class Session:
         return best
 
     def prepare(self, source, nets, definitions, threads, modifiers, tools, progress=None):
-        context=self.source_context(source,definitions,threads,modifiers)
+        context=self.source_context(source,definitions,threads,modifiers,tools)
         self.invalidated=self.context is not None and self.context!=context
         if context in self.contexts and not self._prepared_once:
             self.catalogs,self.cache,self.pair_evidence,self.remaining=self.contexts[context]
@@ -257,7 +259,8 @@ class Session:
 
     def remember_context(self):
         self.contexts[self.context]=(self.catalogs,self.cache,self.pair_evidence,self.remaining)
-        while len(self.contexts)>max(4,len(self.catalogs)):self.contexts.pop(next(iter(self.contexts)))
+        # Operation lifetime and count budgets bound storage. Dropping a live
+        # geometry here used to discard deferred entrance/fragment work.
 
     def coordinate(self,source,witnesses):
         """Allocate reserved samples to conflicting real cut planes, both Nets.

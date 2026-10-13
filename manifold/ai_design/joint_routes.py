@@ -13,7 +13,7 @@ def fingerprint(chosen):
     return tuple(sorted((n,geometry_key(o['route'])) for n,o in chosen.items()))
 
 
-def extend(source,nets,pools,pair,seed,work,*,eligible=lambda core:True):
+def extend(source,nets,pools,pair,seed,work,*,eligible=lambda core:True,retain=lambda core:None):
     """Maximum compatible partial CSP. A blocked Net is deferred, not fatal."""
     from ..routing import route_objective
     fits=lambda chosen:len(source.features)+sum(len(o['route']) for o in chosen.values())<=120
@@ -29,6 +29,7 @@ def extend(source,nets,pools,pair,seed,work,*,eligible=lambda core:True):
         token=(fingerprint(chosen),tuple(sorted(remaining)))
         if token in seen:return
         seen.add(token);work['states']+=1
+        retain(chosen)
         if rank(chosen)<rank(best):best=dict(chosen)
         if len(best)==len(nets) or len(chosen)+len(remaining)<=len(best):return
         domains={};blocked={}
@@ -65,9 +66,9 @@ def extend(source,nets,pools,pair,seed,work,*,eligible=lambda core:True):
     return best,conflicts
 
 
-def improve(source,nets,pools,pair,seed,work,*,eligible=lambda core:True):
+def improve(source,nets,pools,pair,seed,work,*,eligible=lambda core:True,retain=lambda core:None):
     """Insert first; then finite conflict-directed release of retained Nets."""
-    best,conflicts=extend(source,nets,pools,pair,seed,work,eligible=eligible)
+    best,conflicts=extend(source,nets,pools,pair,seed,work,eligible=eligible,retain=retain)
     events=[];groups=set()
     for name in sorted(set(nets)-set(best)):
         for option in pools.get(name,[]):
@@ -79,7 +80,7 @@ def improve(source,nets,pools,pair,seed,work,*,eligible=lambda core:True):
     for group in sorted(groups,key=lambda g:(len(g),g)):
         if work['states']>=work['limit'] or len(best)==len(nets):break
         fixed={n:o for n,o in best.items() if n not in group}
-        trial,failed=extend(source,nets,pools,pair,fixed,work,eligible=eligible)
+        trial,failed=extend(source,nets,pools,pair,fixed,work,eligible=eligible,retain=retain)
         events.append(dict(action='RELEASE_AND_REINSERT',nets=list(group),retained=sorted(fixed),
                            before=len(best),after=len(trial)))
         conflicts.extend(failed)
@@ -251,18 +252,23 @@ def corridor_alternatives(source,net,bases,reserved,definitions,threads,modifier
 
 def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=True,limits=None):
     """Preserve a compatible core; repair missing Nets, then their blockers."""
+    session.solver.bind(source,nets,session.catalogs)
     if session.local_admission:session.local_admission.bind(source,nets,session.catalogs)
     overall=work['limit'];work['limit']=min(overall,work['states']+max(32,overall//3))
-    best,events,conflicts=improve(source,nets,pools,pair,seed,work,eligible=session.permits_core)
+    retain=session.solver.current.retain if session.solver.current else lambda core:None
+    best,events,conflicts=improve(source,nets,pools,pair,seed,work,eligible=session.permits_core,retain=retain)
     best=session.admit_core(source,nets,best)
     work['limit']=overall
     start=len(seed);samples=0;generation=[];seen=set();pending=deque();core_states={fingerprint(best):best}
     for core in getattr(session,'validated_cores',[]):
         if not session.permits_core(core):continue
-        if len(core)>=len(best)-1 and len(core_states)<max(4,len(nets)):core_states.setdefault(fingerprint(core),core)
+        core_states.setdefault(fingerprint(core),core)
+    if session.solver.current:
+        for core in session.solver.current.cores.values():
+            if session.permits_core(core):core_states.setdefault(fingerprint(core),core)
     advanced=bool(fragments and (labels or len(seed)>=max(1,len(nets)-2)))
     jobs_seen=set();frontiers=session.corridor_frontiers
-    if fragments:
+    if fragments and not labels:
         pending.extend(frontiers.pop(session.context,()))
         jobs_seen.update((name,fingerprint(outside),fingerprint(core)) for name,outside,_,core in pending)
     if len(best)>start:events.append(dict(action='EXTEND_FROM_EXISTING_POOLS',before=start,after=len(best),nets=sorted(best)))
@@ -299,19 +305,24 @@ def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=Tru
             blockers={n for n,p in best.items() if pair(name,option,n,p)}
             core={n:p for n,p in best.items() if n not in blockers};core[name]=option
             if not session.permits_core(core):continue
-            if len(core)>=len(best)-1 and len(source.features)+sum(len(o['route']) for o in core.values())<=120:
+            if len(source.features)+sum(len(o['route']) for o in core.values())<=120:
                 alternatives.append((-len(core),len(blockers),name,option['key'],core,blockers))
     for _,_,name,_,core,blockers in sorted(alternatives,key=lambda r:r[:4]):
         token=fingerprint(core)
-        if token in core_states or len(core_states)>=max(4,len(nets)):continue
+        if token in core_states:continue
         core_states[token]=core;session.seed_combination(source,core)
         events.append(dict(action='REPLAY_ALTERNATIVE_CORE',inserted=name,released=sorted(blockers),compatible_nets=sorted(core)))
-    if fragments:
+    if fragments and not labels:
         for core in sorted(core_states.values(),key=lambda c:-len(c)):pending.extend(jobs(core))
     sample_limit=limits['samples'] if limits else session.remaining
+    # Deep allocations belong to the joint continuation frontier first.
+    # Expanding every old core's independent fragment iterators beforehand
+    # spent pair resources and costly cut evaluations before the transaction
+    # ever ran. Those iterators/cores remain deferred, not discarded.
+    fragment_limit=0 if labels else sample_limit
     if limits:session.remaining=max(session.remaining,sample_limit)
     probes=0;duplicates=0;checkpoints={};probe_limit=limits['probes'] if limits else max(1,session.remaining)*4
-    while pending and session.remaining and samples<sample_limit and work['states']<work['limit'] and len(best)<len(nets) and probes<probe_limit:
+    while pending and session.remaining and samples<fragment_limit and work['states']<overall//2 and len(best)<len(nets) and probes<probe_limit:
         name,outside,iterator,core=pending.popleft()
         try:option=next(iterator)
         except StopIteration:continue
@@ -339,7 +350,7 @@ def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=Tru
         provisional={n:p for n,p in core.items() if n not in actual_blockers and n!=name}
         provisional[name]=option;token=fingerprint(provisional)
         valid=len(source.features)+sum(len(o['route']) for o in provisional.values())<=120 and session.permits_core(provisional)
-        if valid and len(provisional)>=len(best)-1 and token not in core_states and len(core_states)<max(4,len(nets)):
+        if valid and token not in core_states:
             core_states[token]=provisional
             events.append(dict(action='RETAIN_ALTERNATIVE_CORE',inserted=name,released=sorted(actual_blockers),
                                compatible_nets=sorted(provisional),status='ANALYTIC_NOT_EXACT'))
@@ -350,7 +361,7 @@ def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=Tru
         if samples%4 and blocked:continue
         work['limit']=min(overall,work['states']+32)
         trial,moves,failed=improve(source,nets,pools,pair,provisional if valid and len(provisional)>=len(best) else best,work,
-                                 eligible=session.permits_core)
+                                 eligible=session.permits_core,retain=retain)
         work['limit']=overall
         events.extend(moves);conflicts.extend(failed)
         trial=session.admit_core(source,nets,trial)
@@ -360,48 +371,65 @@ def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=Tru
         if labels and work['states']>=overall*3//4:break
     searches=[];used_labels=0
     if labels and len(best)<len(nets) and work['states']<overall:
-        from ..drilling_planner import plan_net
-        missing=sorted(set(nets)-set(best));releases=[]
+        from .joint_solver import RepairTransaction,assignment_key
+        state=session.solver.current
+        missing=sorted(set(nets)-set(best));releases=set()
         for name in missing:
-            releases.append((name,{name}))
-            obstruction_sets=[]
+            releases.add((name,))
             for option in pools.get(name,[]):
                 blockers={n for n,p in best.items() if pair(name,option,n,p)}
-                if blockers:obstruction_sets.append(blockers)
-            for blockers in sorted(obstruction_sets,key=lambda s:(len(s),sorted(s)))[:2]:
-                releases.append((name,{name,*blockers}))
-        # Probe each missing Net, then its attributed release group. Retained
-        # outside cuts remain full machining obstacles in the shared planner.
-        releases.sort(key=lambda row:(len(row[1]),row[0]));unique=set()
-        for index,(name,group) in enumerate(releases):
-            if used_labels>=labels or len(best)==len(nets) or work['states']>=overall or limits and samples>=sample_limit:break
-            if (name,tuple(sorted(group))) in unique:continue
-            unique.add((name,tuple(sorted(group))))
+                if blockers:releases.add(tuple(sorted({name,*blockers})))
+        # Connected conflict components are additional neighborhoods. A repair
+        # can release a third Net instead of silently colliding with its cuts.
+        groups=[set(g) for g in releases if len(g)>1]
+        for group in groups:
+            component=set(group)
+            while True:
+                expanded=component|set().union(*(g for g in groups if g&component))
+                if expanded==component:break
+                component=expanded
+            releases.add(tuple(sorted(component)))
+        for group in sorted(releases,key=lambda g:(len(g)==1,len(g),g)):
             outside={n:o for n,o in best.items() if n not in group}
-            reserved=[f for o in outside.values() for f in o['route']];catalog=session.catalogs[name]
-            allowance=min(labels-used_labels,max(128,(labels-used_labels)//max(1,len(releases)-index)))
-            options,detail=plan_net(source,nets[name],catalog.definitions,catalog.threads,catalog.modifiers,
-                reserved=reserved,label_limit=allowance,alternatives=min(2,sample_limit-samples) if limits else 2,cache=session.cache,tools=catalog.tools,
-                ai_context=session.search_context)
-            used_labels+=detail.get('labels',0)
-            searches.append({**detail,'released':sorted(group),'reserved_nets':sorted(outside)})
-            for option in options:
-                catalog.accept(option['key'],option['route'],'reserved-3d')
-                if limits:samples+=1;session.remaining-=1
-            pools[name]=catalog.active(width=len(catalog.clear))
-            trial,moves,failed=improve(source,nets,pools,pair,best,work,eligible=session.permits_core)
+            token=(tuple(group),assignment_key(outside))
+            state.transactions.setdefault(token,RepairTransaction(state,group,outside))
+        transactions=deque(t for t in state.transactions.values() if t.queue)
+        # Round-robin transactions; each retains its own conditional tree and
+        # each shared single-Net heap survives the allocation boundary.
+        while transactions and used_labels<labels and samples<sample_limit and work['states']<overall and len(best)<len(nets):
+            transaction=transactions.popleft()
+            complete,spent,details=transaction.advance(session,pair,labels=min(128,labels-used_labels),
+                samples=sample_limit-samples,states=overall-work['states'])
+            used_labels+=spent['labels'];samples+=spent['samples'];work['states']+=spent['states']
+            session.remaining=max(0,session.remaining-spent['samples']);searches.extend(details)
+            if transaction.queue:transactions.append(transaction)
+            for trial in complete:
+                # Every member, including every newly regenerated member and
+                # all outside reservations, was screened in the same branch.
+                state.retain(trial);session.seed_combination(source,trial)
+                if len(trial)>len(best):
+                    events.append(dict(action='EXTEND_WITH_JOINT_3D',before=len(best),after=len(trial),
+                        released=sorted(transaction.group),regenerated=sorted(transaction.group),nets=sorted(trial)))
+                    best=trial
+            if not any(spent.values()):break
+        for name,catalog in session.catalogs.items():pools[name]=catalog.active(width=len(catalog.clear))
+        if work['states']<overall and len(best)<len(nets):
+            trial,moves,failed=improve(source,nets,pools,pair,best,work,eligible=session.permits_core,retain=retain)
             trial=session.admit_core(source,nets,trial)
             events.extend(moves);conflicts.extend(failed)
-            if len(trial)>len(best):
-                events.append(dict(action='EXTEND_WITH_RESERVED_3D',before=len(best),after=len(trial),nets=sorted(trial)))
-                best=trial
+            if len(trial)>len(best):best=trial
+        events.extend(e for t in state.transactions.values() for e in t.events)
+    if session.solver.current:
+        for core in core_states.values():session.solver.current.retain(core)
+        session.solver.current.retain(best)
     if pending and len(best)<len(nets):frontiers[session.context]=pending
-    while len(frontiers)>max(4,len(nets)):frontiers.pop(next(iter(frontiers)))
     return best,dict(status='ANALYTIC_PARTIAL_NOT_EXACT',initial_compatible=start,best_compatible=len(best),
         generator_checkpoints=checkpoints,raw_probe_limit=probe_limit,
         pending_corridor_examples=[dict(net=n,reserved_nets=sorted(outside),compatible_core=sorted(core)) for n,outside,_,core in list(pending)[:8]],
         states=work['states'],state_limit=work['limit'],samples=samples,duplicate_probes=duplicates,raw_probes=probes,pending_corridor_batches=len(pending),
-        events=events,advanced_fragment_search=advanced,
+        events=events,advanced_fragment_search=advanced and not labels,
+        fragments_deferred_for_joint_continuation=bool(labels),
+        unexpanded_compatible_cores=len(core_states) if labels else 0,
         compatible_cores=[dict(nets=sorted(c),selected={n:o['key'] for n,o in c.items()}) for c in core_states.values()],
         insert_failures=conflicts[:64],generated=generation,labels=used_labels,net_searches=searches,
         missing_nets=sorted(set(nets)-set(best)),source_positions_unchanged=True)
