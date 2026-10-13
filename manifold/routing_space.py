@@ -204,10 +204,14 @@ class MachiningSpace:
                 first_contact=distance-max(radii)
                 tip_length=self.radius/math.tan(math.radians(Feature.model_fields['tip_angle'].default/2))
                 depth=first_contact-tip_length+.001
-                if depth<=10:continue
+                if depth<=0 or depth>=self.sizes[axis]:continue
                 identifier='R3D_SIDE_'+hashlib.sha256((member+face).encode()).hexdigest()[:16]
-                bore=bind_route(self.design,[Feature(id=identifier,kind='drilling',face=face,u=point[u],v=point[v],
-                    depth=depth,diameter=self.net.diameter,circuit=self.net.id,route_net=self.net.id,plugged=True)])[0]
+                # Bind actual engagement before validating a plugged short cut;
+                # the schema's legacy 8 mm default is not an engineering limit.
+                raw=Feature(id=identifier,kind='drilling',face=face,u=point[u],v=point[v],
+                    depth=depth,diameter=self.net.diameter,circuit=self.net.id,route_net=self.net.id)
+                bore=bind_route(self.design,[raw.model_copy(update=dict(plugged=True))])[0]
+                if bore.plug_length>=depth:continue
                 tip=self.radius/math.tan(math.radians(bore.tip_angle/2))
                 if not bore.closure_definition_id or not any(abs(t['diameter_mm']-bore.diameter)<=.011 and t['max_depth_mm']>=depth+tip for t in self.tools):continue
                 if route_obstructions(self.context,self.net,[bore],self.threads,self.definitions,self.modifiers,self.cache):continue
@@ -240,10 +244,13 @@ class MachiningSpace:
             # supplied separately by the existing axial eligibility path.
             for extension in (self.radius,):
                 depth=max(distances)+extension
-                if depth<=8 or depth>=self.sizes[axis]:continue
+                # A short functional continuation can be machinable. Stock,
+                # actual tool reach, closure engagement and source protection
+                # below determine feasibility, not a nominal minimum length.
+                if min(distances)<0 or depth<=0 or depth>=self.sizes[axis]:continue
                 digest=hashlib.sha256(repr((self.net.id,face,a[u],a[v],depth,self.net.diameter)).encode()).hexdigest()[:20]
                 feature=Feature(id='R3D_'+digest,kind='drilling',face=face,u=a[u],v=a[v],diameter=self.net.diameter,
-                    depth=depth,circuit=self.net.id,route_net=self.net.id,plugged=not functional)
+                    depth=depth,circuit=self.net.id,route_net=self.net.id).model_copy(update=dict(plugged=not functional))
                 token=cut_key(feature)
                 if token not in self.actions:
                     self.generated+=1
@@ -252,7 +259,7 @@ class MachiningSpace:
                     failures=set()
                     if not any(abs(t['diameter_mm']-feature.diameter)<=.011 and t['max_depth_mm']+1e-6>=depth+tip for t in self.tools):failures.add(('tool_reach',feature.id))
                     if feature.plugged and not feature.closure_definition_id:failures.add(('closure_unresolved',feature.id))
-                    if min(distances)<= (feature.plug_length+self.radius if feature.plugged else 0):failures.add(('occupied_entry',feature.id))
+                    if feature.plugged and feature.plug_length>=depth:failures.add(('closure_engagement',feature.id))
                     failures|=route_obstructions(self.context,self.net,[feature],self.threads,self.definitions,self.modifiers,self.cache)
                     self.actions[token]=(feature,failures)
                     for failure in failures:
@@ -261,6 +268,15 @@ class MachiningSpace:
                 feature,failures=self.actions[token]
                 if failures:continue
                 trial=self.attach(route,feature)
+                actual=next(f for f in trial if f.face==feature.face and abs(f.u-feature.u)<1e-8
+                            and abs(f.v-feature.v)<1e-8 and f.diameter==feature.diameter)
+                # The same complete cut may serve different path segments.
+                # Endpoint clearance is a transition condition, never a cached
+                # property of the cut. A deeper existing coaxial cut may retain
+                # a different closure after attach(), so inspect the actual cut.
+                if min(distances)<= (actual.plug_length+self.radius if actual.plugged else 0):
+                    self.failures['occupied_entry']+=1
+                    continue
                 if self.rejected_measurement(trial):continue
                 if len(trial)+len(self.design.features)>120:continue
                 own=self.design.model_copy(update=dict(features=[]))

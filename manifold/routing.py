@@ -828,55 +828,30 @@ def exact_route_score(design, report, route, *, cad_error=False):
             len(unresolved),route_objective(design,route))
 
 
-def _plug_cut_overlap(plug, cut, block, plug_bounds=None, diameter=None):
-    """Return only witnessed finite-volume overlap; a proxy cannot certify clearance.
+def _plug_cut_overlap(plug, cut, block, plug_bounds=None, diameter=None, *,
+                      design=None, definitions=None, threads=None, modifiers=None, cache=None):
+    """Bounds can certify separation; otherwise inspect the actual installed plug.
 
-    Witnesses are strictly inside the plug and the actual axial/radial cut profile.
-    This avoids end-cap and infinite-line false positives while exact BRep remains
-    the authority for narrow intersections missed by this cheap candidate screen.
+    Finite sampling cannot certify safety, especially at shallow grazing cuts.
+    Use the production plug contour, not a nominal cylinder approximation.
     """
-    origin, direction = pose(plug, block)
-    cut_origin, cut_direction = pose(cut['feature'], block)
-    dot = lambda a, b: sum(x*y for x, y in zip(a, b))
-    subtract = lambda a, b: tuple(x-y for x, y in zip(a, b))
-    margin = 0.05
-    if plug.plug_length <= 2*margin or cut['end']-cut['start'] <= 2*margin:
-        return False
+    from .machining_predicates import bounds_state,ContactState,plug_violate
     from .closure_runtime import plug_diameter
-    diameter=plug_diameter(plug) if diameter is None else diameter
-    plug_bounds = plug_bounds if plug_bounds is not None else cylinder_bounds(plug, block, 0, plug.plug_length, diameter)
-    if cut.get('_bounds') is None:
-        cut['_bounds'] = cylinder_bounds(cut['feature'], block, cut['start'], cut['end'],
-                                        2*max(cut['radius_start'], cut['radius_end']))
-    cut_bounds = cut['_bounds']
-    if any(min(a[1], b[1])-max(a[0], b[0]) <= margin for a, b in zip(plug_bounds, cut_bounds)):
-        return False
-    projected = [dot(subtract(tuple(cut_origin[i]+cut_direction[i]*depth for i in range(3)), origin), direction)
-                 for depth in (cut['start'], (cut['start']+cut['end'])/2, cut['end'])]
-    positions = {plug.plug_length*i/min(32, max(4, math.ceil(plug.plug_length)))
-                 for i in range(1, min(32, max(4, math.ceil(plug.plug_length))))}
-    positions.update(t+offset for t in projected for offset in (-0.25, 0, 0.25))
-    reference = (1, 0, 0) if abs(direction[0]) < .9 else (0, 1, 0)
-    first = tuple(direction[(i+1)%3]*reference[(i+2)%3]-direction[(i+2)%3]*reference[(i+1)%3] for i in range(3))
-    norm = math.sqrt(dot(first, first))
-    first = tuple(x/norm for x in first)
-    second = tuple(direction[(i+1)%3]*first[(i+2)%3]-direction[(i+2)%3]*first[(i+1)%3] for i in range(3))
-    radial = [(0, 0)] + [(fraction*math.cos(i*math.pi/4), fraction*math.sin(i*math.pi/4))
-                         for fraction in (.5, .9) for i in range(8)]
-    for depth in sorted(t for t in positions if margin < t < plug.plug_length-margin):
-        center = tuple(origin[i]+direction[i]*depth for i in range(3))
-        for x, y in radial:
-            point = tuple(center[i]+diameter/2*(x*first[i]+y*second[i]) for i in range(3))
-            relative = subtract(point, cut_origin)
-            axial = dot(relative, cut_direction)
-            if not cut['start']+margin < axial < cut['end']-margin:
-                continue
-            radius = cut['radius_start']+(cut['radius_end']-cut['radius_start'])*(axial-cut['start'])/(cut['end']-cut['start'])
-            squared = dot(relative, relative)-axial*axial
-            if cut['inner_radius']+margin < math.sqrt(max(0, squared)) < radius-margin or (
-                    cut['inner_radius'] == 0 and squared < (radius-margin)**2):
-                return True
-    return False
+    cache=cache if cache is not None else {}
+    diameter=max(plug_diameter(plug) if diameter is None else diameter,plug.clearance_diameter)
+    # Inclined legacy plugs occupy a small extension outside the entry plane.
+    extension=0
+    if plug.direction:
+        cosine=abs(pose(plug,block)[1][FACE_AXES[plug.face][2]])
+        extension=plug.diameter/2*math.sqrt(max(0,1-cosine*cosine))/cosine
+    bounds=cylinder_bounds(plug,block,-extension,plug.plug_length,diameter)
+    other_bounds=cylinder_bounds(cut['feature'],block,cut['start'],cut['end'],
+                                 2*max(cut['radius_start'],cut['radius_end']))
+    if bounds_state(bounds,other_bounds,0)==ContactState.SAFE:return False
+    if design is None:
+        from .schema import Design
+        design=Design(name='Local machining contact',block=block)
+    return plug_violate(plug,cut,design,definitions or {},threads or {},modifiers or {},cache)
 
 
 def _manufacturing_cuts(feature, definitions, thread_definitions, modifier_definitions):
@@ -970,8 +945,10 @@ def _cut_slices(cut):
     yield from parts
 
 
-def _cuts_too_close(route_cuts, obstacle, block, clearance):
-    """Broad-phase finite bounds, then tapered profile slices only near a cut."""
+def _cuts_too_close(route_cuts, obstacle, block, clearance, cache=None):
+    """Prove separation with outer bounds; resolve uncertain finite cuts locally."""
+    from .machining_predicates import cuts_violate
+    cache=cache if cache is not None else {}
     def bounds(cut):
         if cut.get('_bounds') is None:
             cut['_bounds']=cylinder_bounds(cut['feature'], block, cut['start'], cut['end'],
@@ -982,7 +959,8 @@ def _cuts_too_close(route_cuts, obstacle, block, clearance):
             cut['_segment']=segment(cut['feature'],block,cut['start'],cut['end'])
         return cut['_segment']
     def separated(a, b):
-        return any(x[1]+clearance <= y[0]+1e-6 or y[1]+clearance <= x[0]+1e-6
+        tolerance=1e-6 if clearance>0 else 0
+        return any(x[1]+clearance <= y[0]+tolerance or y[1]+clearance <= x[0]+tolerance
                    for x,y in zip(a,b))
     outer_bounds = bounds(obstacle)
     for route_cut in route_cuts:
@@ -997,6 +975,7 @@ def _cuts_too_close(route_cuts, obstacle, block, clearance):
                 radial.append(math.sqrt(max(0,sum(v*v for v in delta)-axial*axial)))
             if max(radial)+max(route_cut['radius_start'],route_cut['radius_end'])+clearance <= obstacle['inner_radius']:
                 continue
+        uncertain=False
         for cut in _cut_slices(obstacle):
             cut_bounds = bounds(cut)
             for part in _cut_slices(route_cut):
@@ -1005,8 +984,11 @@ def _cuts_too_close(route_cuts, obstacle, block, clearance):
                 a,b = endpoints(part)
                 c,d = endpoints(cut)
                 if (segment_distance(a,b,c,d)-max(part['radius_start'],part['radius_end'])
-                        -max(cut['radius_start'],cut['radius_end']) < clearance-1e-6):
-                    return True
+                        -max(cut['radius_start'],cut['radius_end']) < clearance-(1e-6 if clearance>0 else 0)):
+                    uncertain=True
+                    break
+            if uncertain:break
+        if uncertain and cuts_violate(route_cut,obstacle,block,clearance,cache):return True
     return False
 
 
@@ -1069,16 +1051,22 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
             for other in obstacles:
                 if other.suppressed or other.id == bore.id or not (other.kind in ('port','cavity') or other.plugged):
                     continue
+                # A thread-only placeholder declares no installation envelope
+                # in production. Its real tap cut is still screened below.
+                if other.kind=='port' and other.thread_only and not other.definition:continue
                 definition = definitions[other.definition] if other.definition else None
-                diameter = definition.clearance_diameter if other.kind == 'cavity' and definition else other.clearance_diameter
-                height = definition.clearance_height if other.kind == 'cavity' and definition else other.clearance_height
+                diameter = definition.clearance_diameter if definition else other.clearance_diameter
+                height = definition.clearance_height if definition else other.clearance_height
                 c,d = segment(other, design.block, -height, 0)
                 if segment_distance(a,b,c,d)-(bore.clearance_diameter+diameter)/2 < design.rules.minimum_access_gap-1e-6:
+                    from .machining_predicates import access_violate
+                    if not access_violate(bore,other,design,definitions,thread_definitions,modifier_definitions,cache):continue
                     failures.add(('installation_access', *sorted((bore.id, other.id))))
             for other in obstacles:
                 if other.suppressed or other.id == bore.id:
                     continue
-                if any(_plug_cut_overlap(bore, cut, design.block,plug_bounds,plug_diameter_value) for cut in cuts(other)):
+                if any(_plug_cut_overlap(bore, cut, design.block,plug_bounds,plug_diameter_value,
+                        design=design,definitions=definitions,threads=thread_definitions,modifiers=modifier_definitions,cache=cache) for cut in cuts(other)):
                     failures.add(('plug_cut', *sorted((bore.id, other.id))))
         radius=bore.diameter/2
         route_cuts = cuts(bore)
@@ -1112,7 +1100,7 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
                         break
             for whole_cut, own_window in protected(other):
                 threshold = 0 if own_window and near_assigned else required_wall(design,bore,other,definitions=definitions)
-                if _cuts_too_close(route_cuts, whole_cut, design.block, threshold):
+                if _cuts_too_close(route_cuts, whole_cut, design.block, threshold,cache):
                     failures.add(('source_protected' if threshold==0 else 'source_wall',
                                   *sorted((bore.id, other.id))))
                     break
@@ -1120,7 +1108,7 @@ def route_obstructions(design, net, route,thread_definitions=None,definitions=No
             if other.suppressed or other.id == bore.id or other.definition or other.circuit == net.id:
                 continue
             for whole_cut in cuts(other):
-                if _cuts_too_close(route_cuts, whole_cut, design.block, required_wall(design,bore,other,definitions=definitions)):
+                if _cuts_too_close(route_cuts, whole_cut, design.block, required_wall(design,bore,other,definitions=definitions),cache):
                     failures.add(('cross_net_wall', *sorted((bore.id, other.id))))
                     break
         if bore.depth < 2*radius:continue

@@ -12,6 +12,23 @@ from ..routing import terminal_points
 from .design_space import anchored,signature,radius,source_conflicts,fit_violations
 
 
+def _forward_context(design,group,placed,owner,domain):
+    """Defer undecided poses only; locked obstacles exist at every beam depth."""
+    def fixed(f):
+        position=domain.fixed_positions.get(f.id,{})
+        located={'u','v'}<=position.keys() or {'x','y','z'}<=position.keys()
+        return f.id not in domain.movable or (located and f.id in domain.fixed_faces
+                                             and f.id in domain.fixed_rotations)
+    return design.model_copy(update=dict(features=[f for f in design.features
+        if f.id not in group or f.id in placed or f.id==owner or fixed(f)]))
+
+
+def _beam_key(design,placed,domain):
+    # Equal installation attitudes do not imply equal remaining machining
+    # space. Include coordinates, stock, cuts, Net bindings and constraints.
+    return design.model_dump_json(),tuple(sorted(placed)),repr(domain.diagnostics())
+
+
 def interfaces(design,definitions):
     points=terminal_points(design,definitions);result=[]
     for f in design.features:
@@ -149,7 +166,7 @@ def _actions(design,assessment,definitions,domain,threads,modifiers,groups):
                 expanded=[];quota=max(1,(allowance-spent)//max(1,(len(order)-index)*len(beam)))
                 for state,placed in beam:
                     feature=next(f for f in state.features if f.id==owner)
-                    context=state.model_copy(update=dict(features=[f for f in state.features if f.id not in group or f.id in placed or f.id==owner]))
+                    context=_forward_context(state,group,placed,owner,domain)
                     windows={f['terminal']:targets[f['net']] for f in frames if f['feature']==owner and f['net'] in targets}
                     trials=anchored(context,feature,definitions,domain,threads,modifiers,window_targets=windows) if owner in domain.movable else iter((feature,))
                     for trial in itertools.islice(trials,quota):
@@ -157,13 +174,13 @@ def _actions(design,assessment,definitions,domain,threads,modifiers,groups):
                         target=state.model_copy(deep=True);target.features=[trial if f.id==owner else f for f in target.features]
                         target=_enclose(design,target,domain,definitions,threads,modifiers)
                         if target is None or not domain.accepts(design,target):continue
-                        checked=target.model_copy(update=dict(features=[f for f in target.features if f.id not in group or f.id in placed or f.id==owner]))
+                        checked=_forward_context(target,group,placed,owner,domain)
                         if fit_violations(checked,definitions,domain) or source_conflicts(checked,definitions,threads,modifiers,domain._placement_cache):continue
                         expanded.append((_error(checked,definitions,targets,group),target,placed|{owner}))
                 if not expanded:beam=[];break
                 expanded.sort(key=lambda row:row[0]);kept=[];structures=set()
                 for _,target,placed in expanded:
-                    key=tuple((f.id,f.face,f.rotation) for f in target.features if f.id in placed)
+                    key=_beam_key(target,placed,domain)
                     if key in structures:continue
                     structures.add(key);kept.append((target,placed))
                     if len(kept)>=width:break

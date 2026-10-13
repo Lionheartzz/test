@@ -1,0 +1,783 @@
+{
+  "E1": {
+    "expanded": 48,
+    "full_state_keys": 48,
+    "retained": [
+      {
+        "positions": [
+          {
+            "id": "A",
+            "face": "top",
+            "u": 77.00999999999999,
+            "v": 60.0,
+            "rotation": 0
+          },
+          {
+            "id": "B",
+            "face": "top",
+            "u": 40.0,
+            "v": 60.0,
+            "rotation": 0.0
+          }
+        ],
+        "source_conflicts": []
+      },
+      {
+        "positions": [
+          {
+            "id": "A",
+            "face": "top",
+            "u": 83.505,
+            "v": 60.0,
+            "rotation": 0
+          },
+          {
+            "id": "B",
+            "face": "top",
+            "u": 40.0,
+            "v": 60.0,
+            "rotation": 0.0
+          }
+        ],
+        "source_conflicts": []
+      },
+      {
+        "positions": [
+          {
+            "id": "A",
+            "face": "top",
+            "u": 90.0,
+            "v": 60.0,
+            "rotation": 0
+          },
+          {
+            "id": "B",
+            "face": "top",
+            "u": 40.0,
+            "v": 60.0,
+            "rotation": 0.0
+          }
+        ],
+        "source_conflicts": []
+      },
+      {
+        "positions": [
+          {
+            "id": "A",
+            "face": "top",
+            "u": 77.00999999999999,
+            "v": 46.989999999999995,
+            "rotation": 0
+          },
+          {
+            "id": "B",
+            "face": "top",
+            "u": 40.0,
+            "v": 60.0,
+            "rotation": 0.0
+          }
+        ],
+        "source_conflicts": []
+      }
+    ],
+    "distinct_positions": 4,
+    "exact": {
+      "status": "EXACT_FEASIBLE",
+      "counts": {
+        "PASS": 83,
+        "WARNING": 0,
+        "FAIL": 0
+      },
+      "topology": {
+        "valid": true,
+        "solids": 1
+      },
+      "step": {
+        "rule": "step_round_trip",
+        "items": [
+          "block"
+        ],
+        "status": "PASS",
+        "actual": 0.0,
+        "required": "Valid single solid; volume 螖 < 0.01 mm鲁",
+        "unit": "mm鲁",
+        "valid": true,
+        "solids": 1,
+        "volume_delta_mm3": 2.3283064365386963e-10,
+        "volume_measurement": {
+          "delta": 2.3283064365386963e-10,
+          "converged": true,
+          "native_mm3": 993742.4075112706,
+          "step_mm3": 993742.4075112708,
+          "convergence_mm3": [
+            0.0,
+            2.3283064365386963e-10
+          ],
+          "integration_tolerance": 9.92063490410053e-13
+        },
+        "message": "STEP reimport: valid single solid and matching volume."
+      }
+    },
+    "real_layout_38": {
+      "expanded": 57,
+      "full_state_keys": 57,
+      "retained": [
+        {
+          "positions": [
+            {
+              "id": "CV_85641a0bc8025ee8253b",
+              "face": "top",
+              "u": 103.375,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_94b3e0e18b64336b6b85",
+              "face": "bottom",
+              "u": 23.875,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_9479468e4dd71c7470a2",
+              "face": "top",
+              "u": 63.625,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_f6c2bd2b2a09c41df1fb",
+              "face": "bottom",
+              "u": 143.185,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_9989e7f7a3b9b57cf82c",
+              "face": "top",
+              "u": 182.935,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_9622e55cd4ee3586de17",
+              "face": "front",
+              "u": 166.235,
+              "v": 169.3913697733023,
+              "rotation": 90.0
+            },
+            {
+              "id": "CV_205e2ee6c661ea1c7052",
+              "face": "top",
+              "u": 225.86,
+              "v": 85.275,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_56ff820f9c529f44a4ba",
+              "face": "front",
+              "u": 89.1175,
+              "v": 137.02818488665116,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_2b17b8fa874d7f961fe9",
+              "face": "left",
+              "u": 88.69,
+              "v": 104.665,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_66b53e3529902591f922",
+              "face": "left",
+              "u": 109.74,
+              "v": 104.665,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_4fe37ca51562661fdc3c",
+              "face": "left",
+              "u": 136.845,
+              "v": 104.665,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_16dc30d98aa04f3eb216",
+              "face": "left",
+              "u": 220.12500000000003,
+              "v": 104.665,
+              "rotation": 0.0
+            }
+          ],
+          "source_conflicts": []
+        },
+        {
+          "positions": [
+            {
+              "id": "CV_85641a0bc8025ee8253b",
+              "face": "top",
+              "u": 103.375,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_94b3e0e18b64336b6b85",
+              "face": "bottom",
+              "u": 23.875,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_9479468e4dd71c7470a2",
+              "face": "top",
+              "u": 63.625,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_f6c2bd2b2a09c41df1fb",
+              "face": "bottom",
+              "u": 143.185,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_9989e7f7a3b9b57cf82c",
+              "face": "top",
+              "u": 182.935,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_9622e55cd4ee3586de17",
+              "face": "front",
+              "u": 166.235,
+              "v": 169.3913697733023,
+              "rotation": 90.0
+            },
+            {
+              "id": "CV_205e2ee6c661ea1c7052",
+              "face": "top",
+              "u": 225.86,
+              "v": 85.275,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_56ff820f9c529f44a4ba",
+              "face": "left",
+              "u": 75.4225,
+              "v": 137.02818488665116,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_2b17b8fa874d7f961fe9",
+              "face": "left",
+              "u": 88.69,
+              "v": 104.665,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_66b53e3529902591f922",
+              "face": "left",
+              "u": 109.74,
+              "v": 104.665,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_4fe37ca51562661fdc3c",
+              "face": "left",
+              "u": 136.845,
+              "v": 104.665,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_16dc30d98aa04f3eb216",
+              "face": "left",
+              "u": 220.12500000000003,
+              "v": 104.665,
+              "rotation": 0.0
+            }
+          ],
+          "source_conflicts": []
+        },
+        {
+          "positions": [
+            {
+              "id": "CV_85641a0bc8025ee8253b",
+              "face": "top",
+              "u": 103.375,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_94b3e0e18b64336b6b85",
+              "face": "bottom",
+              "u": 23.875,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_9479468e4dd71c7470a2",
+              "face": "top",
+              "u": 63.625,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_f6c2bd2b2a09c41df1fb",
+              "face": "bottom",
+              "u": 143.185,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_9989e7f7a3b9b57cf82c",
+              "face": "top",
+              "u": 182.935,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_9622e55cd4ee3586de17",
+              "face": "front",
+              "u": 166.235,
+              "v": 169.3913697733023,
+              "rotation": 90.0
+            },
+            {
+              "id": "CV_205e2ee6c661ea1c7052",
+              "face": "top",
+              "u": 225.86,
+              "v": 85.275,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_56ff820f9c529f44a4ba",
+              "face": "top",
+              "u": 97.85083333333334,
+              "v": 103.22250000000001,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_2b17b8fa874d7f961fe9",
+              "face": "left",
+              "u": 88.69,
+              "v": 104.665,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_66b53e3529902591f922",
+              "face": "left",
+              "u": 109.74,
+              "v": 104.665,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_4fe37ca51562661fdc3c",
+              "face": "left",
+              "u": 136.845,
+              "v": 104.665,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_16dc30d98aa04f3eb216",
+              "face": "left",
+              "u": 220.12500000000003,
+              "v": 104.665,
+              "rotation": 0.0
+            }
+          ],
+          "source_conflicts": []
+        },
+        {
+          "positions": [
+            {
+              "id": "CV_85641a0bc8025ee8253b",
+              "face": "top",
+              "u": 103.375,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_94b3e0e18b64336b6b85",
+              "face": "bottom",
+              "u": 23.875,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_9479468e4dd71c7470a2",
+              "face": "top",
+              "u": 63.625,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_f6c2bd2b2a09c41df1fb",
+              "face": "bottom",
+              "u": 143.185,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_9989e7f7a3b9b57cf82c",
+              "face": "top",
+              "u": 182.935,
+              "v": 58.465,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_9622e55cd4ee3586de17",
+              "face": "front",
+              "u": 166.235,
+              "v": 169.3913697733023,
+              "rotation": 90.0
+            },
+            {
+              "id": "CV_205e2ee6c661ea1c7052",
+              "face": "top",
+              "u": 225.86,
+              "v": 85.275,
+              "rotation": 0.0
+            },
+            {
+              "id": "CV_56ff820f9c529f44a4ba",
+              "face": "bottom",
+              "u": 89.1175,
+              "v": 75.4225,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_2b17b8fa874d7f961fe9",
+              "face": "left",
+              "u": 88.69,
+              "v": 104.665,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_66b53e3529902591f922",
+              "face": "left",
+              "u": 109.74,
+              "v": 104.665,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_4fe37ca51562661fdc3c",
+              "face": "left",
+              "u": 136.845,
+              "v": 104.665,
+              "rotation": 0.0
+            },
+            {
+              "id": "PORT_16dc30d98aa04f3eb216",
+              "face": "left",
+              "u": 220.12500000000003,
+              "v": 104.665,
+              "rotation": 0.0
+            }
+          ],
+          "source_conflicts": []
+        }
+      ],
+      "distinct_positions": 4
+    }
+  },
+  "E2": [
+    {
+      "order": [
+        1,
+        20
+      ],
+      "counts": [
+        0,
+        1
+      ],
+      "generated": 1
+    },
+    {
+      "order": [
+        20,
+        1
+      ],
+      "counts": [
+        1,
+        0
+      ],
+      "generated": 1
+    }
+  ],
+  "E4": [
+    {
+      "depth": 7.5,
+      "operations": 1,
+      "status": "EXACT_FEASIBLE",
+      "counts": {
+        "PASS": 42,
+        "WARNING": 0,
+        "FAIL": 0
+      },
+      "topology": {
+        "valid": true,
+        "solids": 1
+      },
+      "step": {
+        "rule": "step_round_trip",
+        "items": [
+          "block"
+        ],
+        "status": "PASS",
+        "actual": 0.0,
+        "required": "Valid single solid; volume 螖 < 0.01 mm鲁",
+        "unit": "mm鲁",
+        "valid": true,
+        "solids": 1,
+        "volume_delta_mm3": 0.0,
+        "volume_measurement": {
+          "delta": 0.0,
+          "converged": true,
+          "native_mm3": 63650.63663078647,
+          "step_mm3": 63650.63663078647,
+          "convergence_mm3": [
+            2.1827872842550278e-11,
+            2.1827872842550278e-11
+          ],
+          "integration_tolerance": 1.5624999960937498e-11
+        },
+        "message": "STEP reimport: valid single solid and matching volume."
+      }
+    },
+    {
+      "depth": 11.5,
+      "operations": 1,
+      "status": "EXACT_FEASIBLE",
+      "counts": {
+        "PASS": 42,
+        "WARNING": 0,
+        "FAIL": 0
+      },
+      "topology": {
+        "valid": true,
+        "solids": 1
+      },
+      "step": {
+        "rule": "step_round_trip",
+        "items": [
+          "block"
+        ],
+        "status": "PASS",
+        "actual": 0.0,
+        "required": "Valid single solid; volume 螖 < 0.01 mm鲁",
+        "unit": "mm鲁",
+        "valid": true,
+        "solids": 1,
+        "volume_delta_mm3": 0.0,
+        "volume_measurement": {
+          "delta": 0.0,
+          "converged": true,
+          "native_mm3": 63622.36229689783,
+          "step_mm3": 63622.36229689783,
+          "convergence_mm3": [
+            2.1827872842550278e-11,
+            1.4551915228366852e-11
+          ],
+          "integration_tolerance": 1.5624999960937498e-11
+        },
+        "message": "STEP reimport: valid single solid and matching volume."
+      }
+    }
+  ],
+  "E5": {
+    "finite_endcap_rejected": false,
+    "distance_mm": 3.5355339059327378,
+    "plug_intersection_detected": true,
+    "plug_overlap_mm3": 0.005325171623084818
+  },
+  "real_violations": [
+    {
+      "net": "A_DC",
+      "expected": [
+        "installation_access",
+        "R-5c62e091-4",
+        "R-702e7749-8"
+      ],
+      "rejected": true,
+      "failures": [
+        [
+          "installation_access",
+          "R-5c62e091-4",
+          "R-702e7749-8"
+        ],
+        [
+          "source_protected",
+          "CV_9622e55cd4ee3586de17",
+          "R-5c62e091-4"
+        ]
+      ],
+      "exact_evaluations": {
+        "distance": 1,
+        "volume": 1
+      },
+      "seconds": 0.125,
+      "prior_exact": {
+        "cut_overlap": 0.0,
+        "exact_envelope_distance": 1.2027957370803386
+      }
+    },
+    {
+      "net": "A_DC",
+      "expected": [
+        "cross_net_wall",
+        "R-702e7749-5",
+        "R-e632b709-1"
+      ],
+      "rejected": true,
+      "failures": [
+        [
+          "cross_net_wall",
+          "R-702e7749-5",
+          "R-e632b709-1"
+        ]
+      ],
+      "exact_evaluations": {
+        "volume": 1
+      },
+      "seconds": 0.0470000000204891,
+      "prior_exact": {
+        "cut_overlap": 7.637553738185219
+      }
+    },
+    {
+      "net": "B_DC",
+      "expected": [
+        "cross_net_wall",
+        "R-309be2fb-5",
+        "R-f0055891-2"
+      ],
+      "rejected": true,
+      "failures": [
+        [
+          "cross_net_wall",
+          "R-309be2fb-5",
+          "R-f0055891-2"
+        ]
+      ],
+      "exact_evaluations": {
+        "volume": 1
+      },
+      "seconds": 0.0470000000204891,
+      "prior_exact": {
+        "cut_overlap": 198.5225336131532
+      }
+    },
+    {
+      "net": "B_DC",
+      "expected": [
+        "cross_net_wall",
+        "R-309be2fb-8",
+        "R-e632b709-2"
+      ],
+      "rejected": true,
+      "failures": [
+        [
+          "cross_net_wall",
+          "R-309be2fb-8",
+          "R-e632b709-2"
+        ]
+      ],
+      "exact_evaluations": {
+        "volume": 1
+      },
+      "seconds": 0.06299999996554106,
+      "prior_exact": {
+        "cut_overlap": 199.76036915269478
+      }
+    },
+    {
+      "net": "MB",
+      "expected": [
+        "plug_cut",
+        "PORT_66b53e3529902591f922",
+        "R-1d09f6fa-2"
+      ],
+      "rejected": true,
+      "failures": [
+        [
+          "plug_cut",
+          "PORT_66b53e3529902591f922",
+          "R-1d09f6fa-2"
+        ]
+      ],
+      "exact_evaluations": {
+        "volume": 1
+      },
+      "seconds": 0.045999999972991645,
+      "prior_exact": {
+        "cut_overlap": 700.8445070049996,
+        "plug_overlaps": {
+          "R-1d09f6fa-2": 534.4627215957644
+        }
+      }
+    },
+    {
+      "net": "MB",
+      "expected": [
+        "source_protected",
+        "CV_9479468e4dd71c7470a2",
+        "R-1d09f6fa-3"
+      ],
+      "rejected": true,
+      "failures": [
+        [
+          "source_protected",
+          "CV_9479468e4dd71c7470a2",
+          "R-1d09f6fa-3"
+        ]
+      ],
+      "exact_evaluations": {
+        "volume": 1
+      },
+      "seconds": 0.03200000000651926,
+      "prior_exact": {
+        "cut_overlap": 987.980317183968,
+        "protected_overlap": 987.980317183968
+      }
+    }
+  ],
+  "protected_files": 13,
+  "protected_unchanged": true,
+  "original_evidence_files": 50,
+  "original_evidence_unchanged": true,
+  "complex_generate_run": false,
+  "phase_b_or_c_implemented": false,
+  "baseline": "05b10c39e3712f2edf348c7e9e2e257614d4b172",
+  "scope": "Phase A F1/F2/F4/F5 only; not complete complex-manifold acceptance",
+  "tests": {
+    "focused_geometry_layout_cache": 27,
+    "manual_persistence_store_api": 4,
+    "syntax_files": 6,
+    "diff_check": "PASS",
+    "legacy_mock_test_baseline_failures": 2,
+    "legacy_failure": "Same baseline/current lambda TypeError: port_approaches keyword unsupported; no test result mocked for root-cause verification"
+  },
+  "protected_hashes": {
+    "output\\runtime-checks\\corridor3d-20261012\\eight-valve-final\\source.json": "394197644138ed39fc63f16f2710bad1361322a0d11e1fbbd9b9588c6a73bed9",
+    "data\\pmc_engineering.db": "1e3267bd6a6271cf819b5181ed52eae55ab8b8b54a4a48ce45cc277175d7daa2",
+    "projects\\saved\\063b619795b843b8bf9d263ef5070771.json": "69735e2b416250a0ae79f4d4395db1d74265f83f8e6b68403458f9b8cc5a95b1",
+    "projects\\saved\\28775064c6c547159f3985bb402f114b.json": "67b05bf1550518ccc63c790234a5a56019464db371b63377c79e469578ee98a1",
+    "projects\\saved\\2b93c6c68df24d5ebe543215e8e91c99.json": "d347a81a002b8f4cd1384359c4c77f71795b22571062940fedb2b1798d41823e",
+    "projects\\saved\\481fff0805a24befa9b83b7569527052.json": "92f73d51986364f35671fd0e548912bb91885aafba84abd3f73abfe9a849bb21",
+    "projects\\saved\\610cf82b4a20414aa00ae964c1240a2a.json": "8bd7969d2de58920ce3810a2d9bc173cb68d977f8a13bb8109e791f2f5a2aa03",
+    "projects\\saved\\6e57fdcccb174b87a72c32f3069bb285.json": "825a04756db7f967997f7409084c706fb562de1c27252a0a7ba808ee9d99d888",
+    "projects\\saved\\85a5799c71764a59abfc95ffb0d162a9.json": "fe20986acfced8c899a89dd033ff4e3f1d88c06e1880a8bafe3f4018947d7aac",
+    "projects\\saved\\9e8a8be7b31e4ccd8994de3481845435.json": "b615374475714becf065f14803690c11337ec6a731f229a4e9abcc8dc32b0f12",
+    "projects\\saved\\f24a44ae30394c268bfadd60fe6a56e7.json": "2505bcc065fdb346f171d5bd467eac7f42584cd98245fe07a5f1f1e23caab2f9",
+    "projects\\ai-design\\343f91fdb98c435296b6e78322157433.json": "9cd373503b542603fe68371937e31cfe45d120ca0a06c5bb261ff5296dec0604",
+    "projects\\ai-design\\69e50e63d2314ea4b34fff9d238e64d3.json": "50744169e539aef3f36ea25aa1bef7b2ecebf1ea10c3ac0d7fbb0235611cc3ad"
+  },
+  "review_evidence": {
+    "path": "output/runtime-checks/root-cause-review-20261013",
+    "report_sha256": "a6e4e677ece3e69d05c27eb919fc42d4481aae0abecc760bd9389331c4583db1",
+    "input_hash_manifest_sha256": "a9b113cd45580218ee39b8c933a5324e918ff204c44f2dbc9b56abee980182d4"
+  },
+  "new_evidence": "output/runtime-checks/phase-a-20261013"
+}
