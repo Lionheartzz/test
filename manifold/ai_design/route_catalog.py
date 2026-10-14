@@ -160,7 +160,7 @@ class Session:
         self.search_context=AISearchContext()
         self.local_admission=None;self.local_records={};self.local_source_dependency=None
         self.local_allocation=None
-        self.planned_routes={}
+        self.planned_routes={};self.process_only=False
         from .joint_solver import JointSolver
         self.solver=JointSolver(self)
 
@@ -226,6 +226,7 @@ class Session:
 
     def prepare(self, source, nets, definitions, threads, modifiers, tools, progress=None):
         def planned():
+            if self.process_only or self.planned_routes:self.remaining=0
             for name,route in self.planned_routes.items():
                 if name in self.catalogs and geometry_key(route) not in self.catalogs[name].seen:
                     self.catalogs[name].accept('engineering-plan:'+str(name),route,'engineering-plan')
@@ -257,11 +258,11 @@ class Session:
         # SAME total sample allocation as 32 per Net. Cheap Nets stop after
         # first diverse choices; missing/complex Nets receive unused tokens.
         total=24*len(nets);used=len(self.planned_routes);self.remaining=8*len(nets)
-        if self.planned_routes and all(any(geometry_key(o['route'])==geometry_key(self.planned_routes.get(n,[]))
-                                          for o in c.clear) for n,c in self.catalogs.items()):
-            # The compiled process has supplied every real machining network.
-            # Leave ordinary alternative generators dormant until a real
-            # obstruction/Exact rejection requires a different process branch.
+        if self.process_only or self.planned_routes:
+            # A rejected physical plan grants NO general-search authority.
+            # The engineering controller must repair and re-admit that process.
+            # Explicit legacy calls without a supplied plan remain unchanged.
+            self.remaining=0
             return {n:c.active(width=len(c.clear)) for n,c in self.catalogs.items()}
         for name,catalog in self.catalogs.items():
             for _ in range(8):

@@ -80,6 +80,17 @@ class EngineeringPlan:
             for name in ('pressure','flow'):
                 facts.append(dict(kind=name,net=n['net'],level='UNKNOWN' if n[name] is None else 'HARD_PROVEN',
                                   value=n[name],source='effective project/Net conditions'))
+        from ..engineering_conditions import material_strength
+        from ..sizing import route_sizing
+        strength=material_strength(design)
+        facts.append(dict(kind='MATERIAL_STRENGTH',level='UNKNOWN' if strength['design_strength_mpa'] is None else 'HARD_PROVEN',
+            value=strength,source='production engineering_conditions.material_strength'))
+        for row in nr:
+            net=next(n for n in nets if n.id==row['net'])
+            row['sizing']=route_sizing(net,tools=tools,preferred_unit=design.project_context,design=design)
+            row['tooling']=dict(required_diameter_mm=row['diameter'],
+                tools=[t for t in tools if abs(t['diameter_mm']-row['diameter'])<=.011],
+                depth_qualified=False,source='production tool_definitions; complete depth checked after materialization')
         dep = dependency_key(design,nets[0],definitions,threads,modifiers,[],tools) if nets else digest(design.model_dump())
         return cls(design.model_copy(deep=True),definitions,domain,threads,modifiers,tools,rows,nr,facts,dep)
 

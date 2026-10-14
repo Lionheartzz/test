@@ -23,6 +23,7 @@ def exact_candidate(design,definitions,threads,modifiers,*,folder=None,cancelled
     from ..cad_acceptance import topology_clear,production_topology,step_round_trip,add_step_check
     from .. import store,timing
     started=time.monotonic();target=design.model_copy(deep=True)
+    if folder:folder.mkdir(parents=True,exist_ok=True)
     pending={n.id for n in target.nets if n.routing=='automatic' and n.route_state=='proposal'}
     source=target.model_copy(update=dict(features=[f for f in target.features if f.route_net not in pending]))
     snapshot=_ProposalSnapshot(source,definitions,threads,modifiers);details={};failures=[]
@@ -30,7 +31,7 @@ def exact_candidate(design,definitions,threads,modifiers,*,folder=None,cancelled
         if cancelled():raise RuntimeError('AI generation cancelled; initial draft retained')
         timing.progress('connectivity',15+30*index/max(1,len(pending)))
         option=dict(key='explicit-ai-layout',route=[f for f in target.features if f.route_net==net.id],risk=0)
-        if not _verify_route_candidate(target,effective_net(target,net),option,snapshot):
+        if not _verify_route_candidate(target,effective_net(target,net),option,snapshot,prune=False):
             failures.extend(option.get('conflicts',[]))
         details[net.id]=dict(admission=option.get('admission'),connectivity=option.get('connectivity_detail'),
                             cad_error=option.get('cad_geometry_error'))
@@ -111,7 +112,121 @@ def admit_final_cores(records,session,record_state,emit):
         session.solver.update(a,state=state);record_state(row,state.source)
 
 
-def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=None,cancelled=lambda:False,
+def optimize(design,definitions,domain,*,layout_limit=None,exact_limit=2,progress=None,cancelled=lambda:False,
+             initial=None,evidence_dir=None,seed_layouts=()):
+    """Normal Generate owns ONE work Design; legacy budgets do not select layouts.
+
+    ``layout_limit``/``seed_layouts`` remain accepted for old diagnostic callers,
+    but never open a layout portfolio or seed source geometry from another project.
+    """
+    from ..engineering_db import thread_definitions_for_design,modifier_definitions_for_design,tool_definitions
+    from ..store import revision,atomic_json
+    from .single_design import WorkDesign
+    from .local_admission import LocalAdmission,ADMISSIBLE
+    from . import execution
+    from .. import timing
+    if not 0<=exact_limit<=8:raise ValueError('Invalid Exact calculation budget')
+    execution.span(0)
+    execution.checkpoint(design,status='UNVALIDATED_SOURCE_COMPILATION',priority=0)
+    if initial:initial(design.model_copy(deep=True))
+    def emit(stage,**detail):
+        if cancelled():
+            from ..engineering import CalculationError
+            raise CalculationError('AI generation cancelled; current work Draft retained.',409)
+        if progress:progress(stage,layout=1,layout_limit=1,**detail)
+    emit('engineering_plan',completed=0,total=1)
+    threads=thread_definitions_for_design(design)
+    modifiers=modifier_definitions_for_design(design) if any(f.machining_modifiers for f in design.features) else {}
+    tools=tool_definitions('drill');work=WorkDesign(design,definitions,domain,threads,modifiers,tools)
+    ready=work.initialize();attempts=[];validation=None;exact=None
+    def source_checkpoint():
+        execution.checkpoint(work.design,status='SOURCE_LAYOUT_READY_MACHINING_PENDING' if work.source_ready else 'SOURCE_LAYOUT_REJECTED',
+            evidence=work.diagnostics(),priority=1)
+        if evidence_dir:atomic_json(Path(evidence_dir)/'work-design.json',dict(design=work.design.model_dump(),evidence=work.diagnostics()))
+    source_checkpoint()
+    if initial:initial(work.design.model_copy(deep=True))
+    if ready:
+        emit('access',completed=0,total=1)
+        work.materialize();work.precheck();source_checkpoint()
+        # A finite sequence of measured local transactions, not competing
+        # layouts. A stalled/unknown constraint terminates immediately.
+        for step in range(2*len(work.state.plans)):
+            if not work.failures or work.process_gap:break
+            emit('engineering_plan',completed=step,total=max(1,2*len(work.state.plans)),decision='LOCAL_PROCESS_REPAIR')
+            with timing.phase('single.local_repair'):
+                changed=work.repair()
+            source_checkpoint()
+            if not changed:break
+            work.precheck()
+    clear={n:dict(key='engineering-process:'+n,route=fs,risk=0) for n,fs in work.routes.items() if n not in work.failures}
+    admission=LocalAdmission(max(8,2*len(work.state.plans)))
+    nets={n.id:effective_net(work.design,n) for n in work.design.nets}
+    # Rejected process never enters Session.prepare, coordinate, or plan_net.
+    # Valid partial routes may receive local CAD; that cannot accept the Design.
+    for i,name in enumerate(list(clear)):
+        emit('local_admission',net=name,completed=i,total=len(clear))
+        with timing.phase('single.local_cad'):
+            work.local[name]=admission.check(work.design,nets[name],clear[name],clear,definitions,threads,modifiers,tools)
+            if work.local[name]['status']=='LOCAL_EXACT_REJECTED':
+                work.repair_contact(name,work.local[name],admission,clear)
+        if work.local[name]['status']!=ADMISSIBLE:clear.pop(name,None)
+    # Removing a rejected/unknown cut changes the retained dependency set.
+    # Re-bind surviving local proofs; unchanged full sets hit Phase B's cache.
+    for name in list(clear):
+        with timing.phase('single.local_cad'):
+            work.local[name]=admission.check(work.design,nets[name],clear[name],clear,definitions,threads,modifiers,tools)
+    kept={n:o for n,o in clear.items() if work.local[n]['status']==ADMISSIBLE}
+    output=work.design.model_copy(deep=True)
+    output.features.extend(Feature.model_validate(f) for n in kept for f in work.local[n]['verified_geometry'])
+    # A sufficient symbolic-domain cycle is not a physical nogood. If the
+    # actual complete cuts pass production machining and local fluid gates,
+    # final Exact remains authoritative for every hard engineering condition.
+    complete=ready and len(kept)==len(work.required_nets) and not work.failures
+    for n in output.nets:
+        if n.routing=='automatic':
+            n.routing_variant=None;n.route_state='proposal' if n.id in kept else 'unresolved'
+            n.route_issue='' if complete else 'Current engineering plan is incomplete. Saved source positions remain user-owned; review failed constraints or explicitly Reroute.'
+    if complete and exact_limit:
+        emit('exact_layout',completed=0,total=1)
+        with timing.phase('single.full_exact'):
+            from ..engineering import CalculationError
+            try:
+                exact=run_exact(output,definitions,threads,modifiers,folder=Path(evidence_dir)/'exact' if evidence_dir else None,
+                    cancelled=cancelled,progress=lambda p:emit('exact_layout',exact_progress=p))
+            except CalculationError as exc:
+                if cancelled():raise
+                exact=dict(status='CAD_EVALUATION_ERROR',design=output.model_dump(),validation=None,full_cad_evaluated=False,
+                    cad_error=dict(operation='ai-layout-exact',message=str(exc),retry_conditions=['Changed geometry or explicit fresh CAD retry']),
+                    manufacturing_ready=False,physical_infeasibility_proven=False)
+        attempts.append(exact);validation=exact.get('validation')
+        output=Design.model_validate(exact['design'])
+    accepted=bool(exact and exact['status']=='EXACT_FEASIBLE')
+    status=exact['status'] if exact else 'SOURCE_LAYOUT_READY_ROUTING_PENDING' if ready else 'SOURCE_LAYOUT_REJECTED'
+    if exact and not accepted:
+        for n in output.nets:
+            if n.routing=='automatic':n.route_issue='Full Exact acceptance has not passed. Review the retained engineering/CAD evidence.'
+    unresolved=sorted(work.required_nets-set(kept))
+    assessment=dict(status=status,compatible=complete,blocked_nets=unresolved,unresolved_nets=unresolved,
+        conflicts=[f for rows in work.failures.values() for f in rows],score=(len(unresolved),),feasibility_score=(len(unresolved),),
+        partial_routing=dict(nets=sorted(kept),features=[f.model_dump() for f in output.features if f.route_net],local_admission=work.local),
+        route_features=[f.model_dump() for f in output.features if f.route_net],full_exact_outcome=exact,
+        engineering_status='FULL_EXACT_ACCEPTED' if accepted else 'LOCAL_EXACT_PARTIAL' if kept else 'MACHINING_REJECTED' if work.failures else 'SOURCE_LAYOUT_ONLY')
+    result=dict(scope='AI_GENERATION_ONLY',mode='SINGLE_WORK_DESIGN',source_revision=revision(design),status=status,
+        baseline=assessment,proposals=[dict(design=output.model_dump(),assessment=assessment,
+            reason='One engineering work Design; source-backed spacing and measured local process repairs',dimensions=list(dimensions(output.block)))],
+        evaluated_layouts=1,layout_limit=1,evaluations=[dict(index=0,family='engineering-plan',assessment=assessment)],
+        attempts=attempts,validation=validation,engineering_planner=work.diagnostics(),domain=domain.diagnostics(),
+        local_admission_summary=admission.diagnostics(),deferred_layouts=0,unexpanded_transform_generators=0,
+        counters=dict(layouts=1,local_work_revisions=work.versions,catalog_searches=0,deep_labels=0,exact_attempts=len(attempts)),
+        hard_constraint_conflicts=[],frontier=[],manufacturing_ready=bool(accepted and exact.get('manufacturing_ready')),
+        outcome_classification='EXACT_FEASIBLE' if accepted else 'UNRESOLVED_ENGINEERING_CONSTRAINT',physical_infeasibility_proven=False,
+        resource_schedule=dict(mode='MEASURED_LOCAL_TRANSACTIONS',legacy_layout_budget_ignored=layout_limit))
+    execution.checkpoint(output,status=status,assessment=assessment,evidence=work.diagnostics(),priority=2)
+    if evidence_dir:atomic_json(Path(evidence_dir)/'layout-search.json',result)
+    return result
+
+
+def optimize_legacy_layout_portfolio(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=None,cancelled=lambda:False,
              initial=None,evidence_dir=None,seed_layouts=()):
     from ..engineering_db import thread_definitions_for_design,modifier_definitions_for_design,tool_definitions
     from ..layout_planning import _fits

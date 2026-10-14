@@ -148,6 +148,10 @@ def _columns(design, definitions, movable, growth_axes, fixed_faces):
 
 
 def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, progress=None,*,include_routes=False,corridor_labels=1024,general_families=False,route_session=None,deep_limits=None,planned_routes=None):
+    if planned_routes is not None:
+        # Compatibility entry: a supplied process never falls through to a
+        # three-dimensional completion search after machining rejection.
+        corridor_labels=0;deep_limits=None
     from ..routing import (route_from_variant, route_obstructions, terminal_points, segment_depth,
         route_objective, select_route_combination, _ProposalSnapshot, _route_pair_failures)
     from ..cavity_access import cavity_terminal_candidates
@@ -164,6 +168,7 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         # than requiring every layout to fit the old branch-column template.
         from .route_catalog import Session
         route_session=route_session or Session()
+        route_session.process_only=planned_routes is not None
         route_session.planned_routes=planned_routes or {}
         general_pools=route_session.prepare(source,nets,definitions,threads,modifiers,tools,progress)
         route_session.solver.bind(source,nets,route_session.catalogs)
@@ -530,8 +535,8 @@ def plan_legacy_analytic(design, definitions, *, movable_features, growth_axes, 
 
 def plan_new(design,definitions,*,movable_features,growth_axes=(0,1,2),fixed_faces=None,
              fixed_positions=None,fixed_rotations=None,soft_faces=None,soft_dimensions=(),
-             progress=None,cancelled=lambda:False,layout_limit=48,exact_limit=0,initial=None,evidence_dir=None,explicit_dimension_axes=None,seed_layouts=()):
-    """New AI-owned joint design-space search; no Model call path."""
+             progress=None,cancelled=lambda:False,layout_limit=None,exact_limit=0,initial=None,evidence_dir=None,explicit_dimension_axes=None,seed_layouts=()):
+    """New AI-owned single work Design; no Model call path or layout portfolio."""
     from .design_space import LayoutDomain
     from .joint_layout import optimize
     if any(n.routing_variant or n.route_state in ('committed','stale') for n in design.nets) or any(

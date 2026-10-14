@@ -67,8 +67,9 @@ class PlacementSolver:
     def origin(self,f,a):return f'F{self.fi[f]}.{a}'
     def lane(self,n,a):return f'N{self.ni[n]}.{a}'
 
-    def solve(self, plans, *, poses=None, separations=(), preserve=False,dimension_floor=(),release=(),release_axes=None):
-        e=self.e;d=e.source.model_copy(deep=True);domain=e.domain
+    def solve(self, plans, *, poses=None, separations=(), preserve=False,dimension_floor=(),release=(),release_axes=None,
+              working=None,fixed_junctions=None,use_projected=False):
+        e=self.e;d=(working or e.source).model_copy(deep=True);domain=e.domain
         for f in d.features:
             if poses and f.id in poses:f.face,f.rotation=poses[f.id]
         s=DifferenceSystem();sizes=dimensions(d.block)
@@ -87,6 +88,7 @@ class PlacementSolver:
                     origin=pose(f,d.block)[0][a]
                     low=min([-r['radius']]+[b[a][0]-origin for b in r['bounds']])-r['wall']
                     high=max([r['radius']]+[b[a][1]-origin for b in r['bounds']])+r['wall']
+                    if use_projected:low,high=r['projected_supports'][a][0]-r['wall'],r['projected_supports'][a][1]+r['wall']
                     s.lower(var,'ZERO',-low,dict(rule='SOURCE_EDGE_LOW',feature=f.id,axis=a))
                     s.lower(f'D{a}',var,high,dict(rule='SOURCE_EDGE_HIGH',feature=f.id,axis=a))
                     field='u' if a==u else 'v';locks=domain.fixed_positions.get(f.id,{})
@@ -98,6 +100,21 @@ class PlacementSolver:
                             field not in locks and 'xyz'[a] not in locks else 'AUTHORED_POSITION',feature=f.id,axis=a))
             s.lower(f'D{normal}','ZERO',r['depth']+r['wall'],dict(rule='SOURCE_DEPTH',feature=f.id,axis=normal))
         points=terminal_points(d,e.definitions);by_id={f.id:f for f in d.features};nr={r['net']:r for r in e.nets}
+        # Opposite machining depths share thickness ONLY where their actual
+        # transverse projections overlap. Disjoint columns need max(depth),
+        # not an unconditional top + bottom sum. Recheck after coordinates move.
+        for a,b in itertools.combinations([f for f in d.features if not f.route_net and not f.suppressed],2):
+            normal,sign=FACE_AXES[a.face][2:]
+            if FACE_AXES[b.face][2:]!=(normal,-sign):continue
+            ra=source_extents(d,a,e.definitions,e.threads,e.modifiers)
+            rb=source_extents(d,b,e.definitions,e.threads,e.modifiers)
+            axes=[v for v in range(3) if v!=normal]
+            if any(all(x[v][1]>=y[v][0] and y[v][1]>=x[v][0] for v in axes) for x in ra['bounds'] for y in rb['bounds']):
+                from ..engineering_conditions import required_wall
+                wall=required_wall(d,a,b,definitions=e.definitions)
+                s.lower(f'D{normal}','ZERO',ra['depth']+rb['depth']+wall,
+                    dict(rule='OVERLAPPING_OPPOSITE_DEPTHS',features=[a.id,b.id],axis=normal,
+                        depths=[ra['depth'],rb['depth']],wall=wall,source='actual machining projections'))
         # Reserve branches before choosing source coordinates. Sources sharing
         # a radial approach axis occupy different transverse source columns;
         # otherwise a full external drilling can cross an intervening cavity.
@@ -115,6 +132,7 @@ class PlacementSolver:
             ra=source_extents(d,low,e.definitions,e.threads,e.modifiers)
             rb=source_extents(d,high,e.definitions,e.threads,e.modifiers)
             spacing=ra['radius']+rb['radius']+max(ra['wall'],rb['wall'],d.rules.minimum_access_gap)
+            if use_projected:spacing=ra['projected_supports'][axis][1]-rb['projected_supports'][axis][0]+max(ra['wall'],rb['wall'],d.rules.minimum_access_gap)
             s.lower(self.origin(high.id,axis),self.origin(low.id,axis),spacing,
                 dict(rule='RADIAL_BRANCH_SOURCE_COLUMNS',features=[low.id,high.id],axis=axis,approach_axis=approach,required=spacing,
                     nets=[n for n,p in plans.items() if p.reserve_columns and p.access not in ('coaxial','aligned-window') and
@@ -178,7 +196,8 @@ class PlacementSolver:
                             dict(rule='COAXIAL_WINDOW_ALIGNMENT',net=name,member=member,axis=a))
                     if p.access=='aligned-window' and row.get('closure'):
                         ext=source_extents(d,f,e.definitions,e.threads,e.modifiers)
-                        clearance=ext['radius']+row['closure']['occupied_depth']+wall
+                        support=max(abs(x) for x in ext['projected_supports'][p.spine_axis]) if use_projected else ext['radius']
+                        clearance=support+row['closure']['occupied_depth']+wall
                         if p.entry!='positive':s.lower(self.origin(f.id,p.spine_axis),'ZERO',clearance,
                             dict(rule='DIRECT_WINDOW_ENTRY',net=name,member=member,axis=p.spine_axis))
                         if p.entry!='negative':s.lower(f'D{p.spine_axis}',self.origin(f.id,p.spine_axis),clearance,
@@ -193,7 +212,8 @@ class PlacementSolver:
                         dict(rule='SOURCE_BACKED_AXIAL_INTERVAL',net=name,member=member,axis=normal,side='upper'))
                 first=order[0];ext=source_extents(d,f,e.definitions,e.threads,e.modifiers)
                 if row.get('closure') and member not in p.axial_members:
-                    entry=ext['radius']+row['closure']['occupied_depth']+wall
+                    support=max(abs(x) for x in ext['projected_supports'][first]) if use_projected else ext['radius']
+                    entry=support+row['closure']['occupied_depth']+wall
                     if p.entry!='positive':s.lower(self.origin(f.id,first),'ZERO',entry,
                         dict(rule='RADIAL_ENTRY_PLUG_RESERVATION',net=name,member=member,axis=first,side='negative',required=entry))
                     if p.entry!='negative':s.lower(f'D{first}',self.origin(f.id,first),entry,
@@ -201,6 +221,7 @@ class PlacementSolver:
                 # Real source radial bounds determine where a branch can turn;
                 # this reservation never authorizes crossing protected machining.
                 reach=max(ext['radius'],max((max(abs(b[first][0]-origin[first]),abs(b[first][1]-origin[first])) for b in ext['bounds']),default=0))+max(r,(row.get('closure') or {}).get('entry_diameter',0)/2)+max(wall,d.rules.minimum_access_gap)
+                if use_projected:reach=max(abs(x) for x in ext['projected_supports'][first])+max(r,(row.get('closure') or {}).get('entry_diameter',0)/2)+max(wall,d.rules.minimum_access_gap)
                 if p.side>0:s.lower(self.lane(name,first),self.origin(f.id,first),reach,dict(rule='BRANCH_CLEAR_SOURCE',net=name,member=member,axis=first))
                 else:s.lower(self.origin(f.id,first),self.lane(name,first),reach,dict(rule='BRANCH_CLEAR_SOURCE',net=name,member=member,axis=first))
                 if p.planar and member not in p.axial_members:
@@ -209,6 +230,9 @@ class PlacementSolver:
                     a=next(a for a in range(3) if a not in (first,p.spine_axis)) if first!=p.spine_axis else order[-1]
                     s.equal(self.lane(name,a),self.origin(f.id,a),offset[a],dict(rule='WINDOW_LAYER',net=name,member=member,axis=a))
         for cut in separations:s.lower(cut.high,cut.low,cut.distance,cut.reason)
+        for name,point in (fixed_junctions or {}).items():
+            if name in plans:
+                for a in range(3):s.equal(self.lane(name,a),'ZERO',point[a],dict(rule='UNCHANGED_PROCESS_JUNCTION',net=name,axis=a))
         values,cycle=s.solve()
         if values is None:return None,dict(status='SELECTED_DOMAIN_CONTRADICTION',cycle=cycle,physical_infeasibility_proven=False)
         for a,name in enumerate(('length','width','height')):setattr(d.block,name,values[f'D{a}'])

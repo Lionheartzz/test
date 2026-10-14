@@ -135,7 +135,7 @@ def cavity_terminal_candidates(design, net, definitions, threads=None, modifiers
     return candidates
 
 
-def axial_route(design, net, definitions, variant, candidates=None, threads=None, modifiers=None, *, port_approaches=None, connection_topology=None,entry_safe=False,obstruction_cache=None,junction_override=None,terminal_overrides=None,terminal_orders=None,operation_records=None):
+def axial_route(design, net, definitions, variant, candidates=None, threads=None, modifiers=None, *, port_approaches=None, connection_topology=None,entry_safe=False,obstruction_cache=None,junction_override=None,terminal_overrides=None,terminal_orders=None,operation_records=None,failure_records=None):
     """Regenerate a stable terminal strategy, including its true opposite-face access."""
     from .routing import propose, terminal_points, segment_depth, add_construction_access
     import hashlib
@@ -151,6 +151,8 @@ def axial_route(design, net, definitions, variant, candidates=None, threads=None
     selected = [member for i,member in enumerate(members) if mask & (1 << i)]
     candidates = candidates if candidates is not None else cavity_terminal_candidates(design,net,definitions,threads,modifiers)
     if not selected or any(member not in candidates for member in selected):
+        if failure_records is not None:failure_records.append(dict(rule='SOURCE_AXIAL_ACCESS_UNAVAILABLE',
+            selected=selected,missing=[m for m in selected if m not in candidates],available=list(candidates)))
         return None
     points = terminal_points(design,definitions)
     overrides = dict(terminal_overrides or {})
@@ -164,6 +166,7 @@ def axial_route(design, net, definitions, variant, candidates=None, threads=None
         end = bore.depth-net.diameter/2-planning_wall(design,net,definitions)
         start = (bore.plug_length if bore.plugged else 0)+net.diameter/2+planning_wall(design,net,definitions)
         if end < start:
+            if failure_records is not None:failure_records.append(dict(rule='SOURCE_AXIAL_FULL_CYLINDER_INTERVAL_EMPTY',member=member,start=start,end=end))
             return None
         desired = end
         if junction_override is not None:
@@ -213,6 +216,9 @@ def axial_route(design, net, definitions, variant, candidates=None, threads=None
                 depths = [sum((p[i]+d[i]*t-origin[i])*direction[i] for i in range(3))
                           for t in (0,segment_depth(feature))]
                 if feature.face == bore.face and max(depths) > segment_depth(bore)+1e-6:
+                    if failure_records is not None:failure_records.append(dict(rule='CONNECTOR_EXCEEDS_SOURCE_SAFE_STOP',
+                        member=member,connector=feature.model_dump(),source_access=bore.model_dump(),
+                        connector_interval=depths,source_safe_stop=segment_depth(bore)))
                     return None
                 continue
             kept.append(feature)

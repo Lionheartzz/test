@@ -34,6 +34,45 @@ def main():
             result=plan_new(d,defs,movable_features={f.id for f in d.features},layout_limit=payload.get('layout_limit',1),
                 exact_limit=payload.get('exact_limit',0),cancelled=lambda:(control/'cancel.json').exists(),
                 progress=lambda stage,**detail:progress(dict(message=stage,progress=dict(stage=stage,**detail))))
+        elif payload['operation']=='exact-snapshot':
+            from ..schema import Design,CavityDefinition
+            from .joint_layout import exact_candidate
+            d=Design.model_validate(payload['design']);execution.span(0)
+            execution.checkpoint(d,status='UNVALIDATED_EXACT_WITNESS',priority=0)
+            defs={k:CavityDefinition.model_validate(v) for k,v in payload.get('definitions',{}).items()}
+            result=exact_candidate(d,defs,{}, {},folder=control/'exact',cancelled=lambda:(control/'cancel.json').exists())
+        elif payload['operation']=='single-work-snapshot':
+            # Bounded offline stages, never a complete complex Generate.
+            from ..schema import Design,Feature
+            from ..engineering_db import definitions_for_design,thread_definitions_for_design,modifier_definitions_for_design,tool_definitions
+            from .single_design import WorkDesign
+            from .design_space import LayoutDomain
+            d=Design.model_validate(payload['design']);execution.span(0)
+            execution.checkpoint(d,status='UNVALIDATED_SOURCE_SNAPSHOT',priority=0)
+            defs=definitions_for_design(d);threads=thread_definitions_for_design(d)
+            modifiers=modifier_definitions_for_design(d) if any(f.machining_modifiers for f in d.features) else {}
+            domain=LayoutDomain.new_generation(d,{f.id for f in d.features if not f.route_net})
+            w=WorkDesign(d,defs,domain,threads,modifiers,tool_definitions('drill'))
+            mode=payload.get('mode','facts')
+            if payload.get('routes'):
+                from ..routing import terminal_points
+                points=terminal_points(d,defs)
+                w.junctions={r['net']:tuple(sum(points[m][a] for m in r['members'])/len(r['members']) for a in range(3)) for r in w.e.nets}
+                w.routes={n:[Feature.model_validate(f) for f in fs] for n,fs in payload['routes'].items()}
+                w.source_ready=True
+            else:
+                w.initialize()
+            execution.checkpoint(w.design,status='SOURCE_CALCULATION_COMPLETE',evidence=w.diagnostics(),priority=1)
+            if mode!='facts':
+                if not payload.get('routes'):w.materialize()
+                w.precheck()
+                execution.checkpoint(w.design,status='PROCESS_PRECHECK_COMPLETE',evidence=w.diagnostics(),priority=1)
+            if mode=='repair':
+                with timing.phase('single.local_repair'):w.repair()
+                w.precheck()
+            result=dict(status=('SOURCE_LAYOUT_READY' if w.source_ready else 'SOURCE_LAYOUT_REJECTED') if mode=='facts' else
+                'MACHINING_REJECTED' if w.failures else 'ANALYTIC_CLEAR_REQUIRES_CONNECTIVITY',
+                design=w.design.model_dump(),evidence=w.diagnostics(),manufacturing_ready=False)
         elif payload['operation']=='screen-snapshot':
             from ..schema import Design,Feature
             from ..engineering_db import definitions_for_design,thread_definitions_for_design,modifier_definitions_for_design

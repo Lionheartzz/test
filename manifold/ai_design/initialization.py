@@ -49,8 +49,20 @@ def source_extents(design,feature,definitions,threads,modifiers):
     clearance=(definitions[feature.definition].clearance_diameter if feature.definition else feature.clearance_diameter)/2 if feature.kind in ('cavity','port') else 0
     spans={i:max([clearance]+[b[i][1]-origin[i] for b in bounds])-min([-clearance]+[b[i][0]-origin[i] for b in bounds])
            for i in FACE_AXES[feature.face][:2]}
+    # Actual face projections, distinct from the legacy enclosing-circle seed.
+    # Offset cuts and rectangular mounting boundaries must keep their supports.
+    supports={i:[min([-clearance]+[b[i][0]-origin[i] for b in bounds]),
+                 max([clearance]+[b[i][1]-origin[i] for b in bounds])] for i in FACE_AXES[feature.face][:2]}
+    definition=definitions.get(feature.definition);angle=math.radians(feature.rotation)
+    for boundary in definition.boundaries if definition else ():
+        samples=[boundary.circle[:2]] if boundary.circle else boundary.points
+        extra=boundary.circle[2] if boundary.circle else 0
+        for x,y in samples:
+            rotated=(x*math.cos(angle)-y*math.sin(angle),x*math.sin(angle)+y*math.cos(angle))
+            for i,value in zip(FACE_AXES[feature.face][:2],rotated):
+                supports[i][0]=min(supports[i][0],value-extra);supports[i][1]=max(supports[i][1],value+extra)
     return dict(feature=feature.id,face=feature.face,radius=radial,depth=depth,
-        wall=wall,bounds=bounds,origin=origin,planar_spans=spans)
+        wall=wall,bounds=bounds,origin=origin,planar_spans=spans,projected_supports=supports)
 
 
 def envelope(design,definitions,domain,threads,modifiers,*,row_axis=0,corridors=False):

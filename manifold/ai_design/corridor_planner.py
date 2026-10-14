@@ -136,15 +136,16 @@ class CorridorPlanner:
                     orders=tuple((m,alternative if m==member else o) for m,o in p.orders)
                     yield {**plans,n:replace(p,orders=orders)},dict(kind='TERMINAL_PROCESS_ORDER',nets=[n],member=member)
 
-    def materialize(self, design, plans, junctions, cache=None):
+    def materialize(self, design, plans, junctions, cache=None, *, net_ids=None, operation_records=None):
         e=self.engineering;out={};nets={n.id:effective_net(design,n) for n in design.nets}
         for name in self.order:
-            if name not in plans:continue
-            plan=plans[name];net=nets[name];approaches={};operations=[]
+            if name not in plans or net_ids is not None and name not in net_ids:continue
+            plan=plans[name];net=nets[name];approaches={};operations=[];rejections=[]
             if plan.access=='coaxial':
                 from ..routing import simple_routes
                 choices=simple_routes(design,net,e.definitions,include_detours=False)
                 if choices:out[name]=choices[0]
+                if operation_records is not None:operation_records[name]=[]
                 continue
             for f in design.features:
                 if f.kind=='port' and f.id in net.members:
@@ -153,12 +154,17 @@ class CorridorPlanner:
                     if depth is not None:approaches[f.id]=depth
             windows=face_window_points(design,net,e.definitions,e.threads,e.modifiers)
             if plan.axial_members:
-                from ..cavity_access import axial_route
+                from ..cavity_access import axial_route,cavity_terminal_candidates
+                from ..closure_runtime import bind_route
+                # AI's explicit process uses the actual source-bound engagement
+                # also used by geometry; never a Feature's default plug length.
+                candidates={m:bind_route(design,[bore])[0] for m,bore in cavity_terminal_candidates(
+                    design,net,e.definitions,e.threads,e.modifiers).items()}
                 members=sorted(net.members);mask=sum(1<<members.index(m) for m in plan.axial_members)
                 route=axial_route(design,net,e.definitions,f'axial_{mask}_0:xyz:'+plan.entry,
-                    threads=e.threads,modifiers=e.modifiers,port_approaches=approaches,entry_safe=False,
+                    candidates=candidates,threads=e.threads,modifiers=e.modifiers,port_approaches=approaches,entry_safe=False,
                     obstruction_cache=cache,junction_override=junctions[name],terminal_orders=dict(plan.orders),
-                    terminal_overrides={m:p for m,p in windows.items() if m not in plan.axial_members},operation_records=operations)
+                    terminal_overrides={m:p for m,p in windows.items() if m not in plan.axial_members},operation_records=operations,failure_records=rejections)
             else:
                 route=propose(design,net,(0,1,2),plan.entry,definitions=e.definitions,
                     junction_override=junctions[name],terminal_orders=dict(plan.orders),terminal_overrides=windows,
@@ -186,6 +192,8 @@ class CorridorPlanner:
                         selected.append(preferred or feature)
                     route=selected
                 out[name]=bind_route(design,route)
+            if operation_records is not None:operation_records[name]=operations+([
+                dict(status='MATERIALIZATION_REJECTED',failures=rejections or [dict(rule='PROCESS_NOT_MATERIALIZED')])] if route is None else [])
         return out
 
     def diagnostics(self):

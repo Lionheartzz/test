@@ -351,10 +351,6 @@ class EngineeringDecisionController:
                 # first instantiation needs the shared resumable Router. The
                 # manufacturing constraints, rather than a packing sampler,
                 # own the next geometry revision and all its dependencies.
-                if signature(target)!=signature(self.plan.source):
-                    record['outcome']='SOURCE_DOMAIN_SOLVED_ROUTING_PENDING'
-                    return target,dict(rule='ENGINEERING_PLANNED',engineering_decision=key,
-                        requires_route_regeneration=True,planning_status='SOURCE_DOMAIN_SOLVED_ROUTING_PENDING'),routes
                 continue
             # Different manufacturing plans at identical source positions MUST
             # remain different states, unlike a layout-only signature.
@@ -365,8 +361,9 @@ class EngineeringDecisionController:
             _,target,info=max(self.partial,key=lambda row:row[0])
             record=info['record'];record['outcome']='SOURCE_LAYOUT_READY_MACHINING_PENDING'
             self.states[signature(target)]=info
+            # Source-only handoff. A rejected process is NEVER a Router seed.
             return target,dict(rule='ENGINEERING_PLANNED',engineering_decision=record['id'],
-                               requires_route_regeneration=True,planning_status='SOURCE_LAYOUT_READY_MACHINING_PENDING'),info['routes']
+                               requires_route_regeneration=False,planning_status='SOURCE_LAYOUT_READY_MACHINING_PENDING'),{}
         return None
 
     def observe(self,target,assessment,decision=None):

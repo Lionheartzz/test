@@ -338,7 +338,7 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
         if cancelled():raise CalculationError('Draft creation cancelled; analysis retained.',409)
         if not progress:return
         labels=dict(engineering_plan='Solving manufacturing corridors and source placement constraints',
-                    access='Checking candidate machining access',conflicts='Screening competing hydraulic circuits',
+                    access='Checking planned machining access',conflicts='Screening hydraulic circuit isolation',
                     joint_repair='Continuing joint machining branches',local_admission='Checking retained route connectivity',
                     layout_alternate='Revising component positions and block size',exact_layout='Checking exact layout and hydraulic routing')
         layout,limit=detail['layout'],detail['layout_limit']
@@ -349,10 +349,8 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
             percent=progress_high,layout=layout,layout_limit=limit,candidate=detail.get('candidate'),candidate_limit=detail.get('candidate_limit'),
             detail=('Net '+detail['net']) if detail.get('net') else
                 ('Conditional routes '+str(detail['conditional_depth'])+' / labels '+str(detail['labels'])+' / probes '+str(detail['probes']))
-                if stage=='joint_repair' else (detail.get('exact_progress') or {}).get('stage_text','Comparing source-constrained layouts'))))
+                if stage=='joint_repair' else (detail.get('exact_progress') or {}).get('stage_text','Checking the current engineering plan'))))
     try:
-        from .initialization import linked_source_seed
-        seed=linked_source_seed(design,inputs.project_engineering)
         planned=layout_plan(design,definitions,movable_features=set(feature_map.values()),growth_axes=axes,
             fixed_faces={**design.constraints.required_feature_faces,**(fixed_faces or {})},soft_faces=soft_faces,
             soft_dimensions=tuple(settings.get('soft_dimensions',{}).get(name,
@@ -360,8 +358,7 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
             explicit_dimension_axes={kind:[i for i,name in enumerate(names) if name in settings['envelope_'+suffix+'_axes'] or
                 inputs.project_engineering and getattr(inputs.project_engineering.constraints,'envelope_'+suffix)]
                 for kind,suffix in (('minimum','min'),('maximum','max'))},
-            progress=update,cancelled=cancelled,layout_limit=48,exact_limit=exact_limit,initial=initial,evidence_dir=evidence_dir,
-            seed_layouts=[seed] if seed is not None else ())
+            progress=update,cancelled=cancelled,exact_limit=exact_limit,initial=initial,evidence_dir=evidence_dir)
     except ValueError as exc:
         settings['layout_planning']=dict(scope='AI_GENERATION_ONLY',status='ANALYTIC_UNAVAILABLE',evaluated_layouts=0)
         design.review_items.append(EngineeringReview(id='AI_LAYOUT_ROUTING',kind='connection',subject='project',
@@ -398,7 +395,7 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
     if not planned.get('validation') and (assessment['blocked_nets'] or assessment['conflicts'] or exact_limit):
         result.review_items.append(EngineeringReview(id='AI_LAYOUT_ROUTING',kind='connection',subject='project',
             description='Joint AI layout/routing search has not established an exact feasible design. '
-                        'Actual remaining constraints and deferred layouts are retained; this editable draft is not verified.'))
+                        'The current engineering plan and remaining measured constraints are retained; this editable draft is not verified.'))
     # Material identity remains selected; do not present the pre-layout size as
     # the final material/stock proposal or invent a standard blank.
     settings['material_proposal']['proposed_dimensions']=[getattr(result.block,name) for name in names]
@@ -670,7 +667,7 @@ def _generate(key, request, progress=lambda message:None,*,cancelled=lambda:Fals
             design=design.model_dump(),validation=None,attempts=[],route_status='INITIAL_LAYOUT_NOT_VERIFIED',
             message='Initial editable draft retained while AI-owned layout optimization continues. Opening this snapshot makes its geometry user-owned; later results require a separate explicit handoff.',
             layout_planning=dict(scope='AI_GENERATION_ONLY',status='INITIAL_LAYOUT_NOT_VERIFIED')))
-        progress(dict(message='Initial draft is retained; comparing AI-owned layout and routing candidates.',
+        progress(dict(message='Current draft is retained; checking its engineering machining plan.',
             initial_generation_id=generation_id,initial_draft_url=f'/api/ai-design/tasks/{key}/generations/{generation_id}/project'))
     try:
         design,feature_map,terminal_map=candidate(plan,generation_id,0,progress=layout_progress,cancelled=cancelled,
@@ -701,7 +698,7 @@ def _generate(key, request, progress=lambda message:None,*,cancelled=lambda:Fals
             actual_loads_source='explicit_requirements_or_linked_project',pressure_safety_factor=design.rules.pressure_safety_factor,
             velocity_limit=design.project_defaults.velocity_limit,drilling_mode=design.project_defaults.drilling_mode,priority=design.constraints.priority),route_status=planning['status'],
         message=('Joint AI layout/routing passed the current Exact engineering and STEP checks. Review remaining engineering qualifications; this is not manufacturing approval.' if planning['status']=='EXACT_FEASIBLE' else
-            'Joint AI layout/routing remains unresolved. The editable draft, actual failed checks and unevaluated design-space alternatives are retained; it is not verified. '+planning.get('message',''))+
+            'The current engineering machining plan remains unresolved. The editable draft and actual failed constraints are retained; it is not verified. '+planning.get('message',''))+
             ' Model owns these dimensions and positions after handoff; later layout changes require explicit Review / Apply.')
     packet['elapsed_s']=round(time.monotonic()-started,2)
     packet['resource_limits']=dict(total_features=PROJECT_FEATURES,nets=PROJECT_NETS,
