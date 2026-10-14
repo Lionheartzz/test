@@ -48,9 +48,11 @@ class GenerationOptions(Strict):
     # Model never gains layout-change authority from these options.
     max_attempts: int = Field(default=4, ge=1, le=6)
     max_exact_attempts: int = Field(default=2, ge=1, le=8)
-    # Retained for saved/older clients; local generation is bounded by candidate
-    # counts and explicit cancellation, never by elapsed wall time.
-    max_runtime_s: int | None = Field(default=None, ge=0)
+    # AI Generate only. Historical zero/None use the finite default; Model CAD
+    # and route operations do not inherit these execution deadlines.
+    max_runtime_s: float | None = Field(default=None, ge=0, le=3600)
+    max_layout_runtime_s: float = Field(default=120, gt=0, le=1800)
+    max_deep_runtime_s: float = Field(default=90, gt=0, le=1800)
 
 
 class GenerationRequest(Strict):

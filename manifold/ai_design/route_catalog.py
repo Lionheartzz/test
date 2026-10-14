@@ -160,6 +160,7 @@ class Session:
         self.search_context=AISearchContext()
         self.local_admission=None;self.local_records={};self.local_source_dependency=None
         self.local_allocation=None
+        self.planned_routes={}
         from .joint_solver import JointSolver
         self.solver=JointSolver(self)
 
@@ -224,20 +225,27 @@ class Session:
         return best
 
     def prepare(self, source, nets, definitions, threads, modifiers, tools, progress=None):
+        def planned():
+            for name,route in self.planned_routes.items():
+                if name in self.catalogs and geometry_key(route) not in self.catalogs[name].seen:
+                    self.catalogs[name].accept('engineering-plan:'+str(name),route,'engineering-plan')
         context=self.source_context(source,definitions,threads,modifiers,tools)
         self.invalidated=self.context is not None and self.context!=context
         if context in self.contexts and not self._prepared_once:
             self.catalogs,self.cache,self.pair_evidence,self.remaining=self.contexts[context]
             self.context=context
+            planned()
             return {n:c.active(width=len(c.clear)) for n,c in self.catalogs.items()}
         if self._prepared_once and context==self.context:
             self._prepared_once=False
+            planned()
             return {n:c.active(width=len(c.clear)) for n,c in self.catalogs.items()}
         self._prepared_once=False
         self.invalidated=self.context is not None and self.context!=context
         if context!=self.context:self.pair_evidence={}
         self.context=context
-        self.cache={};self.catalogs={}
+        from .execution import cache
+        self.cache=cache();self.catalogs={}
         for name,net in nets.items():
             seeds=[]
             for record in self.combinations:
@@ -245,9 +253,16 @@ class Session:
             seeds.extend(o for o in self.previous.get(terminal_key(source,net),())
                          if o.get('replay_locations')==cut_locations(source,o['route']))
             self.catalogs[name]=Catalog(source,net,definitions,threads,modifiers,tools,self.cache,seeds)
+        planned()
         # SAME total sample allocation as 32 per Net. Cheap Nets stop after
         # first diverse choices; missing/complex Nets receive unused tokens.
-        total=24*len(nets);used=0;self.remaining=8*len(nets)
+        total=24*len(nets);used=len(self.planned_routes);self.remaining=8*len(nets)
+        if self.planned_routes and all(any(geometry_key(o['route'])==geometry_key(self.planned_routes.get(n,[]))
+                                          for o in c.clear) for n,c in self.catalogs.items()):
+            # The compiled process has supplied every real machining network.
+            # Leave ordinary alternative generators dormant until a real
+            # obstruction/Exact rejection requires a different process branch.
+            return {n:c.active(width=len(c.clear)) for n,c in self.catalogs.items()}
         for name,catalog in self.catalogs.items():
             for _ in range(8):
                 if catalog.step():used+=1

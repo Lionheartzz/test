@@ -127,7 +127,7 @@ def _fixed_strategy_source(design):
     return design.model_copy(update=dict(features=[f for f in design.features if f.route_net not in mutable or f.frozen_net]))
 
 
-def propose(design, net, order, entry=None, detour='direct', definitions=None, safe_planes=None, *, terminal_overrides=None, connector_bends=None, port_approaches=None, connection_topology=None, entry_safe=False, thread_definitions=None, modifier_definitions=None, obstruction_cache=None,junction_override=None,terminal_orders=None):
+def propose(design, net, order, entry=None, detour='direct', definitions=None, safe_planes=None, *, terminal_overrides=None, connector_bends=None, port_approaches=None, connection_topology=None, entry_safe=False, thread_definitions=None, modifier_definitions=None, obstruction_cache=None,junction_override=None,terminal_orders=None,operation_records=None):
     net=effective_net(design,net)
     if definitions is None:
         from .engineering_db import definitions_for_design
@@ -170,7 +170,7 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None, s
         # body. The coaxial terminal drilling itself remains open.
         depth=max(window_end,current)+cut_radius+net.diameter/2+planning_wall(design,net,definitions)
         return tuple(point[i]+direction[i]*(depth-current) for i in range(3))
-    lines = {}
+    lines = {};line_owners={}
     for a,b in pairs:
         if b in ports_at and a not in ports_at:a,b=b,a
         branch_order=orders_at.get(a,orders_at.get(b,order))
@@ -233,6 +233,8 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None, s
                 key = (axis, fixed)
                 lo,hi = sorted((p[axis], end[axis]))
                 lines.setdefault(key,[]).append((lo,hi)); p[axis] = end[axis]
+                if operation_records is not None:
+                    line_owners.setdefault(key,set()).update(m for m in net.members if points.get(m) in (a,b))
     sizes = dimensions(design.block)
     features = []
     if entry_safe:
@@ -295,6 +297,9 @@ def propose(design, net, order, entry=None, detour='direct', definitions=None, s
             features.append(min(ranked,key=lambda row:row[:2])[2])
         else:
             features.append(make(min(options)))
+        if operation_records is not None:
+            operation_records.append(dict(feature=features[-1].id,axis=axis,fixed=list(fixed),required_interval=[lo,hi],
+                source_members=sorted(line_owners.get((axis,fixed),())),source_bound=False))
     # A hydraulic window narrower than the drill diameter cannot accept the
     # full cylinder. Stop that terminal branch before the cavity and let its
     # conical drill tip make the declared window contact.

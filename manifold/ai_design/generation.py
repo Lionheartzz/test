@@ -337,7 +337,8 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
         nonlocal progress_high
         if cancelled():raise CalculationError('Draft creation cancelled; analysis retained.',409)
         if not progress:return
-        labels=dict(access='Checking candidate machining access',conflicts='Screening competing hydraulic circuits',
+        labels=dict(engineering_plan='Solving manufacturing corridors and source placement constraints',
+                    access='Checking candidate machining access',conflicts='Screening competing hydraulic circuits',
                     joint_repair='Continuing joint machining branches',local_admission='Checking retained route connectivity',
                     layout_alternate='Revising component positions and block size',exact_layout='Checking exact layout and hydraulic routing')
         layout,limit=detail['layout'],detail['layout_limit']
@@ -378,6 +379,7 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
         routing_rejections=planned.get('routing_rejections',[]),
         family_evaluations=planned.get('family_evaluations'),hard_constraint_conflicts=planned.get('hard_constraint_conflicts'),
         resource_schedule=planned.get('resource_schedule'),
+        engineering_planner=planned.get('engineering_planner'),
         joint_solver_summary=planned.get('joint_solver_summary'),
         outcome_classification=planned.get('outcome_classification'),
         deferred_layouts=planned.get('deferred_layouts'),unexpanded_transform_generators=planned.get('unexpanded_transform_generators'),
@@ -637,6 +639,12 @@ def candidate(plan, generation_id, variant,*,progress=None,cancelled=lambda:Fals
 
 
 def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False):
+    """Supervised AI-only execution, including interruptible native CAD."""
+    from .execution import generate as supervised
+    return supervised(key,request,progress,cancelled=cancelled)
+
+
+def _generate(key, request, progress=lambda message:None,*,cancelled=lambda:False,publish=True):
     """Optimize only new AI candidates; hand off explicit, user-owned geometry."""
     started=time.monotonic()
     record,run,inputs,result=context(key,request.run_id,request.expected_revision)
@@ -676,7 +684,7 @@ def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False
             message=str(exc)+' Initial editable draft retained; no Exact approval is implied.',elapsed_s=round(time.monotonic()-started,2),
             created_at=service.now(),provider=run['provider'],input_revision=run['input_revision'],
             source_task_revision=request.expected_revision,options=request.options.model_dump(),engine_revision=store.engine_revision())
-        return _publish_generation(key,request,run,packet,folder)
+        return _publish_generation(key,request,run,packet,folder) if publish else packet
     from ..schema import DesignOrigin
     design.origin=DesignOrigin(author='PMC AI Design',method='ai-assisted',provider=run['provider']['id'],model=run['provider']['model'],
         notes='AI-owned layout and routing optimized before handoff. Model owns all subsequent geometry edits; routing and Validate do not redesign it. '+plan['settings']['material_proposal']['reason'])
@@ -708,7 +716,7 @@ def generate(key, request, progress=lambda message:None,*,cancelled=lambda:False
     corrections=record.get('port_corrections')
     if corrections and corrections['run_id']==run['id'] and corrections['input_revision']==run['input_revision']:
         packet['port_corrections']=corrections
-    return _publish_generation(key,request,run,packet,folder)
+    return _publish_generation(key,request,run,packet,folder) if publish else packet
 
 
 def _attempt_summary(attempt,geometry_rules):

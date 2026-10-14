@@ -147,7 +147,7 @@ def _columns(design, definitions, movable, growth_axes, fixed_faces):
     return target, lanes, junction_z
 
 
-def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, progress=None,*,include_routes=False,corridor_labels=1024,general_families=False,route_session=None,deep_limits=None):
+def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, progress=None,*,include_routes=False,corridor_labels=1024,general_families=False,route_session=None,deep_limits=None,planned_routes=None):
     from ..routing import (route_from_variant, route_obstructions, terminal_points, segment_depth,
         route_objective, select_route_combination, _ProposalSnapshot, _route_pair_failures)
     from ..cavity_access import cavity_terminal_candidates
@@ -164,6 +164,7 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         # than requiring every layout to fit the old branch-column template.
         from .route_catalog import Session
         route_session=route_session or Session()
+        route_session.planned_routes=planned_routes or {}
         general_pools=route_session.prepare(source,nets,definitions,threads,modifiers,tools,progress)
         route_session.solver.bind(source,nets,route_session.catalogs)
     for index, (name, net) in enumerate(nets.items()):
@@ -251,6 +252,15 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         from .joint_routes import coordinate
         if route_session.local_admission:route_session.local_admission.bind(source,nets,route_session.catalogs)
         preserved=route_session.compatible_core(source,nets,pair)
+        if planned_routes:
+            from .route_catalog import geometry_key
+            planned_core={}
+            for name in planned_routes:
+                option=next((o for o in route_session.catalogs[name].clear if
+                    geometry_key(o['route'])==geometry_key(planned_routes[name])),None)
+                if option is not None and all(not pair(name,option,n,p) for n,p in planned_core.items()):
+                    planned_core[name]=option
+            if len(planned_core)>=len(preserved):preserved=planned_core
         pools={n:c.active(width=len(c.clear)) for n,c in route_session.catalogs.items()}
         work=dict(states=0,limit=deep_limits['states'] if deep_limits else 1000)
         partial,joint=coordinate(route_session,source,nets,pools,pair,preserved,work,labels=corridor_labels,

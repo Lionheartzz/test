@@ -95,7 +95,8 @@ def _execute(record):
             record.update(status='failed',message='Last analysis failed · '+run['error']+'. '+run['error_message'],
                           error=run['error'],phase=run.get('phase'),result=result)
         else:
-            record.update(status='completed',message='Operation completed',result=result)
+            record.update(status='completed',message=(result.get('message') or 'Generation stopped; retained draft is not accepted.')
+                if result.get('status') in ('incomplete_draft','cancelled') else 'Operation completed',result=result)
     except service.Conflict:
         record.update(status='conflict',message='Analysis changed while the operation ran. The newer inputs were preserved; reopen the analysis.')
     except ValueError as exc:
