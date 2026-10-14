@@ -151,7 +151,7 @@ def optimize(design,definitions,domain,*,layout_limit=None,exact_limit=2,progres
         # A finite sequence of measured local transactions, not competing
         # layouts. A stalled/unknown constraint terminates immediately.
         for step in range(2*len(work.state.plans)):
-            if not work.failures or work.process_gap:break
+            if not work.failures:break
             emit('engineering_plan',completed=step,total=max(1,2*len(work.state.plans)),decision='LOCAL_PROCESS_REPAIR')
             with timing.phase('single.local_repair'):
                 changed=work.repair()

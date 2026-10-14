@@ -6,6 +6,7 @@ import json
 from ..kinematics import FACE_AXES, pose
 from ..engineering_conditions import effective_net, planning_wall
 from ..routing import terminal_points, _manufacturing_cuts
+from ..timing import timed
 from .initialization import source_extents
 
 
@@ -97,5 +98,24 @@ class EngineeringPlan:
     def diagnostics(self):
         return dict(dependency=self.dependency,scope='NEW_AI_GENERATE_ONLY',facts=self.facts,
                     rigid_features=self.features,net_hypergraph=self.nets,
+                    source_associations=self.associations(),
                     unknowns=[f for f in self.facts if f['level']=='UNKNOWN'],
                     approval='FACTS_AND_CONSTRAINTS_ONLY')
+
+    @timed('single.net_associations')
+    def associations(self):
+        """Weighted hyperedge adjacency, never a transitive packing group.
+
+        A large Net contributes one unit of adjacency per source, while several
+        shared Nets contribute independently. Window identities remain rigid.
+        """
+        import itertools
+        index={r['feature']:i for i,r in enumerate(self.features)};pairs={}
+        for row in self.nets:
+            owners=sorted({m.split(':')[0] for m in row['members']},key=index.get)
+            for a,b in itertools.combinations(owners,2):
+                pair=pairs.setdefault((a,b),dict(features=[a,b],weight=0.,nets=[],windows=[]))
+                pair['weight']+=1/max(1,len(owners)-1)
+                pair['nets'].append(row['net'])
+                pair['windows'].append([m for m in row['members'] if m.split(':')[0] in (a,b)])
+        return sorted(pairs.values(),key=lambda r:(-len(r['nets']),-r['weight'],*[index[k] for k in r['features']]))

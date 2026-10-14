@@ -41,16 +41,27 @@ class WorkDesign:
             if f.id in domain.fixed_faces or f.id in domain.fixed_rotations}
         for f in self.design.features:
             if f.id in poses:f.face,f.rotation=poses[f.id]
-        plans={}
-        for row in self.e.nets:
-            choices=self.corridors.for_net(row,self.design)
-            if choices:plans[row['net']]=choices[0]
-        self.state=DecisionState(plans,poses=poses,preserve=False)
+        self.state=DecisionState({},poses=poses,preserve=False)
         self.required_nets={r['net'] for r in self.e.nets}
         self.routes={};self.operations={};self.junctions={};self.records=[];self.failed_actions=set()
         self.failures={};self.witnesses=[];self.local={};self.reused=[];self.source_ready=False
         self.table={};self.versions=0;self.materialized_nets=[];self.process_gap=None
         self.source_shapes=cache();self.source_contact_cache=cache()
+        self.process_choices={};self.process_trials=set();self.arranged=False
+        self.choose_processes()
+
+    def choose_processes(self,names=None):
+        plans=dict(self.state.plans)
+        with timing.phase('single.process_decision'):
+            for row in self.e.nets:
+                if names is not None and row['net'] not in names:continue
+                ranked=self.corridors.ranked(row,self.design)
+                self.process_choices[row['net']]=[dict(plan=p.diagnostics(),score=list(score),evidence=why) for score,p,why in ranked]
+                if ranked:
+                    score,p,why=ranked[0];plans[row['net']]=p
+                    self.records.append(dict(kind='ENGINEERING_PROCESS_SELECTION',net=row['net'],selected=p.diagnostics(),
+                        basis=why,alternatives_compared=len(ranked),source_geometry=digest([dimensions(self.design.block),[f.model_dump() for f in self.design.features]])))
+        self.state=replace(self.state,plans=plans)
 
     def source_conflicts(self,target):
         """Keep the legacy fast bound for round sources; narrow real contours.
@@ -61,7 +72,7 @@ class WorkDesign:
         """
         broad=set(source_conflicts(target,self.e.definitions,self.e.threads,self.e.modifiers,self.e.domain._placement_cache))
         sources=[f for f in target.features if not f.suppressed and not f.route_net]
-        irregular={f.id for f in sources if not self.circular(f)}
+        irregular={f.id for f in sources if not self.circular(f,target)}
         if not irregular:return sorted(broad)
         from ..geometry import feature_geometry
         from ..cad_geometry import checked_shape
@@ -92,8 +103,8 @@ class WorkDesign:
 
     def bounds(self,f,d=None):return cut_bounds(d or self.design,f,self.e)
 
-    def circular(self,f):
-        d=self.design;o,_=pose(f,d.block);axes=FACE_AXES[f.face][:2]
+    def circular(self,f,target=None):
+        d=target or self.design;o,_=pose(f,d.block);axes=FACE_AXES[f.face][:2]
         definition=self.e.definitions.get(f.definition)
         round_boundary=not definition or all(b.circle and abs(b.circle[0])+abs(b.circle[1])<1e-7 for b in definition.boundaries)
         return round_boundary and not f.direction and all(all(abs(pose(c['feature'],d.block)[0][a]-o[a])<1e-7 for a in axes)
@@ -120,7 +131,7 @@ class WorkDesign:
         return bad
 
     def spacing(self):
-        """A deterministic constructive face row, with real projected supports.
+        """Preserve the selected two-dimensional source arrangement.
 
         No opposite-depth sum: PlacementSolver imposes each source's own depth;
         opposite/cross-face overlap adds a measured separation only if present.
@@ -134,18 +145,40 @@ class WorkDesign:
             -source_extents(self.design,f,self.e.definitions,self.e.threads,self.e.modifiers)['radius'],index[f.id]))
         self.order=[f.id for f in ordered];separations=[];spacing=[]
         for a,b in itertools.combinations(ordered,2):
-            if a.face!=b.face:continue
+            if a.face!=b.face:
+                if not self.arranged:continue
+                # Keep a measured cross-face source separation when origins
+                # and stock become variables in the same constraint system.
+                ba,bb=self.bounds(a),self.bounds(b)
+                gap=max(required_wall(self.design,a,b,definitions=self.e.definitions),self.design.rules.minimum_access_gap)
+                events=[]
+                for axis in range(3):
+                    for low,high,bl,bh in ((a,b,ba,bb),(b,a,bb,ba)):
+                        if bl[axis][1]+gap<=bh[axis][0]+1e-7:
+                            distance=bl[axis][1]-pose(low,self.design.block)[0][axis]-(bh[axis][0]-pose(high,self.design.block)[0][axis])+gap
+                            events.append((bh[axis][0]-bl[axis][1]-gap,axis,low,high,distance))
+                if events:
+                    _,axis,low,high,distance=max(events,key=lambda r:(r[0],-r[1]))
+                    reason=dict(rule='CROSS_FACE_SOURCE_SUPPORT_SEPARATION',features=[low.id,high.id],axis=axis,
+                        required=distance,gap=gap,measured_bounds=[ba,bb],status='SUFFICIENT_DOMAIN_RECHECK_REQUIRED')
+                    separations.append(Separation(self.solver.origin(high.id,axis),self.solver.origin(low.id,axis),distance,reason));spacing.append(reason)
+                continue
             ra=source_extents(self.design,a,self.e.definitions,self.e.threads,self.e.modifiers)
             rb=source_extents(self.design,b,self.e.definitions,self.e.threads,self.e.modifiers)
             common={n['net'] for n in incident(a)}&{n['net'] for n in incident(b)}
             axes=FACE_AXES[a.face][:2]
             preferred=[self.state.plans[n].spine_axis for n in self.corridors.order if n in common]
-            axis=next((v for v in preferred if v in axes),axes[0])
+            # Select a separating projection from the actual arrangement.
+            # All pairs on a face need not have the same ordering axis.
+            def slack(axis):
+                return abs(pose(a,self.design.block)[0][axis]-pose(b,self.design.block)[0][axis])-(
+                    max(abs(v) for v in ra['projected_supports'][axis])+max(abs(v) for v in rb['projected_supports'][axis]))
+            axis=max(axes,key=lambda axis:(slack(axis),axis in preferred,-axis))
             # Preserve a physically separated authored/soft row's ordering.
             low,high=sorted((a,b),key=lambda f:(pose(f,self.design.block)[0][axis],self.order.index(f.id)))
             rlo,rhi=(ra,rb) if low==a else (rb,ra)
             gap=max(required_wall(self.design,a,b,definitions=self.e.definitions),self.design.rules.minimum_access_gap)
-            circular=self.circular(a) and self.circular(b)
+            circular=self.circular(a,self.design) and self.circular(b,self.design)
             olo=pose(low,self.design.block)[0][axis];ohi=pose(high,self.design.block)[0][axis]
             left=rlo['projected_supports'][axis][1]
             right=-rhi['projected_supports'][axis][0]
@@ -162,18 +195,15 @@ class WorkDesign:
         return tuple(separations)
 
     def groups(self):
-        groups=[{f.id} for f in self.design.features]
-        for n in self.e.nets:
-            owners={m.split(':')[0] for m in n['members']}
-            joined=set().union(*(g for g in groups if g&owners))
-            groups=[g for g in groups if not g&owners]+[joined]
-        return [sorted(g,key=lambda f:self.solver.fi[f]) for g in groups]
+        # Direct hyperedge groups overlap deliberately: transitive connectivity
+        # does not impose an all-source packing row.
+        return [r['features'] for r in self.e.associations()]
 
     def solve(self,state,*,working=None,fixed=None):
         with timing.phase('single.coordinates'):
             return self.solver.solve(state.plans,poses=state.poses,separations=state.separations,
                 preserve=state.preserve,dimension_floor=state.dimension_floor,release=state.release,
-                release_axes=state.release_axes,working=working,fixed_junctions=fixed,use_projected=True)
+                release_axes=state.release_axes,working=working or self.design,fixed_junctions=fixed,use_projected=True)
 
     def necessary_stock(self):
         """Retain necessary closure/stop space even if a process domain cycles.
@@ -199,31 +229,32 @@ class WorkDesign:
         return tuple(floor),facts
 
     def initialize(self):
+        def adjustable(f):
+            locks=self.e.domain.fixed_positions.get(f.id,{})
+            free=any(field not in locks and 'xyz'[axis] not in locks for axis,field in zip(FACE_AXES[f.face][:2],('u','v')))
+            return f.kind=='cavity' and f.id in self.e.domain.movable and (len(self.e.domain.faces(f))>1 or free)
+        if any(adjustable(f) for f in self.design.features):
+            from .source_arrangement import arrange
+            before=self.design.model_copy(deep=True)
+            ok,decisions=arrange(self)
+            self.records.append(dict(kind='HYPERGRAPH_SOURCE_ARRANGEMENT',decisions=decisions,constructed=ok))
+            if not ok:self.design=before
+            else:
+                self.arranged=True
+                self.state=replace(self.state,poses={f.id:(f.face,f.rotation) for f in self.design.features
+                    if f.id in self.e.domain.movable or f.id in self.state.poses},dimension_floor=dimensions(self.design.block))
+                self.choose_processes()
         self.state=replace(self.state,separations=self.spacing())
-        # Resolve only demonstrated symbolic contradictions, not layout trials.
-        for _ in range(2*len(self.state.plans)+1):
-            solved,detail=self.solve(self.state)
-            self.records.append(dict(kind='INITIAL_CONSTRAINT_PROPAGATION',constraints=detail))
-            if solved:break
-            implicated={n for r in detail.get('cycle',[]) for n in ([r['net']] if 'net' in r else r.get('nets',[]))}
-            changed=False;plans=dict(self.state.plans)
-            for name in self.corridors.order:
-                if name not in implicated:continue
-                old=plans[name]
-                if old.access in ('coaxial','aligned-window'):
-                    option=next((p for p in self.corridors.options[name] if p.access=='window' and not p.planar),None)
-                    if option:plans[name]=option;changed=True
-                elif old.planar:plans[name]=replace(old,planar=False);changed=True
-            if not changed:break
-            self.state=replace(self.state,plans=plans)
+        solved,detail=self.replan_constraints()
         if not solved:
             self.process_gap=detail
             # A process-domain contradiction does not erase a valid source Draft.
             floor,stock_facts=self.necessary_stock()
+            floor=tuple(max(a,b) for a,b in zip(floor,self.state.dimension_floor or (1,1,1)))
             self.state=replace(self.state,dimension_floor=floor)
             self.table['necessary_stock']=stock_facts
             solved,source_detail=self.solver.solve({},poses=self.state.poses,separations=self.state.separations,
-                dimension_floor=floor,use_projected=True)
+                dimension_floor=floor,use_projected=True,working=self.design)
             self.records.append(dict(kind='SOURCE_ONLY_CONSTRAINTS',constraints=source_detail))
             if not solved:
                 self.records.append(dict(kind='SOURCE_LAYOUT_UNRESOLVED',constraints=source_detail));return False
@@ -255,6 +286,86 @@ class WorkDesign:
             for f in self.design.features],coordinate_constraints=active_detail,process_constraints=detail,process_gap=self.process_gap,
             dimension_basis='SOURCE_AND_NECESSARY_PROCESS_BOUNDS_FULL_DOMAIN_UNRESOLVED' if self.process_gap else 'SOURCE_AND_MACHINING_CORRIDOR_CONSTRAINTS')
         return self.source_ready
+
+    def replan_constraints(self):
+        """A minimal contradictory cycle is a process decision, not no-layout.
+
+        Change one implicated machining domain on this work Design, propagate,
+        and continue the next actual cycle. No Cartesian layout collection and
+        no relaxed inequalities. The finite set of local process transitions
+        prevents repeating a prior axis/order decision under identical facts.
+        """
+        solved,detail=self.solve(self.state)
+        self.records.append(dict(kind='INITIAL_CONSTRAINT_PROPAGATION',constraints=detail))
+        seen={digest({n:p.diagnostics() for n,p in self.state.plans.items()})}
+        clauses=[]
+        while not solved:
+            cycle=detail.get('cycle',[])
+            cycle_keys={digest(r) for r in cycle};rules={r.get('rule') for r in cycle}
+            implicated={n for r in cycle for n in ([r['net']] if 'net' in r else r.get('nets',[]))}
+            # This selected difference-domain cycle depends on these process
+            # assignments and this source geometry. Retain that conditional
+            # proof; never ban a process merely because it failed beside an
+            # earlier, different assignment of the OTHER Nets.
+            condition={n:digest(self.state.plans[n].diagnostics()) for n in implicated if n in self.state.plans}
+            if condition and condition not in clauses:clauses.append(condition)
+            alternatives=[]
+            for name in self.corridors.order:
+                if name not in implicated:continue
+                row=next(r for r in self.e.nets if r['net']==name);old=self.state.plans[name]
+                ranked=self.corridors.ranked(row,self.design)
+                if 'WINDOW_LAYER' in rules and old.planar:
+                    ranked=[((0,),replace(old,planar=False),dict(reason='Remove the planar equality implicated by actual rigid window offsets'))]
+                elif 'COAXIAL_WINDOW_ALIGNMENT' in rules and old.access in ('coaxial','aligned-window'):
+                    ranked=[r for r in ranked if r[1].access=='window' and not r[1].planar]
+                elif 'SHARED_WINDOW_ESCAPE_ORDER' in rules:
+                    ranked=[r for r in ranked if (r[1].spine_axis,r[1].layer_axis,r[1].orders)!=(old.spine_axis,old.layer_axis,old.orders)]
+                elif 'SOURCE_BACKED_AXIAL_INTERVAL' in rules:
+                    ranked=[r for r in ranked if not r[1].planar and (r[1].spine_axis!=old.spine_axis or r[1].axial_members!=old.axial_members)]
+                if 'RADIAL_BRANCH_SOURCE_COLUMNS' in rules and old.reserve_columns:
+                    ranked.append(((float('inf'),),replace(old,reserve_columns=False),dict(
+                        reason='Replace contradictory sufficient all-source column ordering with full production machining screening',
+                        safety_gate='Every source-protected cut, entry, plug and third-party route remains mandatory')))
+                equivalent=set()
+                for score,p,basis in ranked:
+                    if p==old:continue
+                    # An entry flip cannot alter a window-layer/escape cycle.
+                    effect=replace(p,entry=old.entry).diagnostics() if not any('ENTRY' in (r or '') for r in rules) else p.diagnostics()
+                    effect=digest(effect)
+                    if effect in equivalent:continue
+                    equivalent.add(effect)
+                    plans={**self.state.plans,name:p};token=digest({n:q.diagnostics() for n,q in plans.items()})
+                    if any(all(digest(plans[n].diagnostics())==value for n,value in clause.items()) for clause in clauses):continue
+                    transition=digest([self.engineer.token(self.state),signature(self.design),name,p.diagnostics(),cycle])
+                    if token in seen or transition in self.process_trials:continue
+                    self.process_trials.add(transition)
+                    state=replace(self.state,plans=plans)
+                    result,why=self.solve(state)
+                    # An escape cycle requires an axis/order/layer change;
+                    # toggling planar alone cannot remove its positive edges.
+                    same_escape=(p.spine_axis,p.layer_axis,p.orders)==(old.spine_axis,old.layer_axis,old.orders)
+                    residual=why.get('cycle',[])
+                    metric=(result is None,len(cycle_keys&{digest(r) for r in residual}),
+                        sum(r.get('rule')=='SHARED_WINDOW_ESCAPE_ORDER' for r in residual),len(residual),same_escape,score)
+                    alternatives.append((metric,state,result,why,name,p,basis,token))
+                    if result:break
+            if not alternatives:
+                detail={**detail,'uncovered_process_domain':dict(nets=sorted(implicated),
+                    reason='No unused local axis/entry/window-order transition in the supported production junction representation',
+                    physical_infeasibility_proven=False)};break
+            _,state,result,why,name,p,basis,token=min(alternatives,key=lambda r:r[0])
+            if not result and cycle_keys=={digest(r) for r in why.get('cycle',[])}:
+                detail={**detail,'uncovered_process_domain':dict(nets=sorted(implicated),
+                    reason='Available local process transitions do not remove the measured contradictory relation',
+                    physical_infeasibility_proven=False)};break
+            self.records.append(dict(kind='CONTRADICTORY_PROCESS_REPLAN',cycle=cycle,net=name,
+                conditional_assignments=condition,local_domains_checked=len(alternatives),
+                dependency=self.engineer.token(self.state),
+                previous=self.state.plans[name].diagnostics(),selected=p.diagnostics(),basis=basis,
+                affected_nets=[name],source_moved=False,after=why,status='DOMAIN_SOLVED_REQUIRES_PRODUCTION_CHECK' if result else 'NEXT_CONDITIONAL_CYCLE'))
+            self.state=state;seen.add(token);solved,detail=result,why
+        self.process_gap=None if solved else detail
+        return solved,detail
 
     def source_separation(self,pairs):
         by_id={f.id:f for f in self.design.features}
@@ -378,14 +489,24 @@ class WorkDesign:
         yield from ((state,cause) for _,state,cause in sorted(choices,key=lambda r:r[0]))
 
     def affected(self,before,after,plans):
-        changed={f.id for f,g in zip(before.features,after.features) if f!=g}
+        previous={f.id:f for f in before.features};current={f.id:f for f in after.features}
+        changed={key for key in previous if previous[key]!=current.get(key)}
         affected=set(plans)
         affected.update(n['net'] for n in self.e.nets if any(m.split(':')[0] in changed for m in n['members']))
         if dimensions(before.block)!=dimensions(after.block):return set(self.state.plans),changed
         # A moved source can obstruct an unrelated Net: screen its swept bounds.
         old={f.id:f for f in before.features};new={f.id:f for f in after.features}
+        def occupied(f,target):
+            bounds=self.bounds(f,target);o,_=pose(f,target.block)
+            ext=source_extents(target,f,self.e.definitions,self.e.threads,self.e.modifiers)
+            for axis,(lo,hi) in ext['projected_supports'].items():bounds[axis]=(min(bounds[axis][0],o[axis]+lo),max(bounds[axis][1],o[axis]+hi))
+            definition=self.e.definitions.get(f.definition)
+            height=max([definition.clearance_height,*[b.height for b in definition.boundaries]]) if definition else f.clearance_height
+            axis,sign=FACE_AXES[f.face][2:];outside=o[axis]-sign*height
+            bounds[axis]=(min(bounds[axis][0],outside),max(bounds[axis][1],outside))
+            return bounds
         for owner in changed:
-            a=self.bounds(old[owner],before);b=self.bounds(new[owner],after)
+            a=occupied(old[owner],before);b=occupied(new[owner],after)
             swept=[(min(a[i][0],b[i][0]),max(a[i][1],b[i][1])) for i in range(3)]
             for name,cuts in self.routes.items():
                 for f in cuts:
@@ -395,7 +516,22 @@ class WorkDesign:
 
     def repair(self):
         """One causally selected transaction; no next global layout."""
+        if self.process_gap:
+            before=self.state
+            solved,detail=self.replan_constraints()
+            if solved:
+                target,junctions=solved
+                if not self.fit(target) and not self.source_conflicts(target):
+                    affected,owners=self.affected(self.design,target,{n for n in self.state.plans if self.state.plans[n]!=before.plans[n]})
+                    self.design,self.junctions=target,junctions;self.materialize(affected);self.precheck()
+                    self.records.append(dict(kind='PROCESS_DOMAIN_RECOVERED',affected_nets=sorted(affected),moved_sources=sorted(owners)))
+                    return True
+            self.records.append(dict(kind='PROCESS_EXPRESSION_UNRESOLVED',constraints=detail,manufacturing_ready=False))
+            return False
         if any(f[0]=='CAD_EVALUATION_ERROR' for rows in self.failures.values() for f in rows):return False
+        # Entry and coordinate outcomes also depend on every retained cut.
+        # An earlier third-party route must not veto a newly safe transaction.
+        context=self.repair_dependency()
         # Full external entry change first. Only failing Net processes change.
         for name in self.corridors.order:
             if name not in self.failures:continue
@@ -405,13 +541,16 @@ class WorkDesign:
                 mode='positive' if current!='positive' else 'negative'
                 updated=replace(p,entry_axes=tuple(sorted({**dict(p.entry_axes),axis:mode}.items())))
                 cause=dict(rule='CHANGE_MEASURED_ENTRY',net=name,axis=axis,entry=mode,failures=self.failures[name])
-                token=digest([signature(self.design),name,updated.diagnostics()])
+                token=digest([context,name,updated.diagnostics()])
                 if token in self.failed_actions:continue
                 self.failed_actions.add(token)
                 old=self.routes.get(name);old_operations=self.operations.get(name)
                 candidate=self.corridors.materialize(self.design,{name:updated},self.junctions,self.engineer.cache,
                     net_ids={name},operation_records=self.operations).get(name)
-                if not candidate or candidate==old:continue
+                if not candidate or candidate==old:
+                    if old_operations is None:self.operations.pop(name,None)
+                    else:self.operations[name]=old_operations
+                    continue
                 routes={**self.routes,name:candidate}
                 with timing.phase('single.local_repair_precheck'):
                     failures,witnesses=self.engineer.machining_screen(self.design,routes)
@@ -423,10 +562,42 @@ class WorkDesign:
                     self.state=replace(self.state,plans={**self.state.plans,name:updated});self.routes=routes
                     self.failures,self.witnesses=failures,witnesses;self.local.pop(name,None)
                     self.materialized_nets.append([name]);self.versions+=1;return True
-                self.operations[name]=old_operations
+                if old_operations is None:self.operations.pop(name,None)
+                else:self.operations[name]=old_operations
+        # Compare a measured alternative main axis before moving any source.
+        # One representative per distinct process axis, not a Catalog family
+        # or a new global layout. Every complete cut is screened against ALL
+        # retained sources, plugs and third-party routes.
+        for row in self.e.nets:
+            name=row['net']
+            if name not in self.failures:continue
+            represented={(self.state.plans[name].spine_axis,self.state.plans[name].side)}
+            for _,p,basis in self.corridors.ranked(row,self.design):
+                if (p.spine_axis,p.side) in represented:continue
+                represented.add((p.spine_axis,p.side))
+                token=digest([context,name,p.diagnostics(),'measured-process'])
+                if token in self.failed_actions:continue
+                self.failed_actions.add(token)
+                state=replace(self.state,plans={**self.state.plans,name:p},preserve=True)
+                solved,detail=self.solve(state,working=self.design,fixed={n:j for n,j in self.junctions.items() if n!=name})
+                if not solved:
+                    self.records.append(dict(kind='PROCESS_AXIS_REJECTED',net=name,selected=p.diagnostics(),actual=detail));continue
+                target,junctions=solved;operations=dict(self.operations)
+                candidate=self.corridors.materialize(target,state.plans,junctions,self.engineer.cache,net_ids={name},operation_records=operations).get(name)
+                if not candidate:continue
+                routes={**self.routes,name:candidate}
+                failures,witnesses=self.engineer.machining_screen(target,routes)
+                improved=len(failures.get(name,[]))<len(self.failures.get(name,[])) and not set(failures)-set(self.failures) and not any(
+                    f[0]=='CAD_EVALUATION_ERROR' for rows in failures.values() for f in rows)
+                self.records.append(dict(kind='MEASURED_PROCESS_AXIS_TRANSACTION',net=name,basis=basis,selected=p.diagnostics(),
+                    before=self.failures[name],after=failures,committed=improved,source_moved=False,affected_nets=[name]))
+                if improved:
+                    self.state=replace(state,preserve=False);self.junctions=junctions;self.routes,self.operations=routes,operations
+                    self.failures,self.witnesses=failures,witnesses;self.local.pop(name,None)
+                    self.materialized_nets.append([name]);self.versions+=1;return True
         # Measurements select a local coordinate inequality, not +/- nudges.
         for state,cause in self.separation_actions(self.witnesses):
-            token=digest([signature(self.design),cause])
+            token=digest([context,cause])
             if token in self.failed_actions:continue
             self.failed_actions.add(token)
             release=set(state.release);incident={n['net'] for n in self.e.nets if any(m.split(':')[0] in release for m in n['members'])}
@@ -460,9 +631,14 @@ class WorkDesign:
                 self.materialized_nets.append(sorted(affected));self.versions+=1;return True
         return False
 
+    def repair_dependency(self):
+        return digest([self.e.dependency,self.engineer.token(self.state),signature(self.design),self.junctions,
+            {n:[f.model_dump() for f in cuts] for n,cuts in self.routes.items()}])
+
     def diagnostics(self):
         return dict(scope='NEW_AI_GENERATE_ONLY',mode='SINGLE_WORK_DESIGN',engineering_plan=self.e.diagnostics(),
             initial_calculation=self.table,selected_processes={n:p.diagnostics() for n,p in self.state.plans.items()},
+            process_comparisons=self.process_choices,
             operations=self.operations,actual_drillings={n:[f.model_dump(mode='json') for f in fs] for n,fs in self.routes.items()},
             junctions=self.junctions,decisions=self.records,failures=self.failures,local_admission=self.local,
             source_layout_ready=self.source_ready,process_gap=self.process_gap,versions=self.versions,

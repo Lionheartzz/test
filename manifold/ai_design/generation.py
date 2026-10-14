@@ -408,7 +408,7 @@ def _scaffold_faces(plan,maximum,wall,gap):
     for row in sorted(plan['components'],key=lambda c:(c['id'] not in settings['hard_component_faces'],c['id'])):
         hard=settings['hard_component_faces'].get(row['id'],options.component_faces.get(row['id']))
         preferred=settings['component_faces'].get(row['id'],options.preferred_component_face or 'top')
-        candidates=(hard,) if hard else tuple(dict.fromkeys((preferred,*FACE_AXES)))
+        candidates=(hard,) if hard else tuple(f for f in dict.fromkeys((preferred,*FACE_AXES)) if f!='bottom')
         selected=None;depth=max(p.end for p in row['definition'].cutting_primitives or row['definition'].stages)
         for face in candidates:
             if depth+wall>maximum[FACE_AXES[face][2]]:continue

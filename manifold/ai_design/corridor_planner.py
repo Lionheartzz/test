@@ -5,8 +5,9 @@ Only the production Router materializes them; every cut still needs its gates.
 """
 from dataclasses import dataclass, replace
 import itertools
+import math
 
-from ..kinematics import FACE_AXES, dimensions
+from ..kinematics import FACE_AXES, dimensions, pose
 from ..engineering_conditions import effective_net
 from ..routing import propose, port_turn_depth
 from ..branch_candidates import face_window_points
@@ -105,6 +106,60 @@ class CorridorPlanner:
 
     def initial(self):
         return {n:self.options[n][0] for n in self.order if self.options[n]}
+
+    def ranked(self,row,design):
+        """Engineering process comparison, not a global layout product.
+
+        Costs estimate real externally drilled intervals, not internal path
+        length alone. They schedule a small axis/entry decision; only actual
+        materialization and production screening can establish machining safety.
+        """
+        from ..routing import terminal_points
+        from .initialization import source_extents
+        points=terminal_points(design,self.engineering.definitions);by_id={f.id:f for f in design.features}
+        sizes=dimensions(design.block);rows=[]
+        if any(m not in points for m in row['members']):return []
+        extents={f.id:source_extents(design,f,self.engineering.definitions,self.engineering.threads,self.engineering.modifiers)
+            for f in by_id.values() if any(m.split(':')[0]==f.id for m in row['members'])}
+        for base in self.for_net(row,design):
+            for entry,side in itertools.product(('negative','positive'),(1,-1) if base.access=='window' else (1,)):
+                p=replace(base,entry=entry,side=side);length=0.;holes=0;blocked=[];reach_excess=0.;evidence=[]
+                centre=[sum(points[m][a] for m in row['members'])/len(row['members']) for a in range(3)]
+                # Estimate the junction on the same radial side actually
+                # required by PlacementSolver, using actual projected supports.
+                for m,order in p.orders:
+                    f=by_id[m.split(':')[0]];ext=extents[f.id]
+                    first=order[0];o,_=pose(f,design.block)
+                    if p.access=='window':
+                        reach=max(abs(v) for v in ext['projected_supports'].get(first,[-ext['depth'],ext['depth']]))+row['diameter']/2+row['wall']
+                        centre[first]=(max if side>0 else min)(centre[first],o[first]+side*reach)
+                for m,order in p.orders:
+                    f=by_id[m.split(':')[0]];normal=FACE_AXES[f.face][2];point=points[m]
+                    axes=[p.spine_axis] if p.access in ('coaxial','aligned-window') else list(order)
+                    for a in axes:
+                        # A source-bound port/axial drilling is an explicit
+                        # exception with its own real source stop and entry.
+                        source_bound=(f.kind=='port' or m in p.axial_members) and a==normal
+                        face=next(k for k,v in FACE_AXES.items() if v[2]==a and (v[3]>0)==(entry=='negative'))
+                        if face in design.constraints.forbidden_drilling_faces and not source_bound:blocked.append(dict(member=m,face=face))
+                        lo,hi=sorted((point[a],centre[a]));depth=(hi if entry=='negative' else sizes[a]-lo)+row['diameter']/2
+                        if source_bound:
+                            depth=self.profile_access[m]['depth_minus_stock']+sizes[normal] if m in p.axial_members else f.depth
+                        length+=max(0,depth);holes+=1
+                        tools=row.get('tooling',{}).get('tools',[])
+                        available=max((t.get('usable_depth_mm') or t.get('max_depth_mm') or 0 for t in tools),default=0)
+                        if available:reach_excess+=max(0,depth-available)
+                        evidence.append(dict(member=m,axis=a,entry_face=face,estimated_full_depth=depth,source_bound=source_bound))
+                # Prefer a direct manufacturing relationship if expressible.
+                # Otherwise compare all three axes and both actual entry sides.
+                alignment=sum(max(points[m][a] for m in row['members'])-min(points[m][a] for m in row['members'])
+                    for a in range(3) if a!=p.spine_axis) if p.access in ('coaxial','aligned-window') else 0
+                cost=(bool(blocked),reach_excess,0 if p.access in ('coaxial','aligned-window') else 1,alignment,
+                    length+holes*row['diameter'],not p.planar,-len(p.axial_members),p.spine_axis,entry=='positive',side<0)
+                rows.append((cost,p,dict(estimated_external_length=length,estimated_holes=holes,
+                    blocked_entries=blocked,tool_reach_excess=reach_excess,required_alignment_displacement=alignment,operations=evidence,
+                    closure=row.get('closure'),status='PROCESS_ESTIMATE_REQUIRES_PRODUCTION_SCREEN')))
+        return sorted(rows,key=lambda r:r[0])
 
     def alternatives(self, plans, implicated=(),poses=None):
         selected=set(implicated) or set(plans)

@@ -67,7 +67,11 @@ class LayoutDomain:
             {f.id for f in design.features}-allowed)
 
     def faces(self,feature):
-        return (self.fixed_faces[feature.id],) if feature.id in self.fixed_faces else tuple(FACE_AXES)
+        if feature.id in self.fixed_faces:return (self.fixed_faces[feature.id],)
+        if feature.id not in self.movable:return (feature.face,)
+        # The assembly underside is reserved unless the engineer explicitly
+        # requires it. Port permissions are independent of this Cavity policy.
+        return tuple(f for f in FACE_AXES if f!='bottom') if feature.kind=='cavity' else tuple(FACE_AXES)
 
     def accepts(self,original,candidate):
         if original.model_dump(exclude={'block','features'})!=candidate.model_dump(exclude={'block','features'}):return False
@@ -83,6 +87,7 @@ class LayoutDomain:
             if f.model_dump(exclude={'face','u','v','rotation'})!=old.model_dump(exclude={'face','u','v','rotation'}):return False
             if f.id in self.fixed_faces and f.face!=self.fixed_faces[f.id]:return False
             if f.id in self.fixed_rotations and f.rotation!=self.fixed_rotations[f.id]:return False
+            if f.face not in self.faces(old):return False
             if not self.position_matches(f,candidate.block):return False
         return True
 
