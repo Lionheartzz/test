@@ -78,6 +78,38 @@ def _focus(design,failures):
     return owners
 
 
+def admit_final_cores(records,session,record_state,emit):
+    """Re-rank after real rejection; spend the reserve on the actual handoff.
+
+    Each source state is visited once. Cached facts remain usable even when
+    fresh CAD is exhausted; unknown results never become accepted evidence.
+    """
+    from .joint_state import rank
+    from .route_catalog import geometry_key
+    inspected=set()
+    candidates=[r for r in records if r['assessment']['status']!='SOURCE_LAYOUT_REJECTED']
+    while candidates:
+        row=min(candidates,key=rank);a=row['assessment']
+        dependency=a.get('joint_solver',{}).get('dependency')
+        state=session.solver.states.get(dependency)
+        if state is None or dependency in inspected:break
+        inspected.add(dependency)
+        cuts=[Feature.model_validate(f) for f in a.get('partial_routing',{}).get('features',[])]
+        core={n:next(o for o in state.catalogs[n].clear if geometry_key(o['route'])==
+                geometry_key([f for f in cuts if f.route_net==n]))
+              for n in a.get('partial_routing',{}).get('nets',[])}
+        session.solver.current=state;session.catalogs=state.catalogs
+        session.local_allocation=None
+        emit('local_admission',layout_index=row['index'],nets=sorted(core))
+        kept=session.admit_core(state.source,state.nets,core)
+        a['partial_routing'].update(nets=sorted(kept),features=[f.model_dump(mode='json') for o in kept.values() for f in o['route']],
+            local_admission={n:session.local_records[n] for n in core})
+        a['route_features']=a['partial_routing']['features']
+        a['compatible']=len(kept)==len(state.nets)
+        a['unresolved_nets']=sorted(set(state.nets)-set(kept))
+        session.solver.update(a,state=state);record_state(row,state.source)
+
+
 def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=None,cancelled=lambda:False,
              initial=None,evidence_dir=None,seed_layouts=()):
     from ..engineering_db import thread_definitions_for_design,modifier_definitions_for_design,tool_definitions
@@ -98,6 +130,10 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
     resources=RefinementSchedule(exact_limit,len(original.nets),layout_limit)
     inspected=set();routing_rejections=[];hypotheses={};family_counts={};schedule=itertools.cycle(('size','face','group','individual','feedback'))
     route_session=Session();route_session.solver.domain=domain.diagnostics()
+    # Cheap layout sampling cannot consume local CAD. Half of the unchanged
+    # admission budget serves selected deep cores; the rest serves the final
+    # best partial core, including geometry discovered late in the run.
+    route_session.local_allocation=0
     assessments={};feedback_streak=0;frame_pages={};record_indices={};coupled_evaluations={}
     frame_schedule=itertools.cycle(('feedback','initial','feedback','explore'))
     feedback_schedule=itertools.cycle(('feedback-coupled','feedback-size','feedback-face','feedback-group','feedback-position'))
@@ -268,12 +304,19 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
     # React after a small layout batch, not after sixteen unrelated layouts.
     # This does not increase layouts, transforms, labels or Exact attempts.
     rounds=max(1,(layout_limit+3)//4)
-    for turn in range(rounds):
-        scan(max(1,layout_limit*(turn+1)//rounds))
-        if not exact_limit or len(attempts)>=exact_limit:continue
+    # Once layout sampling finishes, use the SAME remaining resource ledger.
+    # Net count is not a bound on conditional branch depth or batch count.
+    # Every refinement must charge real states/work; no allocation => stop.
+    for turn in itertools.count():
+        scan(min(layout_limit,max(1,layout_limit*(turn+1)//rounds)))
+        if not exact_limit or len(attempts)>=exact_limit:
+            if turn>=rounds-1:break
+            continue
         complete=[r for r in records if r['index'] not in inspected and r['assessment'].get('compatible')]
-        choice=None if complete else resources.select(records,counters['layouts'],final=turn==rounds-1)
-        if not complete and choice is None:continue
+        choice=None if complete else resources.select(records,counters['layouts'],final=turn>=rounds-1)
+        if not complete and choice is None:
+            if turn>=rounds-1:break
+            continue
         chosen=min(complete,key=analytic_rank) if complete else choice[0]
         target=Design.model_validate(chosen['design'])
         if not chosen['assessment'].get('compatible'):
@@ -284,9 +327,13 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
             lanes={n.id:sum(points[m][1] for m in n.members)/len(n.members) for n in target.nets if len(n.members)>=2}
             planes={n.id:sum(points[m][2] for m in n.members)/len(n.members) for n in target.nets if len(n.members)>=2}
             refinement_started=time.monotonic()
+            admission_used=route_session.local_admission.used if route_session.local_admission else 0
+            admission_limit=max(8,2*len(target.nets))
+            route_session.local_allocation=min(2,max(0,admission_limit//2-admission_used))
             chosen['assessment']=screen(target,definitions,threads,modifiers,tools,lanes,planes,
                 lambda stage,**d:emit(stage,**d),include_routes=True,corridor_labels=limits['labels'],general_families=True,
                 route_session=route_session,deep_limits=limits)
+            route_session.local_allocation=0
             chosen['assessment']['routing_refinement']='SHARED_3D_PLANNER_BOUNDED_BEFORE_NEXT_LAYOUT_REVISION'
             chosen['refinement_seconds']=time.monotonic()-refinement_started
             record_state(chosen,target)
@@ -296,7 +343,8 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
             chosen['search_decision']=dict(action='EXACT' if chosen['assessment'].get('compatible') else 'REVISE_GEOMETRY',
                 compatible_before=previous_coverage,compatible_after=len(chosen['joint_state']['compatible_nets']),
                 reason=('Compatible coverage improved' if len(chosen['joint_state']['compatible_nets'])>previous_coverage else
-                    'Actual insertion conflicts decreased') if improved else 'No compatible coverage or insertion constraint improvement',
+                    'Actual insertion conflicts decreased' if tuple(chosen['joint_state']['repair_burden'])<before[1] else
+                    'New conditional branches or completed repair arrangements') if improved else 'No compatible coverage or insertion constraint improvement',
                 repair_burden_before=list(before[1]),repair_burden_after=chosen['joint_state']['repair_burden'],
                 repeat_same_geometry=bool(chosen.get('deep_history')))
             chosen.setdefault('deep_history',[]).append(dict(**chosen['search_decision'],limits=limits,
@@ -349,6 +397,10 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
         records=[dict(index=0,family='initial-scaffold',design=original.model_dump(),assessment=dict(status='SOURCE_LAYOUT_REJECTED',compatible=False,
             score=(1,),feasibility_score=(1,),blocked_nets=[],conflicts=[['source_envelope']],route_features=[]))]
         record_state(records[0],original)
+    # Spend the reserved LOCAL admission on the best actual partial geometry,
+    # not on an early diagnostic assignment. Full acceptance remains separate.
+    if not any(a['status']=='EXACT_FEASIBLE' for a in attempts):
+        admit_final_cores(records,route_session,record_state,emit)
     full=[a for a in attempts if a.get('validation')]
     accepted=[a for a in full if a['status']=='EXACT_FEASIBLE']
     if full:
@@ -389,10 +441,14 @@ def optimize(design,definitions,domain,*,layout_limit=48,exact_limit=2,progress=
     result['joint_solver_summary']=dict(geometry_states=len(route_session.solver.states),
         conditional_constraints=sum(len(s.constraints) for s in route_session.solver.states.values()),
         repair_transactions=sum(len(s.transactions) for s in route_session.solver.states.values()),
+        completed_transactions=sum(len(t.completed) for s in route_session.solver.states.values() for t in s.transactions.values()),
+        delivered_transaction_results=sum(len(t.delivered) for s in route_session.solver.states.values() for t in s.transactions.values()),
+        conditional_fragment_probes=sum(t.probes for s in route_session.solver.states.values() for t in s.transactions.values()),
         continuation_states=len(route_session.search_context.searches),
         newly_expanded_labels=sum(s.budget['used'] for s in route_session.search_context.searches.values()),
         source_layout_status=selected['joint_state']['source_layout_status'],
         routing_status='FULL_EXACT_ACCEPTED' if accepted else selected['joint_state']['routing_status'])
+    result['local_admission_summary']=route_session.local_admission.diagnostics() if route_session.local_admission else None
     result['hard_constraint_conflicts']=constraint_conflicts(original,definitions,domain,threads,modifiers)
     result['outcome_classification']='EXACT_FEASIBLE' if accepted else 'PROVEN_HARD_CONSTRAINT_CONFLICT' if result['hard_constraint_conflicts'] else 'UNRESOLVED_SEARCH_OR_ENGINEERING'
     if evidence_dir:atomic_json(Path(evidence_dir)/'layout-search.json',result)

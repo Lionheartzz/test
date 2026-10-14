@@ -18,6 +18,7 @@ class LocalAdmission:
     def __init__(self,limit):
         self.limit=limit;self.used=0;self.records={};self.snapshots={};self.cache_hits=0;self.events=[]
         self.intrinsic_rejections={};self.source_dependency=None
+        self.allocation=None
 
     def bind(self,source,nets,catalogs):
         if not nets:self.source_dependency=None;return
@@ -29,6 +30,8 @@ class LocalAdmission:
         # Only a source/own-fluid proof is transferable to a smaller partial
         # core. Cross-Net obstruction failures remain conditional on retained
         # cuts and cannot become unconditional candidate exclusions.
+        # CAD errors stay unavailable for admission until changed dependencies
+        # or an explicit fresh retry; they are never geometric nogoods.
         return all((self.source_dependency,n,network_key(o['route'])) not in self.intrinsic_rejections
                    for n,o in core.items())
 
@@ -55,8 +58,9 @@ class LocalAdmission:
                 reuse_basis=certificate['basis'],basis_dependency=certificate['dependency'])
             self.records[key]=deepcopy(inherited);self.cache_hits+=1
             return inherited
-        if self.used>=self.limit:
-            return dict(record,pending_reason='LOCAL_ADMISSION_BUDGET',retry_conditions=['Local evaluation allocation available'])
+        if self.used>=self.limit or self.allocation==0:
+            return dict(record,pending_reason='LOCAL_ADMISSION_RESERVED' if self.allocation==0 and self.used<self.limit else 'LOCAL_ADMISSION_BUDGET',
+                        retry_conditions=['Local evaluation allocation available'])
         context=source.model_copy(update=dict(features=[*source.features,*retained,*option['route']]))
         core_key=hashlib.sha256((key+str(retry)).encode()).hexdigest()
         # Each complete dependency set owns its source/contact/error cache.
@@ -64,6 +68,7 @@ class LocalAdmission:
         if retry:snapshot=_ProposalSnapshot(context,definitions,threads,modifiers);self.snapshots[core_key]=snapshot
         trial=deepcopy(option);trial.pop('cad_geometry_error',None)
         self.used+=1;error=None
+        if self.allocation is not None:self.allocation-=1
         try:
             admitted=_verify_route_candidate(context,net,trial,snapshot,prune=False)
             error=trial.get('cad_geometry_error')
@@ -108,4 +113,5 @@ class LocalAdmission:
 
     def diagnostics(self):
         return dict(used=self.used,limit=self.limit,cache_hits=self.cache_hits,events=self.events,
+                    allocation_remaining=self.allocation,
                     final_design_validated=False)

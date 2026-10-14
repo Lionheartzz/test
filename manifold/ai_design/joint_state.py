@@ -50,6 +50,8 @@ def capture(design, assessment, definitions):
         repair_transactions=transactions,continuation=solver.get('continuation',[]),
         exploration=dict(alternate_source_entries=len(assessment.get('spatial_feedback',[])),
             pending_joint_branches=sum(t['pending_jobs'] for t in transactions),
+            deferred_pair_candidates=sum(t.get('deferred_pair_candidates',0) for t in transactions),
+            completed_transactions=sum(t['completed'] for t in transactions),
             new_conditional_depth=max((len(p['new_routes']) for t in transactions for p in t['pending']),default=0)),
         placements=[dict(id=f.id,face=f.face,u=f.u,v=f.v,rotation=f.rotation) for f in design.features],
         compatible_nets=sorted(covered),unresolved_nets=missing,route_dependencies=dependencies,

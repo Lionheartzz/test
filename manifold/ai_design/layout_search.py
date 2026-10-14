@@ -254,7 +254,7 @@ def screen(design, definitions, threads, modifiers, tools, lanes, junction_z, pr
         pools={n:c.active(width=len(c.clear)) for n,c in route_session.catalogs.items()}
         work=dict(states=0,limit=deep_limits['states'] if deep_limits else 1000)
         partial,joint=coordinate(route_session,source,nets,pools,pair,preserved,work,labels=corridor_labels,
-                                 fragments=bool(corridor_labels),limits=deep_limits)
+                                 fragments=bool(corridor_labels or deep_limits),limits=deep_limits,progress=progress)
         partial=route_session.admit_core(source,nets,partial)
         joint['local_admission']=route_session.local_admission.diagnostics()
         joint['local_core_records']=route_session.local_records

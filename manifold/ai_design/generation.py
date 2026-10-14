@@ -338,6 +338,7 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
         if cancelled():raise CalculationError('Draft creation cancelled; analysis retained.',409)
         if not progress:return
         labels=dict(access='Checking candidate machining access',conflicts='Screening competing hydraulic circuits',
+                    joint_repair='Continuing joint machining branches',local_admission='Checking retained route connectivity',
                     layout_alternate='Revising component positions and block size',exact_layout='Checking exact layout and hydraulic routing')
         layout,limit=detail['layout'],detail['layout_limit']
         fraction=min(1,detail.get('completed',0)/max(1,detail.get('total',1)))
@@ -345,7 +346,9 @@ def _plan_generated_layout(design,definitions,settings,inputs,feature_map,*,fixe
         progress_high=max(progress_high,min(85,5+75*(layout-1+fraction)/limit))
         progress(dict(message=labels[stage],progress=dict(stage=stage,stage_text=labels[stage],
             percent=progress_high,layout=layout,layout_limit=limit,candidate=detail.get('candidate'),candidate_limit=detail.get('candidate_limit'),
-            detail=('Net '+detail['net']) if detail.get('net') else (detail.get('exact_progress') or {}).get('stage_text','Comparing source-constrained layouts'))))
+            detail=('Net '+detail['net']) if detail.get('net') else
+                ('Conditional routes '+str(detail['conditional_depth'])+' / labels '+str(detail['labels'])+' / probes '+str(detail['probes']))
+                if stage=='joint_repair' else (detail.get('exact_progress') or {}).get('stage_text','Comparing source-constrained layouts'))))
     try:
         from .initialization import linked_source_seed
         seed=linked_source_seed(design,inputs.project_engineering)

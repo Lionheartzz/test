@@ -250,7 +250,7 @@ def corridor_alternatives(source,net,bases,reserved,definitions,threads,modifier
         queues=active
 
 
-def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=True,limits=None):
+def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=True,limits=None,progress=None):
     """Preserve a compatible core; repair missing Nets, then their blockers."""
     session.solver.bind(source,nets,session.catalogs)
     if session.local_admission:session.local_admission.bind(source,nets,session.catalogs)
@@ -319,7 +319,7 @@ def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=Tru
     # Expanding every old core's independent fragment iterators beforehand
     # spent pair resources and costly cut evaluations before the transaction
     # ever ran. Those iterators/cores remain deferred, not discarded.
-    fragment_limit=0 if labels else sample_limit
+    fragment_limit=0 if limits or labels else sample_limit
     if limits:session.remaining=max(session.remaining,sample_limit)
     probes=0;duplicates=0;checkpoints={};probe_limit=limits['probes'] if limits else max(1,session.remaining)*4
     while pending and session.remaining and samples<fragment_limit and work['states']<overall//2 and len(best)<len(nets) and probes<probe_limit:
@@ -370,7 +370,7 @@ def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=Tru
             best=trial;pending.extend(jobs(best))
         if labels and work['states']>=overall*3//4:break
     searches=[];used_labels=0
-    if labels and len(best)<len(nets) and work['states']<overall:
+    if (labels or limits) and len(best)<len(nets) and work['states']<overall:
         from .joint_solver import RepairTransaction,assignment_key
         state=session.solver.current
         missing=sorted(set(nets)-set(best));releases=set()
@@ -393,32 +393,57 @@ def coordinate(session,source,nets,pools,pair,seed,work,*,labels=0,fragments=Tru
             outside={n:o for n,o in best.items() if n not in group}
             token=(tuple(group),assignment_key(outside))
             state.transactions.setdefault(token,RepairTransaction(state,group,outside))
-        transactions=deque(t for t in state.transactions.values() if t.queue)
-        # Round-robin transactions; each retains its own conditional tree and
-        # each shared single-Net heap survives the allocation boundary.
-        while transactions and used_labels<labels and samples<sample_limit and work['states']<overall and len(best)<len(nets):
-            transaction=transactions.popleft()
+        transactions=[t for t in state.transactions.values() if t.queue]
+        idle=set();event_offsets={id(t):len(t.events) for t in transactions}
+        # Productive deeper branches take precedence over cold release groups.
+        # No label resource is needed for buffered cuts or deferred pair checks.
+        while transactions and work['states']<overall and len(best)<len(nets):
+            runnable=[t for t in transactions if id(t) not in idle]
+            if not runnable:break
+            transaction=min(runnable,key=lambda t:t.priority())
             complete,spent,details=transaction.advance(session,pair,labels=min(128,labels-used_labels),
-                samples=sample_limit-samples,states=overall-work['states'])
+                samples=sample_limit-samples,states=overall-work['states'],probes=probe_limit-probes,progress=progress)
             used_labels+=spent['labels'];samples+=spent['samples'];work['states']+=spent['states']
+            probes+=spent['probes']
             session.remaining=max(0,session.remaining-spent['samples']);searches.extend(details)
-            if transaction.queue:transactions.append(transaction)
             for trial in complete:
                 # Every member, including every newly regenerated member and
                 # all outside reservations, was screened in the same branch.
                 state.retain(trial);session.seed_combination(source,trial)
+                # Completing a release group is NOT completion of the Design.
+                # Immediately attach every missing Net to this actual new
+                # arrangement. Merely putting it back in the single-Net pool
+                # let the old small transaction consume all remaining work.
+                for missing_name in sorted(set(nets)-set(trial)):
+                    group=transaction.group|{missing_name}
+                    outside={n:o for n,o in trial.items() if n not in group}
+                    token=(tuple(sorted(group)),assignment_key(outside))
+                    child=state.transactions.get(token)
+                    if child is None:
+                        child=RepairTransaction(state,group,outside);state.transactions[token]=child
+                    event_offsets.setdefault(id(child),len(child.events))
+                    parent={n:trial[n] for n in transaction.group}
+                    before_states=len(child.visited)
+                    child.enqueue(parent,tuple(sorted(parent)))
+                    if len(child.visited)>before_states:
+                        idle.discard(id(child))
+                        events.append(dict(action='CONTINUE_COMPLETED_PARTIAL',completed_group=sorted(transaction.group),
+                            next_net=missing_name,released=sorted(group),parent={n:o['key'] for n,o in parent.items()},
+                            reserved_nets=sorted(outside),status='ANALYTIC_REQUIRES_EXACT'))
+                    if not any(t is child for t in transactions):transactions.append(child)
                 if len(trial)>len(best):
                     events.append(dict(action='EXTEND_WITH_JOINT_3D',before=len(best),after=len(trial),
                         released=sorted(transaction.group),regenerated=sorted(transaction.group),nets=sorted(trial)))
                     best=trial
-            if not any(spent.values()):break
+            if not any(spent.values()) or details and details[-1].get('pair_budget_pending'):
+                idle.add(id(transaction))
         for name,catalog in session.catalogs.items():pools[name]=catalog.active(width=len(catalog.clear))
         if work['states']<overall and len(best)<len(nets):
             trial,moves,failed=improve(source,nets,pools,pair,best,work,eligible=session.permits_core,retain=retain)
             trial=session.admit_core(source,nets,trial)
             events.extend(moves);conflicts.extend(failed)
             if len(trial)>len(best):best=trial
-        events.extend(e for t in state.transactions.values() for e in t.events)
+        events.extend(e for t in transactions for e in t.events[event_offsets[id(t)]:])
     if session.solver.current:
         for core in core_states.values():session.solver.current.retain(core)
         session.solver.current.retain(best)

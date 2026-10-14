@@ -37,15 +37,19 @@ class RefinementSchedule:
         # geometry, independently of how promising the first layout looks.
         ceiling={k:v if final else v-self.quantum[k] if late else v//2 for k,v in self.total.items()}
         available={k:min(remaining[k],max(0,ceiling[k]-self.used[k])) for k in remaining}
-        if not available['states'] or not available['probes'] or not available['labels']:
+        if not available['states'] or not (available['labels'] and available['samples'] or
+                available['probes'] and available['samples'] or available['pairs']):
             self.events.append(dict(stage='LAYOUT',evaluated=evaluated,reason='FINAL_RESERVE' if late and not final else 'LATE_RESERVE' if not late else 'DEEP_RESOURCE_BOUND',remaining=remaining))
             return None
         eligible=[]
         for row in rows:
             a=row['assessment'];s=row['joint_state'];h=self.history.get(row['index'],{})
             if a['status']=='SOURCE_LAYOUT_REJECTED' or a.get('compatible') or s['exact_failures']:continue
+            if h.get('idle'):continue
             opportunity=s.get('exploration',{})
             continuing=bool(opportunity.get('pending_joint_branches'))
+            deferred_pairs=opportunity.get('deferred_pair_candidates',0)
+            if not (available['labels'] and available['samples'] or available['probes'] and available['samples'] or deferred_pairs and available['pairs']):continue
             if h.get('stalled',0) and not final and not continuing:continue
             coverage=len(s['compatible_nets']);burden=tuple(s.get('repair_burden',(0,0)))
             novel=self._novel(row)
@@ -56,7 +60,8 @@ class RefinementSchedule:
             # Fair access to distinct future space precedes current coverage.
             # A temporary retreat gets a deep turn; it is never deleted as
             # dominated by a geometrically different 6/8 incumbent.
-            eligible.append(((h.get('calls',0),not novel,-opportunity.get('new_conditional_depth',0),
+            productive=continuing and opportunity.get('new_conditional_depth',0)>0 and not h.get('stalled')
+            eligible.append(((not productive,h.get('calls',0),not novel,-opportunity.get('new_conditional_depth',0),
                               -coverage,burden,h.get('stalled',0),row['index']),row))
         if not eligible:return None
         _,chosen=min(eligible,key=lambda r:r[0])
@@ -72,9 +77,12 @@ class RefinementSchedule:
         if any(spent[k]>limits[k] for k in spent):raise RuntimeError('AI deep-routing resource accounting exceeded its allocation')
         for key,value in spent.items():self.used[key]+=value
         coverage=len(row['joint_state']['compatible_nets']);burden=tuple(row['joint_state'].get('repair_burden',(0,0)))
-        gain=coverage>before[0] or coverage==before[0] and burden<before[1]
+        opportunity=row['joint_state'].get('exploration',{})
+        progress=(opportunity.get('completed_transactions',0),opportunity.get('new_conditional_depth',0))
         h=self.history.setdefault(row['index'],dict(calls=0,stalled=0))
-        h.update(calls=h['calls']+1,coverage=coverage,burden=burden,stalled=0 if gain else h['stalled']+1)
+        gain=coverage>before[0] or coverage==before[0] and burden<before[1] or progress>h.get('progress',(0,0))
+        h.update(calls=h['calls']+1,coverage=coverage,burden=burden,progress=progress,stalled=0 if gain else h['stalled']+1,
+                 idle=not any(spent.values()))
         self.structures.append((self._structure(row['joint_state']),row['joint_state']['dimensions']))
         self.events.append(dict(stage='DEEP_RESULT',layout_index=row['index'],coverage=coverage,gain=gain,spent=spent,
             generator_checkpoints=j.get('generator_checkpoints',{}),remaining=self.remaining()))

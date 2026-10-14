@@ -159,13 +159,17 @@ class Session:
         from ..routing_continuation import AISearchContext
         self.search_context=AISearchContext()
         self.local_admission=None;self.local_records={};self.local_source_dependency=None
+        self.local_allocation=None
         from .joint_solver import JointSolver
         self.solver=JointSolver(self)
 
     def admit_core(self,source,nets,core):
         from .local_admission import LocalAdmission
         if self.local_admission is None:self.local_admission=LocalAdmission(max(8,2*len(nets)))
+        self.local_admission.allocation=self.local_allocation
+        before=self.local_admission.used
         kept,records=self.local_admission.core(source,nets,core,self.catalogs)
+        if self.local_allocation is not None:self.local_allocation-=self.local_admission.used-before
         if self.local_source_dependency!=self.local_admission.source_dependency:self.local_records={}
         self.local_source_dependency=self.local_admission.source_dependency
         self.local_records.update(records)
